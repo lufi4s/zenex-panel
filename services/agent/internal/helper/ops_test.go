@@ -112,17 +112,23 @@ func TestPoolConfigIsolatesSite(t *testing.T) {
 	}
 }
 
-func TestVhostBlocksPHPInUploads(t *testing.T) {
-	cfg := vhostConfig("zx_shop", "shop.example.com", "/var/www/zx_shop/htdocs", "/var/log/nginx")
-	if !strings.Contains(cfg, `location ~* /wp-content/uploads/.*\.php$`) {
-		t.Fatal("upload PHP block missing")
+func TestVhostBlocksPHPInUploadsAndDotfiles(t *testing.T) {
+	cfg := vhostConfig("zx_shop", "shop.example.com", "/var/www/zx_shop/htdocs", "/var/log/caddy")
+	for _, want := range []string{
+		"shop.example.com {",
+		"root * /var/www/zx_shop/htdocs",
+		"@uploads_php path_regexp uploads (?i)/wp-content/uploads/.*\\.php$",
+		"@dotfiles path_regexp dotfiles (^|/)\\.",
+		"php_fastcgi unix//run/php/zx-zx_shop.sock",
+		"output file /var/log/caddy/zx-zx_shop.log",
+	} {
+		if !strings.Contains(cfg, want) {
+			t.Errorf("site config missing %q", want)
+		}
 	}
-	if !strings.Contains(cfg, "server_name shop.example.com;") {
-		t.Fatal("server_name missing")
-	}
-	// The PHP snippet already sets try_files; a second one makes nginx refuse the config.
-	if n := strings.Count(cfg, "try_files"); n != 1 {
-		t.Fatalf("expected exactly one try_files directive in a location, got %d", n)
+	// The upload block must come before the PHP handler, or the rule is ignored.
+	if strings.Index(cfg, "@uploads_php") > strings.Index(cfg, "php_fastcgi") {
+		t.Fatal("upload PHP block must be declared before the PHP handler")
 	}
 }
 

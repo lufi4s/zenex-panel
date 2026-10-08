@@ -122,7 +122,7 @@ func contains(list []string, want string) bool {
 var testKey = []byte("0123456789abcdef0123456789abcdef")
 
 func TestRunSucceedsInOrder(t *testing.T) {
-	// nginx stand-in: answers 200 for the site's domain.
+	// web server stand-in: answers 200 for the site's domain.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Host != "shop.example.com" {
 			w.WriteHeader(http.StatusNotFound)
@@ -216,7 +216,7 @@ func TestPasswordsAreStableAndSiteSpecific(t *testing.T) {
 	}
 }
 
-// siteServer answers 200 for shop.example.com, standing in for nginx.
+// siteServer answers 200 for shop.example.com, standing in for the web server.
 func siteServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

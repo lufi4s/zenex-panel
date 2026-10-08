@@ -18,8 +18,8 @@ import (
 	"time"
 
 	"github.com/zenexcloud/zenex-panel/packages/validation"
+	"github.com/zenexcloud/zenex-panel/services/agent/internal/caddy"
 	"github.com/zenexcloud/zenex-panel/services/agent/internal/executor"
-	"github.com/zenexcloud/zenex-panel/services/agent/internal/nginx"
 )
 
 // Binary locations. Each one must be on the executor allowlist.
@@ -44,9 +44,9 @@ var (
 type Paths struct {
 	WebRoot        string // /var/www
 	PHPPoolDir     string // /etc/php/%s/fpm/pool.d  (formatted with version)
-	NginxAvailable string // /etc/nginx/sites-available
-	NginxEnabled   string // /etc/nginx/sites-enabled
-	LogDir         string // /var/log/nginx
+	CaddyAvailable string // /etc/caddy/zenex-available
+	CaddyEnabled   string // /etc/caddy/zenex
+	LogDir         string // /var/log/caddy
 	PHPFPMGlob     string // PHP-FPM binaries installed on the server
 }
 
@@ -54,9 +54,9 @@ func DefaultPaths() Paths {
 	return Paths{
 		WebRoot:        "/var/www",
 		PHPPoolDir:     "/etc/php/%s/fpm/pool.d",
-		NginxAvailable: "/etc/nginx/sites-available",
-		NginxEnabled:   "/etc/nginx/sites-enabled",
-		LogDir:         "/var/log/nginx",
+		CaddyAvailable: "/etc/caddy/zenex-available",
+		CaddyEnabled:   "/etc/caddy/zenex",
+		LogDir:         "/var/log/caddy",
 		PHPFPMGlob:     "/usr/sbin/php-fpm[0-9]*.[0-9]*",
 	}
 }
@@ -74,7 +74,7 @@ type commandRunner interface {
 }
 
 // Ops executes validated operations. All operations are serialized by one lock,
-// so two sites cannot change nginx or PHP-FPM configuration at the same time.
+// so two sites cannot change web server or PHP-FPM configuration at the same time.
 type Ops struct {
 	Exec  commandRunner
 	Paths Paths
@@ -201,7 +201,7 @@ func (o *Ops) userCreate(ctx context.Context, args map[string]string) (Result, e
 }
 
 // fsPrepare creates the home and document root. The site account owns the
-// document root; the nginx group can read it; no other account can enter it.
+// document root; the web server group can read it; no other account can enter it.
 func (o *Ops) fsPrepare(args map[string]string) error {
 	name, err := requireLinuxUser(args)
 	if err != nil {
@@ -213,7 +213,7 @@ func (o *Ops) fsPrepare(args map[string]string) error {
 	}
 	web, err := user.LookupGroup("www-data")
 	if err != nil {
-		return fmt.Errorf("nginx group www-data missing: %w", err)
+		return fmt.Errorf("web group www-data missing: %w", err)
 	}
 	uid, _ := strconv.Atoi(siteUser.Uid)
 	gid, _ := strconv.Atoi(web.Gid)
@@ -222,8 +222,8 @@ func (o *Ops) fsPrepare(args map[string]string) error {
 		return fmt.Errorf("create document root: %w", err)
 	}
 	// The home directory only has to be traversable: the site account needs to
-	// pass through it to reach htdocs, and Nginx needs the same. It holds no
-	// files itself, and htdocs is readable only by the site account and Nginx,
+	// pass through it to reach htdocs, and the web server needs the same. It holds no
+	// files itself, and htdocs is readable only by the site account and the web server,
 	// so other sites cannot read it.
 	if err := os.Chown(o.homeDir(name), 0, 0); err != nil {
 		return err
@@ -273,7 +273,7 @@ func (o *Ops) poolWrite(ctx context.Context, args map[string]string) error {
 		return err
 	}
 	dir := fmt.Sprintf(o.Paths.PHPPoolDir, ver)
-	path := filepath.Join(dir, "zx-"+name+".conf")
+	path := filepath.Join(dir, "zx-"+name+".caddy")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
@@ -302,8 +302,8 @@ func (o *Ops) vhostWrite(ctx context.Context, args map[string]string) error {
 	if err := validation.DomainName(domain); err != nil {
 		return errors.New("invalid domain")
 	}
-	avail := filepath.Join(o.Paths.NginxAvailable, "zx-"+name+".conf")
-	enabled := filepath.Join(o.Paths.NginxEnabled, "zx-"+name+".conf")
+	avail := filepath.Join(o.Paths.CaddyAvailable, "zx-"+name+".caddy")
+	enabled := filepath.Join(o.Paths.CaddyEnabled, "zx-"+name+".caddy")
 
 	if err := writeFileAtomic(avail, []byte(vhostConfig(name, domain, o.docRoot(name), o.Paths.LogDir)), 0o644); err != nil {
 		return fmt.Errorf("write site config: %w", err)
@@ -313,11 +313,11 @@ func (o *Ops) vhostWrite(ctx context.Context, args map[string]string) error {
 		_ = os.Remove(avail)
 		return fmt.Errorf("enable site config: %w", err)
 	}
-	// nginx.Reload tests the configuration first and never reloads a bad one.
-	if err := nginx.Reload(ctx, o.Exec); err != nil {
+	// caddy.Reload validates the configuration first and never reloads a bad one.
+	if err := caddy.Reload(ctx, o.Exec); err != nil {
 		_ = os.Remove(enabled)
 		_ = os.Remove(avail)
-		return fmt.Errorf("nginx rejected the site configuration; site not enabled: %w", err)
+		return fmt.Errorf("web server rejected the site configuration; site not enabled: %w", err)
 	}
 	return nil
 }
@@ -410,7 +410,7 @@ func (o *Ops) wpInstalled(ctx context.Context, linuxUser string) (bool, error) {
 }
 
 // wpHarden disables theme and plugin editing from the dashboard and makes the
-// configuration file readable only by the site account and nginx.
+// configuration file readable only by the site account and the web server.
 func (o *Ops) wpHarden(ctx context.Context, args map[string]string) error {
 	name, err := requireLinuxUser(args)
 	if err != nil {
@@ -464,34 +464,33 @@ php_admin_value[session.save_path] = /tmp
 
 func vhostConfig(name, domain, docRoot, logDir string) string {
 	return fmt.Sprintf(`# Managed by Zenex. Do not edit by hand.
-server {
-    listen 80;
-    listen [::]:80;
-    server_name %[2]s;
-    root %[3]s;
-    index index.php index.html;
+%[2]s {
+    root * %[3]s
+    encode zstd gzip
 
-    access_log %[4]s/zx-%[1]s.access.log;
-    error_log %[4]s/zx-%[1]s.error.log;
-    client_max_body_size 64m;
-
-    location / {
-        try_files $uri $uri/ /index.php?$args;
-    }
-
-    # The included PHP snippet performs the file existence check.
-    location ~ \.php$ {
-        include snippets/fastcgi-php.conf;
-        fastcgi_pass unix:/run/php/zx-%[1]s.sock;
+    log {
+        output file %[4]s/zx-%[1]s.log {
+            roll_size 10mb
+            roll_keep 3
+        }
+        format console
     }
 
     # PHP must never run from uploads, even if a file is planted there.
-    location ~* /wp-content/uploads/.*\.php$ {
-        deny all;
+    @uploads_php path_regexp uploads (?i)/wp-content/uploads/.*\.php$
+    handle @uploads_php {
+        respond 403
     }
 
-    location ~ /\. {
-        deny all;
+    # Hidden files such as .htaccess or .env are never served.
+    @dotfiles path_regexp dotfiles (^|/)\.
+    handle @dotfiles {
+        respond 403
+    }
+
+    handle {
+        php_fastcgi unix//run/php/zx-%[1]s.sock
+        file_server
     }
 }
 `, name, domain, docRoot, logDir)
@@ -545,6 +544,6 @@ func trim(s string) string {
 // set of PHP-FPM binaries installed on the server, discovered at startup.
 func AllowedBinaries(phpFPM []string) []string {
 	base := []string{binUseradd, binUserdel, binRunuser, binEnv, binMariadb, binSystemctl, binWP}
-	base = append(base, nginx.AllowedBinaries...)
+	base = append(base, caddy.AllowedBinaries...)
 	return append(base, phpFPM...)
 }

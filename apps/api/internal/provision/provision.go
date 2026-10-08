@@ -36,7 +36,7 @@ var stepNames = []string{
 	"create_wp_config",
 	"install_wordpress",
 	"harden_wordpress",
-	"nginx_site",
+	"web_site",
 	"health_check",
 }
 
@@ -68,7 +68,7 @@ type Provisioner struct {
 	Store     Store
 	Helper    Helper
 	SecretKey []byte
-	// HealthBase is where the health check reaches nginx. Default http://127.0.0.1.
+	// HealthBase is where the health check reaches the web server. Default http://127.0.0.1.
 	HealthBase string
 	Log        *slog.Logger
 	HTTP       *http.Client
@@ -121,7 +121,7 @@ var stepFuncs = map[string]stepFunc{
 	"create_wp_config":   stepCreateWPConfig,
 	"install_wordpress":  stepInstallWordPress,
 	"harden_wordpress":   stepHardenWordPress,
-	"nginx_site":         stepNginxSite,
+	"web_site":           stepWebSite,
 	"health_check":       stepHealthCheck,
 }
 
@@ -296,14 +296,14 @@ func stepHardenWordPress(ctx context.Context, p *Provisioner, r *run) error {
 	return err
 }
 
-func stepNginxSite(ctx context.Context, p *Provisioner, r *run) error {
+func stepWebSite(ctx context.Context, p *Provisioner, r *run) error {
 	_, err := p.Helper.Do(ctx, "vhost.write", map[string]string{
 		"user": r.site.LinuxUser, "domain": r.site.Domain,
 	})
 	return err
 }
 
-// stepHealthCheck asks nginx for the site using its domain name, so it works
+// stepHealthCheck asks the web server for the site using its domain name, so it works
 // before DNS points at this server.
 func stepHealthCheck(ctx context.Context, p *Provisioner, r *run) error {
 	var last error

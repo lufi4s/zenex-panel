@@ -128,7 +128,7 @@ func (m *Manager) Logs(ctx context.Context, site store.Site) (string, error) {
 }
 
 // Delete permanently removes a website: its files, database, database user,
-// nginx and PHP configuration, and system account. It runs in the background as a
+// web server and PHP configuration, and system account. It runs in the background as a
 // tracked job and returns the job ID. A failed deletion can be retried.
 func (m *Manager) Delete(ctx context.Context, site store.Site, actorID string) (string, error) {
 	switch site.State {

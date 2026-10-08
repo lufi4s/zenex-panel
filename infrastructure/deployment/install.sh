@@ -200,13 +200,12 @@ install_packages() {
         ca-certificates curl git openssl \
         golang-go \
         postgresql \
-        nginx \
         php-cli php-fpm php-mysql php-curl php-gd php-mbstring php-xml php-zip php-intl php-redis \
         mariadb-server \
         redis-server \
         ufw \
         fail2ban \
-        certbot python3-certbot-nginx
+        caddy
     info "all system software installed"
 }
 
@@ -559,35 +558,48 @@ configure_firewall() {
     info "firewall on (SSH ${ssh_port}, web 80/443, panel ${PANEL_PORT})"
 }
 
-# Replaces Ubuntu's welcome page with a plain 404 for unknown addresses, so a
-# suspended or deleted website never shows the server's default page.
-configure_nginx_default() {
-    cat > /etc/nginx/sites-available/zenex-default <<'EOF'
-# Managed by Zenex. Answers any address that has no website.
-server {
-    listen 80 default_server;
-    listen [::]:80 default_server;
-    server_name _;
-    access_log off;
-    return 404;
+# Caddy serves every website. It obtains and renews HTTPS certificates by itself.
+# Sites are imported from /etc/caddy/zenex; unknown addresses get a plain 404.
+configure_web_server() {
+    systemctl disable --now nginx >/dev/null 2>&1 || true
+    DEBIAN_FRONTEND=noninteractive apt-get purge -y -qq nginx nginx-common nginx-core >/dev/null 2>&1 || true
+
+    install -d -m 0755 -o root -g root /etc/caddy/zenex
+    install -d -m 0755 -o root -g root /etc/caddy/zenex-available
+    install -d -m 0755 -o caddy -g caddy /var/log/caddy
+    usermod -aG www-data caddy
+
+    printf '%s\n' '# Site files are added and removed by the Zenex helper.' \
+        > /etc/caddy/zenex/_placeholder.caddy
+    cat > /etc/caddy/Caddyfile <<'CADDY'
+# Managed by Zenex. Sites are imported from /etc/caddy/zenex.
+{
+	admin localhost:2019
 }
-EOF
-    rm -f /etc/nginx/sites-enabled/default
-    ln -sfn /etc/nginx/sites-available/zenex-default /etc/nginx/sites-enabled/zenex-default
-    if nginx -t >/dev/null 2>&1; then
-        systemctl reload nginx
+
+import /etc/caddy/zenex/*.caddy
+
+:80 {
+	respond 404
+}
+CADDY
+
+    if ! caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1; then
+        fail "the web server configuration is invalid. Run: caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile"
     fi
+    systemctl enable caddy >/dev/null 2>&1 || true
+    systemctl restart caddy
 }
 
 start_base_services() {
     local svc
     PHP_VER="$(php -r 'echo PHP_MAJOR_VERSION, ".", PHP_MINOR_VERSION;')"
-    for svc in postgresql nginx mariadb redis-server fail2ban "php${PHP_VER}-fpm"; do
+    for svc in postgresql mariadb redis-server fail2ban "php${PHP_VER}-fpm"; do
         if ! retry 3 5 systemctl enable --now "$svc"; then
             fail "could not start $svc. Run: systemctl status $svc"
         fi
     done
-    configure_nginx_default
+    configure_web_server
     info "web, database and cache services running"
 }
 
@@ -729,8 +741,8 @@ final_checks() {
     check_item "panel program is running" systemctl is-active --quiet zenex-api || failed=1
     check_item "panel answers and database is connected" panel_healthy || failed=1
     check_item "database server (PostgreSQL) is running" systemctl is-active --quiet postgresql || failed=1
-    check_item "web server (nginx) is running" systemctl is-active --quiet nginx || failed=1
-    check_item "web server configuration is valid" nginx -t || failed=1
+    check_item "web server (Caddy) is running" systemctl is-active --quiet caddy || failed=1
+    check_item "web server configuration is valid" caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile || failed=1
     check_item "database for sites (MariaDB) is running" systemctl is-active --quiet mariadb || failed=1
     check_item "cache (Redis) is running" systemctl is-active --quiet redis-server || failed=1
     check_item "firewall is on" bash -c 'ufw status | grep -q "Status: active"' || failed=1

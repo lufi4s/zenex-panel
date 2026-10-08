@@ -17,7 +17,7 @@ func TestLogsTailReturnsLastLines(t *testing.T) {
 		b.WriteString("\n")
 	}
 	b.WriteString("final error line\n")
-	if err := os.WriteFile(filepath.Join(dir, "zx-zx_shop.error.log"), []byte(b.String()), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "zx-zx_shop.log"), []byte(b.String()), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	o := &Ops{Paths: Paths{LogDir: dir}}

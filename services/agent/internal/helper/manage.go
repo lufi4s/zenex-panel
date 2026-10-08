@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/zenexcloud/zenex-panel/services/agent/internal/caddy"
 	"github.com/zenexcloud/zenex-panel/services/agent/internal/executor"
-	"github.com/zenexcloud/zenex-panel/services/agent/internal/nginx"
 )
 
 const (
@@ -75,7 +75,7 @@ func (o *Ops) phpSwitch(ctx context.Context, args map[string]string) error {
 
 	// Write the new pool first and prove it is valid before touching the old one.
 	newDir := fmt.Sprintf(o.Paths.PHPPoolDir, to)
-	newPath := filepath.Join(newDir, "zx-"+name+".conf")
+	newPath := filepath.Join(newDir, "zx-"+name+".caddy")
 	if err := os.MkdirAll(newDir, 0o755); err != nil {
 		return err
 	}
@@ -92,25 +92,25 @@ func (o *Ops) phpSwitch(ctx context.Context, args map[string]string) error {
 		return fmt.Errorf("reload PHP %s failed: %s", to, trim(stderrOr(res, err)))
 	}
 
-	oldPath := filepath.Join(fmt.Sprintf(o.Paths.PHPPoolDir, from), "zx-"+name+".conf")
+	oldPath := filepath.Join(fmt.Sprintf(o.Paths.PHPPoolDir, from), "zx-"+name+".caddy")
 	if err := os.Remove(oldPath); err == nil {
 		_, _ = o.Exec.Run(ctx, binSystemctl, []string{"reload", "php" + from + "-fpm"}, time.Minute)
 	}
 	return nil
 }
 
-// vhostDisable takes a site offline by removing its enabled nginx config.
+// vhostDisable takes a site offline by removing its enabled site config.
 func (o *Ops) vhostDisable(ctx context.Context, args map[string]string) error {
 	name, err := requireLinuxUser(args)
 	if err != nil {
 		return err
 	}
-	enabled := filepath.Join(o.Paths.NginxEnabled, "zx-"+name+".conf")
+	enabled := filepath.Join(o.Paths.CaddyEnabled, "zx-"+name+".caddy")
 	if err := os.Remove(enabled); err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	if err := nginx.Reload(ctx, o.Exec); err != nil {
-		return fmt.Errorf("nginx rejected the configuration after disabling the site: %w", err)
+	if err := caddy.Reload(ctx, o.Exec); err != nil {
+		return fmt.Errorf("web server rejected the configuration after disabling the site: %w", err)
 	}
 	return nil
 }
@@ -121,8 +121,8 @@ func (o *Ops) vhostEnable(ctx context.Context, args map[string]string) error {
 	if err != nil {
 		return err
 	}
-	avail := filepath.Join(o.Paths.NginxAvailable, "zx-"+name+".conf")
-	enabled := filepath.Join(o.Paths.NginxEnabled, "zx-"+name+".conf")
+	avail := filepath.Join(o.Paths.CaddyAvailable, "zx-"+name+".caddy")
+	enabled := filepath.Join(o.Paths.CaddyEnabled, "zx-"+name+".caddy")
 	if _, err := os.Stat(avail); err != nil {
 		return errors.New("the site configuration is missing; rebuild the website")
 	}
@@ -130,20 +130,20 @@ func (o *Ops) vhostEnable(ctx context.Context, args map[string]string) error {
 	if err := os.Symlink(avail, enabled); err != nil {
 		return err
 	}
-	if err := nginx.Reload(ctx, o.Exec); err != nil {
+	if err := caddy.Reload(ctx, o.Exec); err != nil {
 		_ = os.Remove(enabled)
-		return fmt.Errorf("nginx rejected the configuration; site stays offline: %w", err)
+		return fmt.Errorf("web server rejected the configuration; site stays offline: %w", err)
 	}
 	return nil
 }
 
-// logsTail returns the end of a site's nginx error log.
+// logsTail returns the end of a site's site log.
 func (o *Ops) logsTail(args map[string]string) (Result, error) {
 	name, err := requireLinuxUser(args)
 	if err != nil {
 		return Result{}, err
 	}
-	path := filepath.Join(o.Paths.LogDir, "zx-"+name+".error.log")
+	path := filepath.Join(o.Paths.LogDir, "zx-"+name+".log")
 	f, err := os.Open(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return Result{Output: "No errors recorded yet."}, nil
@@ -172,7 +172,7 @@ func (o *Ops) logsTail(args map[string]string) (Result, error) {
 	return Result{Output: strings.Join(lines, "\n")}, nil
 }
 
-// sitePurge removes everything a site owns: nginx and PHP-FPM config, the
+// sitePurge removes everything a site owns: web server and PHP-FPM config, the
 // database and its user, the files and the system account. Every step is safe to
 // repeat, so a failed purge can be retried.
 func (o *Ops) sitePurge(ctx context.Context, args map[string]string) error {
@@ -193,13 +193,13 @@ func (o *Ops) sitePurge(ctx context.Context, args map[string]string) error {
 	}
 
 	// 1. Take the site offline.
-	_ = os.Remove(filepath.Join(o.Paths.NginxEnabled, "zx-"+name+".conf"))
-	_ = os.Remove(filepath.Join(o.Paths.NginxAvailable, "zx-"+name+".conf"))
-	note("nginx", nginx.Reload(ctx, o.Exec))
+	_ = os.Remove(filepath.Join(o.Paths.CaddyEnabled, "zx-"+name+".caddy"))
+	_ = os.Remove(filepath.Join(o.Paths.CaddyAvailable, "zx-"+name+".caddy"))
+	note("web server", caddy.Reload(ctx, o.Exec))
 
 	// 2. Remove PHP-FPM pools from every version and reload what changed.
 	for _, ver := range o.phpVersions() {
-		path := filepath.Join(fmt.Sprintf(o.Paths.PHPPoolDir, ver), "zx-"+name+".conf")
+		path := filepath.Join(fmt.Sprintf(o.Paths.PHPPoolDir, ver), "zx-"+name+".caddy")
 		if err := os.Remove(path); err == nil {
 			res, err := o.Exec.Run(ctx, binSystemctl, []string{"reload", "php" + ver + "-fpm"}, time.Minute)
 			note("php "+ver, execErr(res, err))
