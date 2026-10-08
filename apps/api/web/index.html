@@ -24,113 +24,53 @@
 
   <div id="app-view" hidden>
     <header class="topbar">
-      <strong>Zenex Panel</strong>
-      <nav class="tabs" aria-label="Sections">
-        <button type="button" class="tab" data-tab="dashboard">Dashboard</button>
-        <button type="button" class="tab" data-tab="websites">Websites</button>
-      </nav>
+      <strong>Zenex</strong>
       <span class="spacer"></span>
-      <span id="who"></span>
+      <span id="who" class="muted"></span>
       <button id="logout" type="button" class="ghost">Sign out</button>
     </header>
 
-    <main class="content">
-      <section id="tab-dashboard" hidden>
-        <p id="metrics-error" class="error" role="alert"></p>
-        <div class="grid" aria-label="Host metrics">
-          <div class="tile"><span class="label">Load (1 / 5 / 15 min)</span><span class="value" id="m-load">—</span><span class="sub" id="m-cpus"></span></div>
-          <div class="tile"><span class="label">Memory</span><span class="value" id="m-mem">—</span><span class="sub" id="m-mem-pct"></span></div>
-          <div class="tile"><span class="label">Disk (/)</span><span class="value" id="m-disk">—</span><span class="sub" id="m-disk-pct"></span></div>
-          <div class="tile"><span class="label">Uptime</span><span class="value" id="m-uptime">—</span></div>
-        </div>
-        <p class="note">Values are read from this server every 5 seconds.</p>
+    <main class="page">
+      <p class="server-strip" aria-label="Server status">
+        <span id="m-load">Load —</span>
+        <span id="m-mem">Memory —</span>
+        <span id="m-disk">Disk —</span>
+        <span id="m-uptime">Uptime —</span>
+        <span id="metrics-error" class="error" role="alert"></span>
+      </p>
+
+      <section class="card">
+        <h2>Your domain</h2>
+        <ul id="domain-list" class="list"></ul>
+        <form id="domain-form" class="inline" novalidate>
+          <input name="apex" placeholder="yourdomain.com" required maxlength="253" aria-label="Domain">
+          <button type="submit">Add domain</button>
+        </form>
+        <p id="domain-error" class="error" role="alert"></p>
+        <p class="note">After adding, point a wildcard DNS record (<code>*</code>) to this server's IP. The panel checks it for you.</p>
       </section>
 
-      <section id="tab-websites" hidden>
-        <div class="two-col">
-          <div class="card panel">
-            <h2>Connected domains</h2>
-            <p class="note">Point your domain's DNS at this server's IP, or let a wildcard record handle subdomains. Then add it here.</p>
-            <ul id="domain-list" class="list"></ul>
-            <form id="domain-form" class="inline" novalidate>
-              <input name="apex" placeholder="example.com" required maxlength="253" aria-label="Domain">
-              <button type="submit">Connect domain</button>
-            </form>
-            <p id="domain-error" class="error" role="alert"></p>
-          </div>
-
-          <div class="card panel">
-            <h2>Create website</h2>
-            <form id="site-form" novalidate>
-              <label>Domain
-                <select name="apex" id="site-apex" required></select>
-              </label>
-              <label>Website name
-                <input name="label" placeholder="shop" required maxlength="28" pattern="[a-z][a-z0-9-]{1,26}[a-z0-9]">
-              </label>
-              <p class="note" id="site-preview"></p>
-              <button type="submit">Create website</button>
-            </form>
-            <p id="site-error" class="error" role="alert"></p>
-          </div>
-        </div>
-
-        <div id="progress-card" class="card panel" hidden>
-          <h2 id="progress-title">Building website</h2>
+      <section class="card">
+        <h2>New website</h2>
+        <form id="site-form" class="inline wrap" novalidate>
+          <select name="apex" id="site-apex" required aria-label="Domain"></select>
+          <input name="label" placeholder="shop" required maxlength="28" aria-label="Website name" pattern="[a-z][a-z0-9-]{1,26}[a-z0-9]">
+          <button type="submit">Create</button>
+        </form>
+        <p class="note" id="site-preview"></p>
+        <p id="site-error" class="error" role="alert"></p>
+        <div id="progress" hidden>
+          <p><strong id="progress-title">Building website</strong></p>
           <ol id="progress-steps" class="steps"></ol>
           <p id="progress-error" class="error" role="alert"></p>
-          <button type="button" id="retry-job" class="ghost" hidden>Retry from the failed step</button>
+          <button type="button" id="retry-job" class="ghost" hidden>Retry</button>
         </div>
+      </section>
 
-        <div id="manage-card" class="card panel" hidden>
-          <div class="manage-head">
-            <h2 id="manage-title">Website</h2>
-            <span id="manage-state" class="badge"></span>
-            <span class="spacer"></span>
-            <button type="button" class="ghost" id="manage-close">Close</button>
-          </div>
-          <p class="note" id="manage-info"></p>
-          <div class="manage-actions">
-            <button type="button" id="m-login" class="ghost">WordPress login</button>
-            <button type="button" id="m-open" class="ghost">Open site</button>
-            <button type="button" id="m-suspend" class="ghost">Suspend</button>
-            <button type="button" id="m-resume" class="ghost" hidden>Resume</button>
-            <button type="button" id="m-restart" class="ghost">Restart PHP</button>
-            <button type="button" id="m-logs" class="ghost">Site log</button>
-          </div>
-          <form id="php-form" class="inline" novalidate>
-            <label class="grow">PHP version
-              <select name="version" id="php-select" required></select>
-            </label>
-            <button type="submit" class="ghost">Change PHP version</button>
-          </form>
-          <p id="manage-error" class="error" role="alert"></p>
-          <pre id="manage-log" class="log" hidden></pre>
-          <div class="danger">
-            <h3>Delete website</h3>
-            <p class="note">This permanently removes the files, database and login for this website. It cannot be undone.</p>
-            <form id="delete-form" class="inline" novalidate>
-              <input name="confirm" placeholder="type the website address to confirm" autocomplete="off" aria-label="Confirm website address">
-              <button type="submit" class="danger-btn">Delete permanently</button>
-            </form>
-          </div>
-        </div>
-
-        <div class="card panel">
-          <h2>Your websites</h2>
-          <table class="sites">
-            <thead><tr><th>Address</th><th>Status</th><th></th></tr></thead>
-            <tbody id="site-rows"></tbody>
-          </table>
-          <p id="sites-empty" class="note" hidden>No websites yet.</p>
-          <div id="cred-box" class="cred" hidden>
-            <strong>WordPress login</strong>
-            <div id="cred-url"></div>
-            <div id="cred-user"></div>
-            <div id="cred-pass"></div>
-            <button type="button" class="ghost" id="cred-hide">Hide</button>
-          </div>
-        </div>
+      <section class="card">
+        <h2>Your websites</h2>
+        <ul id="site-list" class="sites"></ul>
+        <p id="sites-empty" class="note" hidden>No websites yet.</p>
       </section>
     </main>
   </div>
