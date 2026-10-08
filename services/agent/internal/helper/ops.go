@@ -462,7 +462,7 @@ server {
         try_files $uri $uri/ /index.php?$args;
     }
 
-    # snippets/fastcgi-php.conf already sets try_files for PHP requests.
+    # The included PHP snippet performs the file existence check.
     location ~ \.php$ {
         include snippets/fastcgi-php.conf;
         fastcgi_pass unix:/run/php/zx-%[1]s.sock;
