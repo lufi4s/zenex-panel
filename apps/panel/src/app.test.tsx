@@ -164,7 +164,7 @@ describe("panel", () => {
 
     expect(await screen.findByText("Your websites")).toBeTruthy();
     expect(screen.getByText("Your domain")).toBeTruthy();
-    expect(screen.getByText("New website")).toBeTruthy();
+    expect(screen.getAllByText("New website").length).toBeGreaterThan(0);
     expect((await screen.findAllByText("shop.ozima.cloud")).length).toBeGreaterThan(0);
     expect(screen.getAllByText("ozima.cloud").length).toBeGreaterThan(0);
     expect(screen.getByText("0.42")).toBeTruthy();

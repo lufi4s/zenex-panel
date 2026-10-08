@@ -3,10 +3,11 @@ import { CheckCircle2, CircleDashed, Loader2, XCircle } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useJob, useJobLogs, useRetryJob } from "@/api/queries";
 import { errorMessageFrom } from "@/api/client";
-import type { JobLogLine, JobStep, StepStatus } from "@/api/types";
+import type { JobStep, StepStatus } from "@/api/types";
 import { Alert } from "@/components/ui/badge-alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Terminal, type TerminalLine } from "@/components/Terminal";
 import { stepLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -22,12 +23,6 @@ const ICON: Record<StepStatus, ReactNode> = {
   failed: <XCircle className="text-destructive" aria-hidden />,
   pending: <CircleDashed className="text-muted-foreground" aria-hidden />,
   skipped: <CircleDashed className="text-muted-foreground" aria-hidden />,
-};
-
-const LEVEL_TONE: Record<JobLogLine["level"], string> = {
-  info: "text-muted-foreground",
-  warn: "text-warning",
-  error: "text-destructive",
 };
 
 function StepRow({ step }: { step: JobStep }) {
@@ -50,20 +45,19 @@ function LogLines({ jobId }: { jobId: string }) {
   const logs = useJobLogs(jobId, true);
   if (logs.isPending) return <p className="text-xs text-muted-foreground">Loading log…</p>;
   if (logs.isError) return <Alert tone="danger">Could not load the log.</Alert>;
-  if (!logs.data || logs.data.length === 0)
-    return <p className="text-xs text-muted-foreground">No log lines yet.</p>;
+  const lines: TerminalLine[] = (logs.data ?? []).map((line) => ({
+    id: line.id,
+    time: new Date(line.time).toLocaleTimeString(),
+    level: line.level === "info" ? undefined : line.level,
+    text: line.message,
+  }));
   return (
-    <div className="max-h-64 overflow-auto rounded-md border border-border bg-background p-3 font-mono text-xs">
-      {logs.data.map((line) => (
-        <div key={line.id} className="flex gap-3 py-0.5">
-          <span className="shrink-0 text-muted-foreground tabular-nums">
-            {new Date(line.time).toLocaleTimeString()}
-          </span>
-          <span className={cn("shrink-0 uppercase", LEVEL_TONE[line.level])}>{line.level}</span>
-          <span className="min-w-0 break-words">{line.message}</span>
-        </div>
-      ))}
-    </div>
+    <Terminal
+      lines={lines}
+      title={`build log · ${jobId.slice(0, 8)}`}
+      emptyText="No log lines yet."
+      maxHeight="16rem"
+    />
   );
 }
 

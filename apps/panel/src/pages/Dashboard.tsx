@@ -1,109 +1,119 @@
-import { useState, type ReactNode } from "react";
-import { LogOut } from "lucide-react";
-import { useLogout } from "@/api/queries";
+import { lazy, Suspense, useState, type ReactNode } from "react";
 import type { User } from "@/api/types";
 import { ActivityCard } from "@/components/ActivityCard";
+import { AppShell } from "@/components/AppShell";
 import { DomainsCard } from "@/components/DomainsCard";
 import { JobProgress } from "@/components/JobProgress";
-import { MonitoringCard } from "@/components/MonitoringCard";
-import { NotificationBell } from "@/components/NotificationBell";
 import { NewWebsiteCard } from "@/components/NewWebsiteCard";
 import { ServerStrip } from "@/components/ServerStrip";
-import { ServicesCard } from "@/components/ServicesCard";
 import { WebsitesCard } from "@/components/WebsitesCard";
-import { Button } from "@/components/ui/button";
+import { CardSkeleton } from "@/components/ui/skeleton";
+
+// Heavier sections load on demand, so the first paint stays quick.
+const MonitoringCard = lazy(() =>
+  import("@/components/MonitoringCard").then((m) => ({ default: m.MonitoringCard })),
+);
+const ServicesCard = lazy(() =>
+  import("@/components/ServicesCard").then((m) => ({ default: m.ServicesCard })),
+);
 
 interface ActiveJob {
   jobId: string;
   title: string;
 }
 
-const SECTIONS = [
-  { id: "monitoring", label: "Monitoring" },
-  { id: "services", label: "Services" },
-  { id: "domains", label: "Domains" },
-  { id: "websites", label: "Websites" },
-  { id: "activity", label: "Activity" },
-] as const;
-
-/** A page section that scrolls below the sticky header when opened from the menu. */
-function Section({ id, children }: { id: string; children: ReactNode }) {
+/** A page section. Its id is the target of the matching sidebar link. */
+function Section({
+  id,
+  title,
+  description,
+  children,
+}: {
+  id: string;
+  title: string;
+  description?: string;
+  children: ReactNode;
+}) {
   return (
-    <section id={id} className="scroll-mt-20">
+    <section id={id} className="scroll-mt-20 space-y-4">
+      <div>
+        <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
+        {description && <p className="text-sm text-muted-foreground">{description}</p>}
+      </div>
       {children}
     </section>
   );
 }
 
-/**
- * The whole panel on one scrollable page. The menu jumps to a section; nothing
- * is hidden behind tabs.
- */
+/** The whole panel on one scrollable page, arranged as a dashboard grid. */
 export function Dashboard({ user }: { user: User }) {
-  const logout = useLogout();
   const [activeJob, setActiveJob] = useState<ActiveJob | null>(null);
   const startJob = (jobId: string, title: string) => setActiveJob({ jobId, title });
 
   return (
-    <div className="min-h-dvh">
-      <header className="sticky top-0 z-20 border-b border-border bg-card/90 backdrop-blur">
-        <div className="mx-auto flex max-w-5xl items-center gap-4 px-4 py-3">
-          <span className="font-semibold tracking-tight">Zenex</span>
-          <nav aria-label="Sections" className="hidden items-center gap-1 md:flex">
-            {SECTIONS.map((s) => (
-              <a
-                key={s.id}
-                href={`#${s.id}`}
-                className="rounded-md px-2.5 py-1 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
-              >
-                {s.label}
-              </a>
-            ))}
-          </nav>
-          <span className="ml-auto" />
-          <NotificationBell />
-          <span className="hidden truncate text-sm text-muted-foreground sm:inline">
-            {user.email}
-          </span>
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={logout.isPending}
-            onClick={() => logout.mutate()}
-          >
-            <LogOut aria-hidden />
-            <span className="hidden sm:inline">Sign out</span>
-          </Button>
-        </div>
-      </header>
-
-      <main className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-6">
+    <AppShell user={user}>
+      <Section id="overview" title="Overview" description="This server right now.">
         <ServerStrip />
-        <Section id="monitoring">
-          <MonitoringCard />
-        </Section>
-        <Section id="services">
-          <ServicesCard />
-        </Section>
-        <Section id="domains">
+      </Section>
+
+      <div className="grid gap-6 xl:grid-cols-3">
+        <div className="xl:col-span-2">
+          <Suspense fallback={<CardSkeleton height="h-80" />}>
+            <Section
+              id="monitoring"
+              title="Server history"
+              description="CPU, memory and disk over time."
+            >
+              <MonitoringCard />
+            </Section>
+          </Suspense>
+        </div>
+        <div>
+          <Suspense fallback={<CardSkeleton height="h-64" />}>
+            <Section id="services" title="Services" description="Everything the panel depends on.">
+              <ServicesCard />
+            </Section>
+          </Suspense>
+        </div>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Section id="domains" title="Domains" description="Where your websites live.">
           <DomainsCard />
         </Section>
-        <NewWebsiteCard onStarted={startJob} />
-        {activeJob && (
-          <JobProgress
-            key={activeJob.jobId}
-            jobId={activeJob.jobId}
-            title={activeJob.title}
-            onDismiss={() => setActiveJob(null)}
-          />
-        )}
-        <Section id="websites">
-          <WebsitesCard onStarted={startJob} />
+        <Section
+          id="new-website"
+          title="New website"
+          description="Build a WordPress site in a few minutes."
+        >
+          <NewWebsiteCard onStarted={startJob} />
         </Section>
-        <Section id="activity">
-          <ActivityCard />
-        </Section>
-      </main>
-    </div>
+      </div>
+
+      {activeJob && (
+        <JobProgress
+          key={activeJob.jobId}
+          jobId={activeJob.jobId}
+          title={activeJob.title}
+          onDismiss={() => setActiveJob(null)}
+        />
+      )}
+
+      <Section
+        id="websites"
+        title="Websites"
+        description="Open, manage, check and delete your sites."
+      >
+        <WebsitesCard onStarted={startJob} />
+      </Section>
+
+      <Section
+        id="activity"
+        title="Activity"
+        description="Everything that happened on your account."
+      >
+        <ActivityCard />
+      </Section>
+    </AppShell>
   );
 }

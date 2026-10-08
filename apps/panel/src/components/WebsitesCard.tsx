@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input, Label } from "@/components/ui/input";
 import { siteUrl } from "@/lib/format";
+import { Terminal, levelFromText } from "@/components/Terminal";
 
 const STATE_LABEL: Record<SiteState, string> = {
   ready: "Live",
@@ -115,9 +116,15 @@ function LogDialog({ site }: { site: Site }) {
           <Alert tone="danger">{errorOf(log.error, "Could not read the log.")}</Alert>
         )}
         {log.data !== undefined && (
-          <pre className="max-h-[55vh] overflow-auto rounded-md border border-border bg-background p-3 text-xs whitespace-pre-wrap break-all">
-            {log.data || "Nothing logged yet."}
-          </pre>
+          <Terminal
+            title={`${site.domain} · site log`}
+            emptyText="Nothing logged yet."
+            maxHeight="55vh"
+            lines={(log.data ?? "")
+              .split("\n")
+              .filter((line) => line.length > 0)
+              .map((text, i) => ({ id: i, text, level: levelFromText(text) }))}
+          />
         )}
       </DialogContent>
     </Dialog>
