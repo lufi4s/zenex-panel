@@ -121,7 +121,7 @@ export function ActivityCard() {
       <CardContent className="space-y-4">
         <div className="flex flex-wrap items-center gap-2">
           <Input
-            className="max-w-xs"
+            className="w-full sm:max-w-xs"
             placeholder="Search actions, e.g. site or login"
             value={search}
             onChange={(e) => setSearch(e.target.value)}

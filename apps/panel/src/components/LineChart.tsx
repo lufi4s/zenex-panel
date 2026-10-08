@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { cn } from "@/lib/utils";
 
 export interface ChartSeries {
   label: string;
@@ -16,7 +17,7 @@ interface LineChartProps {
   height?: number;
 }
 
-const WIDTH = 640;
+const DEFAULT_WIDTH = 640;
 const PAD = { top: 10, right: 12, bottom: 22, left: 44 };
 
 function timeLabel(ms: number, spanMs: number): string {
@@ -33,7 +34,19 @@ function timeLabel(ms: number, spanMs: number): string {
  */
 export function LineChart({ title, times, series, format, domain, height = 170 }: LineChartProps) {
   const [hover, setHover] = useState<number | null>(null);
-  const innerW = WIDTH - PAD.left - PAD.right;
+  const frame = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(DEFAULT_WIDTH);
+  // Draw at the real width so text stays readable on phones and desktops alike.
+  useEffect(() => {
+    const el = frame.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) =>
+      setWidth(Math.max(240, Math.floor(entry.contentRect.width))),
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  const innerW = width - PAD.left - PAD.right;
   const innerH = height - PAD.top - PAD.bottom;
 
   const scale = useMemo(() => {
@@ -80,7 +93,7 @@ export function LineChart({ title, times, series, format, domain, height = 170 }
 
   const onPointer = (clientX: number, svg: SVGSVGElement) => {
     const rect = svg.getBoundingClientRect();
-    const px = ((clientX - rect.left) / rect.width) * WIDTH;
+    const px = ((clientX - rect.left) / rect.width) * width;
     let best = 0;
     let bestDist = Infinity;
     times.forEach((t, i) => {
@@ -94,12 +107,19 @@ export function LineChart({ title, times, series, format, domain, height = 170 }
   };
 
   const hoverX = hover !== null ? scale.x(times[hover]) : 0;
-  const tooltipLeft = hover !== null ? (hoverX / WIDTH) * 100 : 0;
+  const tooltipLeft = hover !== null ? (hoverX / width) * 100 : 0;
+  // Keep the tooltip inside the chart near either edge.
+  const tooltipAlign =
+    tooltipLeft < 18
+      ? "translate-x-0"
+      : tooltipLeft > 82
+        ? "-translate-x-full"
+        : "-translate-x-1/2";
 
   return (
-    <div className="relative">
+    <div ref={frame} className="relative">
       <svg
-        viewBox={`0 0 ${WIDTH} ${height}`}
+        viewBox={`0 0 ${width} ${height}`}
         className="block w-full touch-none select-none"
         role="img"
         aria-label={`${title}: ${series.map((s) => `${s.label} ${format(s.values.at(-1) ?? 0)}`).join(", ")}`}
@@ -114,7 +134,7 @@ export function LineChart({ title, times, series, format, domain, height = 170 }
           <g key={tick}>
             <line
               x1={PAD.left}
-              x2={WIDTH - PAD.right}
+              x2={width - PAD.right}
               y1={scale.y(tick)}
               y2={scale.y(tick)}
               className="stroke-border"
@@ -148,7 +168,7 @@ export function LineChart({ title, times, series, format, domain, height = 170 }
           {timeLabel(scale.tMin, span)}
         </text>
         <text
-          x={WIDTH - PAD.right}
+          x={width - PAD.right}
           y={height - 6}
           textAnchor="end"
           className="fill-muted-foreground text-[10px]"
@@ -183,7 +203,10 @@ export function LineChart({ title, times, series, format, domain, height = 170 }
 
       {hover !== null && (
         <div
-          className="pointer-events-none absolute top-0 z-10 -translate-x-1/2 rounded-md border border-border bg-card px-2.5 py-1.5 text-xs shadow-md"
+          className={cn(
+            "pointer-events-none absolute top-0 z-10 rounded-md border border-border bg-card px-2.5 py-1.5 text-xs shadow-md",
+            tooltipAlign,
+          )}
           style={{ left: `${tooltipLeft}%` }}
         >
           <div className="mb-0.5 text-muted-foreground">

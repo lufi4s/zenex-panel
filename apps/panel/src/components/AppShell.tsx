@@ -89,7 +89,7 @@ export function AppShell({ user, children }: { user: User; children: ReactNode }
 
   return (
     <div className="min-h-dvh bg-background">
-      <header className="sticky top-0 z-20 border-b border-border bg-card/90 backdrop-blur">
+      <header className="sticky top-0 z-20 border-b border-border bg-card">
         <div className="mx-auto flex h-14 max-w-7xl items-center gap-4 px-4 sm:px-6">
           <div className="flex shrink-0 items-center gap-2.5">
             <span
@@ -147,7 +147,7 @@ export function AppShell({ user, children }: { user: User; children: ReactNode }
         </nav>
       </header>
 
-      <main className="mx-auto flex w-full max-w-7xl flex-col gap-10 px-4 py-8 sm:px-6">
+      <main className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-4 py-5 sm:gap-10 sm:px-6 sm:py-8">
         {children}
       </main>
     </div>

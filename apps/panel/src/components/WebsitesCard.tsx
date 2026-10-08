@@ -329,7 +329,7 @@ function WebsiteRow({
                 <Label htmlFor={`php-${site.id}`}>PHP version</Label>
                 <select
                   id={`php-${site.id}`}
-                  className="flex h-9 rounded-md border border-input bg-card px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+                  className="flex h-10 rounded-md border border-input bg-card px-3 text-base sm:h-9 sm:text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
                   value={phpChoice}
                   onChange={(e) => setPhpChoice(e.target.value)}
                 >

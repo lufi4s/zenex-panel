@@ -325,7 +325,7 @@ export function FileManager({ site }: { site: Site }) {
           <Folder aria-hidden /> Files
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-h-[90vh] w-[min(96vw,980px)] overflow-y-auto">
+      <DialogContent className="inset-0 top-0 h-dvh max-h-none w-full max-w-none translate-x-0 translate-y-0 rounded-none p-4 sm:inset-x-auto sm:top-1/2 sm:left-1/2 sm:h-auto sm:max-h-[90vh] sm:w-[min(96vw,980px)] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-lg sm:p-6">
         <DialogHeader>
           <DialogTitle>Files · {site.domain}</DialogTitle>
           <DialogDescription>
@@ -383,7 +383,7 @@ export function FileManager({ site }: { site: Site }) {
               >
                 <Input
                   autoFocus
-                  className="max-w-xs"
+                  className="w-full sm:max-w-xs"
                   placeholder={creating === "folder" ? "folder name" : "file name, e.g. notes.txt"}
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}

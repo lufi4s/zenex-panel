@@ -77,7 +77,7 @@ export function NewWebsiteCard({ onStarted }: NewWebsiteCardProps) {
               <Label htmlFor="site-apex">Domain</Label>
               <select
                 id="site-apex"
-                className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 disabled:opacity-50"
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-base sm:h-9 sm:text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 disabled:opacity-50"
                 value={selectedApex}
                 onChange={(e) => setApex(e.target.value)}
                 disabled={!domains.data || domains.data.length === 0}
