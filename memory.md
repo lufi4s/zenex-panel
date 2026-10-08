@@ -91,3 +91,11 @@ Priority order:
 - Run Go tests: `export PATH="$PATH:/c/Program Files/Go/bin"` (bash) then `go test ./...` in each module dir (`packages/validation`, `services/agent`, `apps/api`).
 - Each Go module uses a relative `replace` for `packages/validation` only in `services/agent`. Keep that path stable.
 - CLAUDE.md requires: read this file before starting, update after every task, and final reply `Done ✨` only.
+
+## 6. Session 2: GitHub + VPS bootstrap
+
+- `infrastructure/deployment/install.sh`: Ubuntu 24.04 bootstrap (nginx, php-fpm, mariadb, redis, ufw default-deny with 22/80/443, fail2ban, certbot, Zenex dirs). Does NOT install the Agent (no signed release yet).
+- `.gitignore`, `.gitattributes` (LF for *.sh/*.sql/*.go/*.md).
+- Git repo initialized on `main`. Commits: `36f9db7` (foundation + install script), `bb9dd98` (gitattributes). Local git identity set to Saiful <saiful.ops@zenexcloud.com>.
+- GitHub CLI installed (`C:\Program Files\GitHub CLI\gh.exe`). NOT logged in. Repo not yet created or pushed.
+- Pending: `gh auth login` (user must run), create repo `zenex-panel`, push, share raw install URL: `https://raw.githubusercontent.com/<owner>/zenex-panel/main/infrastructure/deployment/install.sh`. Replace `<owner>` in install.sh header comment if it differs.
