@@ -321,3 +321,14 @@ func TestPageReferencesServedAssets(t *testing.T) {
 		t.Fatal("index.html references no /assets/ files")
 	}
 }
+
+// Client-side pages such as /websites/123 must return the app, not a 404.
+func TestDeepLinksReturnTheApp(t *testing.T) {
+	for _, path := range []string{"/websites/3f2a", "/domains", "/settings"} {
+		rec := httptest.NewRecorder()
+		newTestRouter(nil).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "<div id=\"root\">") {
+			t.Errorf("%s: status %d, app not returned", path, rec.Code)
+		}
+	}
+}

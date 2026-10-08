@@ -10,10 +10,10 @@ import { Label } from "@/components/ui/label";
 const LABEL_PATTERN = /^[a-z][a-z0-9-]{1,26}[a-z0-9]$/;
 
 interface NewWebsiteCardProps {
-  onStarted: (jobId: string, title: string) => void;
+  onCreated: (siteId: string, jobId: string) => void;
 }
 
-export function NewWebsiteCard({ onStarted }: NewWebsiteCardProps) {
+export function NewWebsiteCard({ onCreated }: NewWebsiteCardProps) {
   const domains = useDomains();
   const create = useCreateSite();
   const [apex, setApex] = useState<string>("");
@@ -34,7 +34,7 @@ export function NewWebsiteCard({ onStarted }: NewWebsiteCardProps) {
       {
         onSuccess: (result) => {
           setLabel("");
-          onStarted(result.job_id, `Building ${result.site.domain}`);
+          onCreated(result.site.id, result.job_id);
         },
         onError: (err) => {
           setError(err instanceof ApiError ? err.message : "Could not create the website.");

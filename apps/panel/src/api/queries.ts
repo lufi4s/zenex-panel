@@ -13,6 +13,8 @@ import type {
   Branding,
   ActivityResult,
   Domain,
+  Job,
+  JobStep,
   FileContent,
   FileEntry,
   JobDetail,
@@ -437,5 +439,35 @@ export function useSaveBranding() {
       qc.setQueryData(["branding"], saved);
       toast.success("Branding saved");
     },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Single website (its own page)
+// ---------------------------------------------------------------------------
+
+export interface SiteDetail {
+  site: Site;
+  job?: Job;
+  steps?: JobStep[];
+}
+
+export function useSite(id: string) {
+  return useQuery({
+    queryKey: ["site", id],
+    queryFn: () => apiRequest<SiteDetail>(`/api/v1/sites/${id}`),
+    refetchInterval: (query) => {
+      const job = query.state.data?.job;
+      return job && (job.status === "queued" || job.status === "running") ? 2_000 : 15_000;
+    },
+  });
+}
+
+export function useSiteLogs(id: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ["site-logs", id],
+    queryFn: () => apiRequest<{ log: string }>(`/api/v1/sites/${id}/logs`).then((r) => r.log),
+    enabled,
+    refetchInterval: enabled ? 10_000 : false,
   });
 }

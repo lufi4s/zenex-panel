@@ -22,14 +22,6 @@ import { describeError } from "@/api/client";
 import type { FileEntry, Site } from "@/api/types";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { formatBytes } from "@/lib/format";
 
@@ -83,25 +75,27 @@ function Listing({
   const [confirming, setConfirming] = useState<string | null>(null);
 
   if (folder.isPending) return <p className="p-4 text-sm text-muted-foreground">Loading folder…</p>;
-  if (folder.isError)
+  if (folder.isError) {
     return (
       <Alert variant="destructive">
         <AlertDescription>{describeError(folder.error)}</AlertDescription>
       </Alert>
     );
+  }
   const entries: FileEntry[] = folder.data ?? [];
-  if (entries.length === 0)
-    return <p className="p-6 text-center text-sm text-muted-foreground">This folder is empty.</p>;
+  if (entries.length === 0) {
+    return <p className="p-8 text-center text-sm text-muted-foreground">This folder is empty.</p>;
+  }
 
   return (
-    <div className="overflow-hidden rounded-md border border-border">
+    <div className="overflow-x-auto rounded-lg border border-border">
       <table className="w-full text-sm">
         <thead className="bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
           <tr>
-            <th className="px-3 py-2 font-medium">Name</th>
-            <th className="hidden px-3 py-2 font-medium sm:table-cell">Size</th>
-            <th className="hidden px-3 py-2 font-medium md:table-cell">Modified</th>
-            <th className="px-3 py-2 text-right font-medium">Actions</th>
+            <th className="px-4 py-2.5 font-medium">Name</th>
+            <th className="hidden px-4 py-2.5 font-medium sm:table-cell">Size</th>
+            <th className="hidden px-4 py-2.5 font-medium md:table-cell">Modified</th>
+            <th className="px-4 py-2.5 text-right font-medium">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -110,7 +104,7 @@ function Listing({
             const isDir = entry.type === "dir";
             return (
               <tr key={entry.name} className="border-t border-border hover:bg-muted/40">
-                <td className="px-3 py-2">
+                <td className="px-4 py-2.5">
                   <button
                     type="button"
                     onClick={() =>
@@ -130,16 +124,16 @@ function Listing({
                     <span className="font-medium">{entry.name}</span>
                   </button>
                 </td>
-                <td className="hidden px-3 py-2 tabular-nums text-muted-foreground sm:table-cell">
+                <td className="hidden px-4 py-2.5 tabular-nums text-muted-foreground sm:table-cell">
                   {isDir ? "—" : formatBytes(entry.size)}
                 </td>
-                <td className="hidden px-3 py-2 text-muted-foreground md:table-cell">
+                <td className="hidden px-4 py-2.5 text-muted-foreground md:table-cell">
                   {new Date(entry.modified).toLocaleString(undefined, {
                     dateStyle: "medium",
                     timeStyle: "short",
                   })}
                 </td>
-                <td className="px-3 py-2 text-right">
+                <td className="px-4 py-2.5 text-right">
                   <div className="flex justify-end gap-1">
                     {!isDir && entry.editable && (
                       <Button
@@ -160,7 +154,7 @@ function Listing({
                           remove.mutate(full, { onSettled: () => setConfirming(null) })
                         }
                       >
-                        Delete{isDir ? " folder" : ""}?
+                        Confirm delete
                       </Button>
                     ) : (
                       <Button
@@ -180,7 +174,7 @@ function Listing({
         </tbody>
       </table>
       {remove.isError && (
-        <div className="p-2">
+        <div className="p-3">
           <Alert variant="destructive">
             <AlertDescription>{describeError(remove.error)}</AlertDescription>
           </Alert>
@@ -237,7 +231,7 @@ function Editor({ siteId, path, onClose }: { siteId: string; path: string; onClo
   }
 
   return (
-    <div className="flex min-h-0 flex-col gap-3">
+    <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
         <Pencil className="size-4 text-muted-foreground" aria-hidden />
         <span className="font-medium">{name}</span>
@@ -260,7 +254,7 @@ function Editor({ siteId, path, onClose }: { siteId: string; path: string; onClo
         onKeyDown={onKey}
         spellCheck={false}
         aria-label={`Edit ${name}`}
-        className="min-h-[50vh] w-full resize-y rounded-md border border-border bg-background p-3 font-mono text-xs leading-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+        className="min-h-[55vh] w-full resize-y rounded-lg border border-input bg-background p-3 font-mono text-xs leading-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
       />
       {save.isError && (
         <Alert variant="destructive">
@@ -271,17 +265,16 @@ function Editor({ siteId, path, onClose }: { siteId: string; path: string; onClo
   );
 }
 
-/** Browse, edit, create and delete files inside one website, without FTP or SSH. */
-export function FileManager({ site }: { site: Site }) {
-  const [open, setOpen] = useState(false);
+/** Browse, edit, create and delete the files of one website. */
+export function FileBrowser({ site }: { site: Site }) {
   const [path, setPath] = useState("");
   const [openFile, setOpenFile] = useState<string | null>(null);
   const [creating, setCreating] = useState<"folder" | "file" | null>(null);
   const [newName, setNewName] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
+  const [createError, setCreateError] = useState<string | null>(null);
   const createFolder = useCreateFolder(site.id);
   const saveNew = useSaveFile(site.id);
-  const [createError, setCreateError] = useState<string | null>(null);
 
   const submitNew = () => {
     const name = newName.trim();
@@ -321,115 +314,89 @@ export function FileManager({ site }: { site: Site }) {
     setCreateError(null);
   };
 
+  if (openFile) {
+    return <Editor siteId={site.id} path={openFile} onClose={() => setOpenFile(null)} />;
+  }
+
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        if (!next) {
-          setOpenFile(null);
-          setCreating(null);
-          setCreateError(null);
-        }
-      }}
-    >
-      <DialogTrigger asChild>
-        <Button variant="outline" size="sm">
-          <Folder aria-hidden /> Files
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="inset-0 top-0 h-dvh max-h-none w-full max-w-none translate-x-0 translate-y-0 rounded-none p-4 sm:inset-x-auto sm:top-1/2 sm:left-1/2 sm:h-auto sm:max-h-[90vh] sm:w-[min(96vw,980px)] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-lg sm:p-6">
-        <DialogHeader>
-          <DialogTitle>Files · {site.domain}</DialogTitle>
-          <DialogDescription>
-            Browse the website's folder. WordPress core files are protected from deletion.
-          </DialogDescription>
-        </DialogHeader>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <Crumbs path={path} onGo={go} />
+        <div className="ml-auto flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setCreating("folder");
+              setNewName("");
+              setCreateError(null);
+            }}
+          >
+            <FolderPlus aria-hidden /> New folder
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setCreating("file");
+              setNewName("");
+              setCreateError(null);
+            }}
+          >
+            <FilePlus aria-hidden /> New file
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label="Refresh"
+            onClick={() => setRefreshKey((k) => k + 1)}
+          >
+            <RefreshCw aria-hidden />
+          </Button>
+        </div>
+      </div>
 
-        {openFile ? (
-          <Editor siteId={site.id} path={openFile} onClose={() => setOpenFile(null)} />
-        ) : (
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <Crumbs path={path} onGo={go} />
-              <div className="ml-auto flex flex-wrap gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setCreating("folder");
-                    setNewName("");
-                    setCreateError(null);
-                  }}
-                >
-                  <FolderPlus aria-hidden /> New folder
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setCreating("file");
-                    setNewName("");
-                    setCreateError(null);
-                  }}
-                >
-                  <FilePlus aria-hidden /> New file
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  aria-label="Refresh"
-                  onClick={() => setRefreshKey((k) => k + 1)}
-                >
-                  <RefreshCw aria-hidden />
-                </Button>
-              </div>
-            </div>
+      {creating && (
+        <form
+          className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/30 p-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            submitNew();
+          }}
+        >
+          <Input
+            autoFocus
+            className="w-full sm:max-w-xs"
+            placeholder={creating === "folder" ? "folder name" : "file name, e.g. notes.txt"}
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            aria-label={creating === "folder" ? "New folder name" : "New file name"}
+          />
+          <Button
+            type="submit"
+            size="sm"
+            disabled={!newName.trim() || createFolder.isPending || saveNew.isPending}
+          >
+            Create
+          </Button>
+          <Button type="button" variant="ghost" size="sm" onClick={() => setCreating(null)}>
+            Cancel
+          </Button>
+          {createError && (
+            <span className="text-xs text-destructive" role="alert">
+              {createError}
+            </span>
+          )}
+        </form>
+      )}
 
-            {creating && (
-              <form
-                className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/30 p-3"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  submitNew();
-                }}
-              >
-                <Input
-                  autoFocus
-                  className="w-full sm:max-w-xs"
-                  placeholder={creating === "folder" ? "folder name" : "file name, e.g. notes.txt"}
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  aria-label={creating === "folder" ? "New folder name" : "New file name"}
-                />
-                <Button
-                  type="submit"
-                  size="sm"
-                  disabled={!newName.trim() || createFolder.isPending || saveNew.isPending}
-                >
-                  Create
-                </Button>
-                <Button type="button" variant="ghost" size="sm" onClick={() => setCreating(null)}>
-                  Cancel
-                </Button>
-                {createError && (
-                  <span className="text-xs text-destructive" role="alert">
-                    {createError}
-                  </span>
-                )}
-              </form>
-            )}
-
-            <Listing
-              key={`${path}-${refreshKey}`}
-              siteId={site.id}
-              path={path}
-              onOpenFolder={go}
-              onOpenFile={setOpenFile}
-            />
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
+      <Listing
+        key={`${path}-${refreshKey}`}
+        siteId={site.id}
+        path={path}
+        onOpenFolder={go}
+        onOpenFile={setOpenFile}
+      />
+    </div>
   );
 }

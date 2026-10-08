@@ -5,7 +5,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { App } from "./App";
 import { queryClient } from "./api/queries";
 
-// Answers the API calls the dashboard makes, using the same JSON shapes as the server.
+// Answers the API calls the panel makes, using the same JSON shapes as the server.
 function mockApi(options: { signedIn: boolean }) {
   const json = (body: unknown, status = 200) =>
     Promise.resolve(
@@ -59,9 +59,16 @@ function mockApi(options: { signedIn: boolean }) {
         : json({ error: { code: "unauthorized", message: "sign in required" } }, 401);
     }
     if (url.endsWith("/api/v1/auth/login") && method === "POST") return json(user);
+    if (url.endsWith("/api/v1/branding")) {
+      return json({ name: "Zenex Panel", tagline: "", primary_color: "#0f766e" });
+    }
     if (url.endsWith("/api/v1/system/metrics")) return json(metrics);
     if (url.endsWith("/api/v1/domains")) return json(domains);
     if (url.endsWith("/api/v1/sites")) return json(sites);
+    if (url.endsWith("/api/v1/sites/s1")) return json({ site: sites[0] });
+    if (url.endsWith("/api/v1/sites/s1/logs")) {
+      return json({ log: "203.0.113.5 - GET / 200\n203.0.113.9 - GET /wp-login.php 200" });
+    }
     if (url.includes("/api/v1/monitoring/metrics")) {
       return json({
         points: [
@@ -143,7 +150,9 @@ function mockApi(options: { signedIn: boolean }) {
   });
 }
 
-function renderApp() {
+/** Opens the panel at a path, the way the browser would. */
+function renderAt(path: string) {
+  window.history.pushState({}, "", path);
   return render(
     <QueryClientProvider client={queryClient}>
       <App />
@@ -151,26 +160,44 @@ function renderApp() {
   );
 }
 
-describe("panel", () => {
-  beforeEach(() => {
-    queryClient.clear();
-  });
+/** Radix tabs switch on mouse-down, so a click alone is not enough in jsdom. */
+function chooseTab(name: string) {
+  const tab = screen.getByRole("tab", { name });
+  fireEvent.mouseDown(tab, { button: 0 });
+  fireEvent.click(tab);
+}
 
-  afterEach(() => {
-    cleanup();
-    vi.unstubAllGlobals();
-  });
+beforeEach(() => {
+  queryClient.clear();
+  // The sidebar asks the browser for the screen width; jsdom does not implement it.
+  window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  }));
+});
 
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+  window.history.pushState({}, "", "/");
+});
+
+describe("sign-in", () => {
   it("shows sign-in when there is no session", async () => {
     vi.stubGlobal("fetch", mockApi({ signedIn: false }));
-    renderApp();
+    renderAt("/");
     expect(await screen.findByText("Welcome back")).toBeTruthy();
   });
 
-  it("signs in and shows the single-page dashboard", async () => {
-    const fetchMock = mockApi({ signedIn: false });
-    vi.stubGlobal("fetch", fetchMock);
-    renderApp();
+  it("signs in and opens the overview", async () => {
+    vi.stubGlobal("fetch", mockApi({ signedIn: false }));
+    renderAt("/login");
 
     fireEvent.change(await screen.findByLabelText("Email"), {
       target: { value: "admin@example.com" },
@@ -180,22 +207,16 @@ describe("panel", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
 
-    expect(await screen.findByText("Your websites")).toBeTruthy();
-    expect(screen.getByText("Your domain")).toBeTruthy();
-    expect(screen.getAllByText("New website").length).toBeGreaterThan(0);
+    expect(await screen.findByRole("heading", { name: "Overview" })).toBeTruthy();
     expect((await screen.findAllByText("shop.ozima.cloud")).length).toBeGreaterThan(0);
-    expect(screen.getAllByText("ozima.cloud").length).toBeGreaterThan(0);
     expect(screen.getByText("0.42")).toBeTruthy();
-    expect((await screen.findAllByText("Services")).length).toBeGreaterThan(0);
     expect((await screen.findAllByText("Caddy (web server)")).length).toBeGreaterThan(0);
-    expect((await screen.findAllByText("Created website")).length).toBeGreaterThan(0);
-    expect((await screen.findAllByText("Sign-in failed")).length).toBeGreaterThan(0);
   });
 
   it("sends the anti-CSRF header on sign-in", async () => {
     const fetchMock = mockApi({ signedIn: false });
     vi.stubGlobal("fetch", fetchMock);
-    renderApp();
+    renderAt("/login");
 
     fireEvent.change(await screen.findByLabelText("Email"), {
       target: { value: "admin@example.com" },
@@ -214,45 +235,45 @@ describe("panel", () => {
       expect(headers["X-Requested-With"]).toBe("zenex");
     });
   });
-
-  it("opens a website's actions in place when Manage is pressed", async () => {
-    vi.stubGlobal("fetch", mockApi({ signedIn: true }));
-    renderApp();
-
-    const manage = await screen.findByRole("button", { name: /Manage/ });
-    fireEvent.click(manage);
-    expect(await screen.findByRole("button", { name: "Restart PHP" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Delete" })).toBeTruthy();
-  });
 });
 
-describe("notifications and domain removal", () => {
-  beforeEach(() => {
-    queryClient.clear();
-  });
-
-  afterEach(() => {
-    cleanup();
-    vi.unstubAllGlobals();
-  });
-
-  it("shows the unread count on the bell", async () => {
+describe("navigation", () => {
+  it("lists websites on their own page", async () => {
     vi.stubGlobal("fetch", mockApi({ signedIn: true }));
-    renderApp();
-    expect(await screen.findByRole("button", { name: "Notifications, 2 unread" })).toBeTruthy();
+    renderAt("/websites");
+    expect(await screen.findByRole("heading", { name: "Websites" })).toBeTruthy();
+    expect(await screen.findByRole("link", { name: "Open shop.ozima.cloud" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /New website/ })).toBeTruthy();
   });
 
-  it("opens the notification list", async () => {
+  it("opens a website from the list and shows its page", async () => {
     vi.stubGlobal("fetch", mockApi({ signedIn: true }));
-    renderApp();
-    fireEvent.click(await screen.findByRole("button", { name: "Notifications, 2 unread" }));
-    expect(await screen.findByText("Website build failed")).toBeTruthy();
-    expect(screen.getByText("Could not download WordPress.")).toBeTruthy();
+    renderAt("/websites");
+    fireEvent.click(await screen.findByRole("link", { name: "Open shop.ozima.cloud" }));
+    expect(await screen.findByRole("heading", { name: "shop.ozima.cloud" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Restart PHP" })).toBeTruthy();
+  });
+
+  it("shows the files of a website on its Files tab", async () => {
+    vi.stubGlobal("fetch", mockApi({ signedIn: true }));
+    renderAt("/websites/s1");
+    await screen.findByRole("heading", { name: "shop.ozima.cloud" });
+    chooseTab("Files");
+    expect(await screen.findByText("wp-content")).toBeTruthy();
+    expect(await screen.findByText("index.php")).toBeTruthy();
+  });
+
+  it("shows the site log on its Logs tab", async () => {
+    vi.stubGlobal("fetch", mockApi({ signedIn: true }));
+    renderAt("/websites/s1");
+    await screen.findByRole("heading", { name: "shop.ozima.cloud" });
+    chooseTab("Logs");
+    expect(await screen.findByText(/wp-login\.php/)).toBeTruthy();
   });
 
   it("keeps Remove domain disabled until the domain name is typed", async () => {
     vi.stubGlobal("fetch", mockApi({ signedIn: true }));
-    renderApp();
+    renderAt("/domains");
     fireEvent.click(await screen.findByRole("button", { name: /Remove/ }));
     const confirm = await screen.findByRole("button", { name: "Remove domain" });
     expect((confirm as HTMLButtonElement).disabled).toBe(true);
@@ -261,20 +282,26 @@ describe("notifications and domain removal", () => {
       (screen.getByRole("button", { name: "Remove domain" }) as HTMLButtonElement).disabled,
     ).toBe(false);
   });
+
+  it("shows a not-found page for unknown addresses", async () => {
+    vi.stubGlobal("fetch", mockApi({ signedIn: true }));
+    renderAt("/does-not-exist");
+    expect(await screen.findByText("Page not found")).toBeTruthy();
+  });
 });
 
-describe("file manager", () => {
-  afterEach(() => {
-    cleanup();
-    vi.unstubAllGlobals();
+describe("notifications", () => {
+  it("shows the unread count on the bell", async () => {
+    vi.stubGlobal("fetch", mockApi({ signedIn: true }));
+    renderAt("/");
+    expect(await screen.findByRole("button", { name: "Notifications, 2 unread" })).toBeTruthy();
   });
 
-  it("lists the files of a website", async () => {
+  it("opens the notification list", async () => {
     vi.stubGlobal("fetch", mockApi({ signedIn: true }));
-    renderApp();
-    fireEvent.click(await screen.findByRole("button", { name: /Manage/ }));
-    fireEvent.click(await screen.findByRole("button", { name: /Files/ }));
-    expect(await screen.findByText("wp-content")).toBeTruthy();
-    expect(await screen.findByText("index.php")).toBeTruthy();
+    renderAt("/");
+    fireEvent.click(await screen.findByRole("button", { name: "Notifications, 2 unread" }));
+    expect(await screen.findByText("Website build failed")).toBeTruthy();
+    expect(screen.getByText("Could not download WordPress.")).toBeTruthy();
   });
 });

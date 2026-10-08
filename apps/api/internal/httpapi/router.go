@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/zenexcloud/zenex-panel/apps/api/web"
@@ -81,7 +82,9 @@ func NewRouter(d Deps) http.Handler {
 
 	// UI: the single-page app at "/" and its hashed assets under /assets/.
 	ui := web.FS()
-	mux.HandleFunc("GET /{$}", serveIndex(ui))
+	// Every other page address (for example /websites/123) returns the app, so the
+	// client-side router can handle it. Unknown API addresses still get a JSON 404.
+	mux.Handle("/", serveIndex(ui))
 	mux.Handle("GET /assets/", http.FileServerFS(ui))
 
 	var h http.Handler = mux
@@ -95,6 +98,10 @@ func NewRouter(d Deps) http.Handler {
 
 func serveIndex(ui fs.FS) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			writeError(w, requestIDFrom(r), ErrNotFound)
+			return
+		}
 		data, err := fs.ReadFile(ui, "index.html")
 		if err != nil {
 			writeError(w, requestIDFrom(r), ErrInternal)
