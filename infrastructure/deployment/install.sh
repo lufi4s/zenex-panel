@@ -10,7 +10,7 @@
 # The Zenex Agent is NOT installed by this script yet; no signed release exists.
 #
 # Usage (as root):
-#   curl -fsSL https://raw.githubusercontent.com/<owner>/zenex-panel/main/infrastructure/deployment/install.sh | sudo bash
+#   curl -fsSL https://raw.githubusercontent.com/lufi4s/zenex-panel/main/infrastructure/deployment/install.sh | sudo bash
 #
 # Safe to run more than once.
 
