@@ -193,19 +193,46 @@ function chooseTab(name: string) {
   fireEvent.click(tab);
 }
 
-beforeEach(() => {
-  queryClient.clear();
-  // The sidebar asks the browser for the screen width; jsdom does not implement it.
-  window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+// jsdom lacks matchMedia and the Font Loading API (the animation libraries read them).
+vi.hoisted(() => {
+  Object.defineProperty(document, "fonts", {
+    configurable: true,
+    value: {
+      status: "loaded",
+      ready: Promise.resolve(),
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    },
+  });
+  window.matchMedia = ((query: string) => ({
     matches: false,
     media: query,
     onchange: null,
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-    addListener: vi.fn(),
-    removeListener: vi.fn(),
-    dispatchEvent: vi.fn(),
-  }));
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  })) as unknown as typeof window.matchMedia;
+});
+
+// The sign-in shader needs WebGL and the count-up animation needs IntersectionObserver;
+// jsdom has neither, so both are replaced for the tests.
+vi.mock("@/components/Silk", () => ({ default: () => null }));
+
+beforeEach(() => {
+  queryClient.clear();
+  window.IntersectionObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+    takeRecords() {
+      return [];
+    }
+    readonly root = null;
+    readonly rootMargin = "";
+    readonly thresholds = [];
+  } as unknown as typeof IntersectionObserver;
 });
 
 afterEach(() => {

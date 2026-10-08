@@ -208,3 +208,27 @@ Operational notes:
 - JobProgress (apps/panel/src/components/JobProgress.tsx) has a new optional prop defaultShowLog.
 - Test added in apps/panel/src/app.test.tsx: "shows the build status and log in the popup after creating a website". 34 frontend tests pass; vp check, tsc and vite build pass.
 - Not committed or deployed in this step.
+
+## 13. Deploy status
+
+- GitHub main is at 532a16c (multi-page panel + create-website popup status). Pushed.
+- VPS (162.4.35.76) is still on the old single-page build. Not deployed; user will run the update themselves later.
+- Deploy command: `git -C /opt/zenex/src fetch -q --depth 1 origin main && git -C /opt/zenex/src reset -q --hard FETCH_HEAD && bash /opt/zenex/src/infrastructure/deployment/install.sh`
+- Root VPS password was pasted in chat earlier; rotation recommended, not yet confirmed.
+
+## 14. React Bits components (latest)
+
+Installed via shadcn from reactbits.dev (`npx shadcn add https://reactbits.dev/r/<Name>-TS-TW`). Used where they fit:
+- **Silk** (backgrounds) — `src/components/Silk.tsx`, lazy-loaded in `src/pages/LoginPage.tsx` as the sign-in aside background, tinted with the branding primary colour. Needs WebGL; mocked in tests.
+- **SplitText** (text animations) — `src/components/SplitText.tsx`, used for the sign-in aside tagline (`LoginPage.tsx`). Not used for "Welcome back" so the text stays searchable in tests.
+- **CountUp** (text animations) — `src/components/CountUp.tsx`, memory and disk percentages in `src/components/ServerStrip.tsx`. Uses IntersectionObserver; stubbed in tests.
+- **SpotlightCard** (components) — `src/components/SpotlightCard.tsx`, wraps each stat tile in `ServerStrip.tsx` (light theme).
+
+Removed (not a fit for any screen): `src/components/Stepper.tsx`, `src/components/AnimatedList.tsx`.
+
+Dependencies added by the registry: gsap, @gsap/react, three, @react-three/fiber, motion, @types/three (dev), plus shadcn extras (@base-ui/react, cn, @fontsource-variable/geist, tw-animate-css).
+
+Not replaced (no React Bits equivalent for the job): LineChart, Terminal, FileManager, DomainsCard, ActivityCard, NotificationBell, app-sidebar, shadcn ui primitives.
+
+Checks: vp check (0 warnings), tsc -b clean, vitest 34/34, vite build OK. Visual check in browser not done yet.
+Not committed/deployed in the first pass; see the commit that follows this section.

@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 import { Cpu, HardDrive, MemoryStick, Timer } from "lucide-react";
 import { useMetrics } from "@/api/queries";
+import CountUp from "@/components/CountUp";
+import SpotlightCard from "@/components/SpotlightCard";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatBytes, formatUptime, usedPercent } from "@/lib/format";
@@ -15,7 +17,7 @@ function Tile({
 }: {
   icon: ReactNode;
   label: string;
-  value: string;
+  value: ReactNode;
   detail: string;
   percent?: number | null;
 }) {
@@ -28,7 +30,11 @@ function Tile({
           ? "bg-warning"
           : "bg-primary";
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-border bg-card p-4">
+    <SpotlightCard
+      theme="light"
+      spotlightColor="rgba(15, 118, 110, 0.14)"
+      className="flex flex-col gap-2 rounded-lg border border-border bg-card p-4"
+    >
       <div className="flex items-center justify-between text-muted-foreground">
         <span className="text-xs font-medium uppercase tracking-wide">{label}</span>
         <span className="[&_svg]:size-4" aria-hidden>
@@ -45,7 +51,7 @@ function Tile({
         </div>
       )}
       <p className="text-xs tabular-nums text-muted-foreground">{detail}</p>
-    </div>
+    </SpotlightCard>
   );
 }
 
@@ -85,14 +91,22 @@ export function ServerStrip() {
       <Tile
         icon={<MemoryStick />}
         label="Memory"
-        value={`${mem ?? 0}%`}
+        value={
+          <>
+            <CountUp to={mem ?? 0} />%
+          </>
+        }
         detail={`${formatBytes(data.mem_used_bytes)} of ${formatBytes(data.mem_total_bytes)}`}
         percent={mem}
       />
       <Tile
         icon={<HardDrive />}
         label="Disk"
-        value={`${disk ?? 0}%`}
+        value={
+          <>
+            <CountUp to={disk ?? 0} />%
+          </>
+        }
         detail={`${formatBytes(data.disk_used_bytes)} of ${formatBytes(data.disk_total_bytes)}`}
         percent={disk}
       />

@@ -1,12 +1,16 @@
-import { useState, type FormEvent, type ReactNode } from "react";
+import { lazy, Suspense, useState, type FormEvent, type ReactNode } from "react";
 import { Activity, Eye, EyeOff, Globe, Loader2, ShieldCheck } from "lucide-react";
 import { useBranding, useLogin } from "@/api/queries";
 import { ApiError, describeError } from "@/api/client";
+import SplitText from "@/components/SplitText";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
+
+// The shader is heavy (WebGL), so it loads only when the sign-in page is shown.
+const Silk = lazy(() => import("@/components/Silk"));
 
 const FEATURES: { icon: typeof Globe; title: string; text: string }[] = [
   {
@@ -45,29 +49,33 @@ function Frame({
   children,
   name,
   tagline,
+  accent,
 }: {
   children: ReactNode;
   name: string;
   tagline: string;
+  accent: string;
 }) {
   return (
     <div className="grid min-h-dvh bg-background lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
       <aside className="relative hidden flex-col justify-between overflow-hidden bg-primary p-12 text-primary-foreground lg:flex">
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 opacity-30"
-          style={{
-            backgroundImage:
-              "radial-gradient(circle at 20% 20%, rgba(255,255,255,0.35), transparent 40%), radial-gradient(circle at 80% 90%, rgba(0,0,0,0.25), transparent 45%)",
-          }}
-        />
+        <div aria-hidden className="pointer-events-none absolute inset-0 opacity-50">
+          <Suspense fallback={null}>
+            <Silk speed={3} scale={1} color={accent} noiseIntensity={1.2} rotation={0} />
+          </Suspense>
+        </div>
         <div className="relative flex items-center gap-3">
           <Mark className="bg-primary-foreground text-primary" />
           <span className="text-lg font-semibold tracking-tight">{name}</span>
         </div>
         <div className="relative max-w-md space-y-8">
           <div className="space-y-3">
-            <h1 className="text-4xl font-semibold leading-tight tracking-tight">{tagline}</h1>
+            <SplitText
+              text={tagline}
+              tag="h1"
+              splitType="words"
+              className="text-4xl font-semibold leading-tight tracking-tight"
+            />
             <p className="text-base opacity-80">
               One panel for your domains, websites, servers and team.
             </p>
@@ -130,7 +138,7 @@ export function LoginPage() {
   };
 
   return (
-    <Frame name={name} tagline={tagline}>
+    <Frame name={name} tagline={tagline} accent={branding.data?.primary_color ?? "#0f766e"}>
       <div className="space-y-1.5">
         <h2 className="text-2xl font-semibold tracking-tight">Welcome back</h2>
         <p className="text-sm text-muted-foreground">Sign in to continue to your dashboard.</p>
