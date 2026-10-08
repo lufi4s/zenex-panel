@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Zenex Panel</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <main id="login-view" class="card" hidden>
+    <h1>Zenex Panel</h1>
+    <form id="login-form" novalidate>
+      <label>Email
+        <input name="email" type="email" autocomplete="username" required maxlength="254">
+      </label>
+      <label>Password
+        <input name="password" type="password" autocomplete="current-password" required maxlength="1024">
+      </label>
+      <p id="login-error" class="error" role="alert"></p>
+      <button type="submit">Sign in</button>
+    </form>
+  </main>
+
+  <div id="dashboard-view" hidden>
+    <header class="topbar">
+      <strong>Zenex Panel</strong>
+      <span class="spacer"></span>
+      <span id="who"></span>
+      <button id="logout" type="button" class="ghost">Sign out</button>
+    </header>
+    <main class="content">
+      <p id="metrics-error" class="error" role="alert"></p>
+      <section class="grid" aria-label="Host metrics">
+        <div class="tile"><span class="label">Load (1 / 5 / 15 min)</span><span class="value" id="m-load">—</span><span class="sub" id="m-cpus"></span></div>
+        <div class="tile"><span class="label">Memory</span><span class="value" id="m-mem">—</span><span class="sub" id="m-mem-pct"></span></div>
+        <div class="tile"><span class="label">Disk (/)</span><span class="value" id="m-disk">—</span><span class="sub" id="m-disk-pct"></span></div>
+        <div class="tile"><span class="label">Uptime</span><span class="value" id="m-uptime">—</span></div>
+      </section>
+      <p class="note">Values are read from this server every 5 seconds. Site management is not available yet.</p>
+    </main>
+  </div>
+
+  <script src="/assets/app.js" defer></script>
+</body>
+</html>

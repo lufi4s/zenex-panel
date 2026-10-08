@@ -26,6 +26,14 @@ var (
 	ErrMethodNotAllowed = APIError{Status: http.StatusMethodNotAllowed, Code: "method_not_allowed", Message: "method not allowed"}
 	ErrInternal         = APIError{Status: http.StatusInternalServerError, Code: "internal_error", Message: "internal server error"}
 	ErrBodyTooLarge     = APIError{Status: http.StatusRequestEntityTooLarge, Code: "body_too_large", Message: "request body too large"}
+	ErrInvalidRequest   = APIError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "invalid request"}
+	ErrInvalidCreds     = APIError{Status: http.StatusUnauthorized, Code: "invalid_credentials", Message: "email or password is incorrect"}
+	ErrUnauthorized     = APIError{Status: http.StatusUnauthorized, Code: "unauthorized", Message: "sign in required"}
+	ErrCSRF             = APIError{Status: http.StatusForbidden, Code: "csrf_failed", Message: "request blocked: missing anti-CSRF header"}
+	ErrRateLimited      = APIError{Status: http.StatusTooManyRequests, Code: "rate_limited", Message: "too many requests, slow down"}
+	ErrAccountLocked    = APIError{Status: http.StatusTooManyRequests, Code: "account_locked", Message: "account temporarily locked after repeated failures"}
+	ErrUnavailable      = APIError{Status: http.StatusServiceUnavailable, Code: "service_unavailable", Message: "service temporarily unavailable"}
+	ErrUnsupportedHost  = APIError{Status: http.StatusServiceUnavailable, Code: "unsupported_platform", Message: "host metrics require a Linux server"}
 )
 
 func writeError(w http.ResponseWriter, requestID string, e APIError) {

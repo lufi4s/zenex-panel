@@ -6,13 +6,13 @@
 |---|---|---|---|
 | Panel (customer UI) | SvelteKit / TypeScript | `apps/panel` | not started |
 | Admin UI | SvelteKit / TypeScript | `apps/admin` | not started |
-| API | Go | `apps/api` | skeleton: health, config, RBAC, job state machine |
+| API + UI | Go + embedded HTML/JS | `apps/api` | login, sessions, RBAC, audit, live host metrics, embedded panel UI |
 | Zenex Agent | Go (Linux) | `services/agent` | executor + Nginx actions |
 | Security Engine | Go | `services/security-engine` | not started |
 | Migration Engine | Go | `services/migration-engine` | not started |
 | Provisioner | Go | `services/provisioner` | not started |
 | Shared validation | Go | `packages/validation` | done |
-| Central DB schema | PostgreSQL | `infrastructure/database/migrations` | 0001 written, not yet applied |
+| Central DB schema | PostgreSQL | `apps/api/migrations` (embedded, applied on start) | 0001 applied and verified |
 
 ## Trust boundaries
 

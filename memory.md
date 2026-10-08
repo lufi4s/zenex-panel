@@ -17,7 +17,7 @@ Monorepo (see `docs/architecture.md`, `docs/security.md`):
 | `services/security-engine`, `migration-engine`, `provisioner` | Go | Empty dirs. Not started. |
 | `packages/validation` | Go | Done: site slug (reserved names), DNS domain, compose slug+apex, Linux user, idempotency key. Used via `replace` by `services/agent`. Not yet imported by `apps/api`. |
 | `packages/shared-types`, `security-rules`, `config-schema` | — | Empty. |
-| `infrastructure/database/migrations/0001_init.sql` | SQL | Full central schema (identity, RBAC, nodes, sites, domains, jobs, job_steps, job_logs, backups, security events, quarantine, migrations, SMTP, email outbox, alerts, settings, append-only audit_logs). |
+| `apps/api/migrations/0001_init.sql` | SQL | Full central schema (identity, RBAC, nodes, sites, domains, jobs, job_steps, job_logs, backups, security events, quarantine, migrations, SMTP, email outbox, alerts, settings, append-only audit_logs). |
 | `infrastructure/{ansible,systemd,nginx,deployment}` | — | Empty. |
 | `tests/*` | — | Empty. |
 
@@ -42,7 +42,7 @@ Session 1 (foundation):
 - `apps/api/internal/rbac/{rbac.go,rbac_test.go}`
 - `apps/api/internal/jobs/{state.go,state_test.go}`
 - `apps/api/internal/httpapi/{router.go,router_test.go,middleware.go,errors.go}`
-- `infrastructure/database/migrations/0001_init.sql`
+- `apps/api/migrations/0001_init.sql`
 - `docs/architecture.md`, `docs/security.md`
 - `memory.md` (this file)
 
@@ -99,3 +99,28 @@ Priority order:
 - Git repo initialized on `main`. Commits: `36f9db7` (foundation + install script), `bb9dd98` (gitattributes). Local git identity set to Saiful <saiful.ops@zenexcloud.com>.
 - GitHub CLI installed (`C:\Program Files\GitHub CLI\gh.exe`). NOT logged in. Repo not yet created or pushed.
 - Pending: `gh auth login` (user must run), create repo `zenex-panel`, push, share raw install URL: `https://raw.githubusercontent.com/<owner>/zenex-panel/main/infrastructure/deployment/install.sh`. Replace `<owner>` in install.sh header comment if it differs.
+
+## 7. Session 3: one-command panel install
+
+Built:
+- `apps/api` now a real control plane: PostgreSQL (pgx v5.7.2), embedded migrations applied on `serve`, `create-admin` subcommand (reads email+password from stdin), Argon2id passwords (OWASP params), 12h sessions stored as SHA-256 hashes, HttpOnly/Secure/SameSite=Strict cookie, custom-header CSRF guard, account lock after 5 failures (15 min), per-IP login rate limit (10/min), audit rows for login/logout, `/api/v1/system/metrics` reading real /proc + statfs (Linux only; 503 elsewhere).
+- Embedded UI: `apps/api/web/index.html`, `assets/app.js`, `assets/app.css`. Vanilla JS, no build step, CSP `script-src 'self'`. Temporary until SvelteKit `apps/panel` exists.
+- TLS: API serves HTTPS itself (`ZENEX_TLS_CERT`/`ZENEX_TLS_KEY`). Production refuses to start without TLS and DB.
+- `infrastructure/deployment/install.sh`: one command on Ubuntu 24.04. Installs PostgreSQL, golang-go (1.22), builds API from git, creates DB role + DB, self-signed cert for server IP, systemd unit `zenex-api` (hardened), UFW (22/80/443/8443), base web stack (nginx, php-fpm, mariadb, redis), admin account. Prints `https://<ip>:8443`. Credentials in `/root/zenex-admin-credentials.txt`. Re-run keeps secrets and admin.
+
+Verified:
+- `go test ./...` passes for apps/api (Windows). `GOOS=linux go build` and `go vet` pass.
+- End-to-end on Windows against PostgreSQL 16 (scratch cluster port 55432, DB zenex_e2e): migrate, create-admin, login 200 with cookie, /me 200, metrics 503 (expected on Windows), logout 204, session revoked (401), audit rows written.
+- `install.sh` passes `bash -n`. NOT run on a real Ubuntu server.
+
+Not verified:
+- Live /proc metrics output (needs Linux runtime; no WSL distro installed).
+- Full installer on a fresh VPS.
+
+Pending (in order):
+1. Test install.sh on a throwaway Ubuntu 24.04 VPS; fix anything it hits.
+2. Frontend: replace embedded UI with SvelteKit `apps/panel` once login flow is stable.
+3. Agent: `main`, outbound mTLS registration, command dispatch via allowlist.
+4. Site creation: DNS (wildcard), Linux user, PHP-FPM pool, MariaDB, WP-CLI install, Nginx vhost + `nginx -t` gate, SSL.
+5. Password reset, TOTP 2FA, CSRF token (currently custom-header only), session list/revoke UI.
+6. Let's Encrypt for panel domain (currently self-signed IP cert).
