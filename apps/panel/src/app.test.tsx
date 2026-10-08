@@ -164,7 +164,7 @@ describe("panel", () => {
   it("shows sign-in when there is no session", async () => {
     vi.stubGlobal("fetch", mockApi({ signedIn: false }));
     renderApp();
-    expect(await screen.findByText("Sign in to Zenex")).toBeTruthy();
+    expect(await screen.findByText("Welcome back")).toBeTruthy();
   });
 
   it("signs in and shows the single-page dashboard", async () => {

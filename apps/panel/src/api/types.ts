@@ -172,3 +172,13 @@ export interface FileContent {
   path: string;
   content: string;
 }
+
+// ---------------------------------------------------------------------------
+// Branding
+// ---------------------------------------------------------------------------
+
+export interface Branding {
+  name: string;
+  tagline: string;
+  primary_color: string;
+}

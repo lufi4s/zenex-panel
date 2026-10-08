@@ -31,6 +31,8 @@ var uuidRe = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[
 // SiteStore is the persistence surface for domains, sites and jobs.
 type SiteStore interface {
 	NotificationStore
+	GetBranding(ctx context.Context) (store.Branding, error)
+	SetBranding(ctx context.Context, userID string, b store.Branding) error
 	CreateDomain(ctx context.Context, ownerID, apex string) (store.Domain, error)
 	ListDomains(ctx context.Context, ownerID string) ([]store.Domain, error)
 	DomainOwnedBy(ctx context.Context, ownerID, apex string) (string, error)

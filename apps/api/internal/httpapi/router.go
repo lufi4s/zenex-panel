@@ -38,6 +38,8 @@ func NewRouter(d Deps) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.Handle("GET /api/v1/health", http.HandlerFunc(d.handleHealth))
+	mux.HandleFunc("GET /api/v1/branding", d.handleGetBranding)
+	mux.Handle("PUT /api/v1/branding", requireCSRF(d.requireSession(d.handleSetBranding)))
 	mux.Handle("POST /api/v1/auth/login", requireCSRF(http.HandlerFunc(d.handleLogin)))
 	mux.Handle("POST /api/v1/auth/logout", requireCSRF(d.requireSession(d.handleLogout)))
 	mux.Handle("GET /api/v1/auth/me", d.requireSession(d.handleMe))

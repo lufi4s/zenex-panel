@@ -6,10 +6,11 @@ import {
   LayoutDashboard,
   LineChart,
   LogOut,
+  Palette,
   ScrollText,
   Server,
 } from "lucide-react";
-import { useLogout } from "@/api/queries";
+import { useBranding, useLogout } from "@/api/queries";
 import type { User } from "@/api/types";
 import { NotificationBell } from "@/components/NotificationBell";
 import { Button } from "@/components/ui/button";
@@ -24,7 +25,10 @@ export const SECTIONS = [
   { id: "activity", label: "Activity", icon: ScrollText },
 ] as const;
 
-type SectionId = (typeof SECTIONS)[number]["id"];
+/** Administrators also get a Branding section. */
+const ADMIN_SECTION = { id: "branding", label: "Branding", icon: Palette } as const;
+
+type SectionId = (typeof SECTIONS)[number]["id"] | "branding";
 
 /** Which section is in view, so the menu can highlight it while scrolling. */
 function useActiveSection(): SectionId {
@@ -85,6 +89,9 @@ function NavLink({
  */
 export function AppShell({ user, children }: { user: User; children: ReactNode }) {
   const logout = useLogout();
+  const branding = useBranding();
+  const sections = user.roles.includes("administrator") ? [...SECTIONS, ADMIN_SECTION] : SECTIONS;
+  const name = branding.data?.name ?? "Zenex Panel";
   const active = useActiveSection();
 
   return (
@@ -96,16 +103,16 @@ export function AppShell({ user, children }: { user: User; children: ReactNode }
               className="flex size-7 items-center justify-center rounded-md bg-primary text-sm font-bold text-primary-foreground"
               aria-hidden
             >
-              Z
+              {name.trim()[0]?.toUpperCase() ?? "Z"}
             </span>
-            <span className="font-semibold tracking-tight">Zenex</span>
+            <span className="font-semibold tracking-tight">{name}</span>
           </div>
 
           <nav
             aria-label="Sections"
             className="hidden min-w-0 flex-1 items-center gap-1 overflow-x-auto md:flex"
           >
-            {SECTIONS.map((s) => (
+            {sections.map((s) => (
               <NavLink
                 key={s.id}
                 id={s.id}
@@ -141,7 +148,7 @@ export function AppShell({ user, children }: { user: User; children: ReactNode }
           aria-label="Sections"
           className="flex gap-1 overflow-x-auto border-t border-border px-3 py-2 md:hidden"
         >
-          {SECTIONS.map((s) => (
+          {sections.map((s) => (
             <NavLink key={s.id} id={s.id} label={s.label} icon={s.icon} active={active === s.id} />
           ))}
         </nav>

@@ -1,6 +1,7 @@
 import { lazy, Suspense, useState, type ReactNode } from "react";
 import type { User } from "@/api/types";
 import { ActivityCard } from "@/components/ActivityCard";
+import { BrandingCard } from "@/components/BrandingCard";
 import { AppShell } from "@/components/AppShell";
 import { DomainsCard } from "@/components/DomainsCard";
 import { JobProgress } from "@/components/JobProgress";
@@ -106,6 +107,16 @@ export function Dashboard({ user }: { user: User }) {
       >
         <WebsitesCard onStarted={startJob} />
       </Section>
+
+      {user.roles.includes("administrator") && (
+        <Section
+          id="branding"
+          title="Branding"
+          description="Name, tagline and colour of this panel."
+        >
+          <BrandingCard />
+        </Section>
+      )}
 
       <Section
         id="activity"

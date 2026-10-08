@@ -10,6 +10,7 @@ import { apiRequest, describeError, newIdempotencyKey, ApiError } from "./client
 import { toast } from "../lib/toast";
 import type {
   ActivityPage,
+  Branding,
   ActivityResult,
   Domain,
   FileContent,
@@ -409,6 +410,32 @@ export function useDeleteFile(siteId: string) {
     onSuccess: (_result, path) => {
       toast.success(`Deleted ${path.split("/").pop() ?? path}`);
       qc.invalidateQueries({ queryKey: ["files", siteId] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Branding
+// ---------------------------------------------------------------------------
+
+export function useBranding() {
+  return useQuery({
+    queryKey: ["branding"],
+    queryFn: () => apiRequest<Branding>("/api/v1/branding"),
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+}
+
+export function useSaveBranding() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: Branding) =>
+      apiRequest<Branding>("/api/v1/branding", { method: "PUT", body: input }),
+    meta: { silent: true },
+    onSuccess: (saved) => {
+      qc.setQueryData(["branding"], saved);
+      toast.success("Branding saved");
     },
   });
 }
