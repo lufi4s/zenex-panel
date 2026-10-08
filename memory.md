@@ -151,3 +151,32 @@ Known limitations (not yet built):
 - Domain ownership is not verified (no DNS check) before a site is created.
 - The API and helper share one socket group (zenex); any process running as zenex can request site operations.
 - Panel must be served over HTTPS (self-signed IP cert); site HTTP only.
+
+## 9. Session 5: DNS verification and site management
+
+DNS verification (`apps/api/internal/dnscheck`):
+- Connecting a domain probes a random name under it. Verified only when `*.domain` resolves to ZENEX_PUBLIC_IP (wildcard required). Apex-only is not enough. Messages tell the customer which A records to add; Cloudflare grey-cloud noted.
+- Website creation requires the exact name (`label.domain`) to resolve to this server (400 `dns_not_pointing`).
+- Endpoint `POST /api/v1/domains/{id}/verify` re-checks.
+
+Site management (`apps/api/internal/manage`, helper ops in `services/agent/internal/helper/manage.go`):
+- Suspend / resume (vhost disabled; data kept). Suspended addresses show 404.
+- PHP-FPM restart for the site's version (affects other sites on that version).
+- PHP version change (new pool validated before the old one is removed; only installed versions).
+- Error log tail (`logs.tail`).
+- Delete: background job `site.delete`, `site.purge` removes vhost, pool, database, DB user, home dir, logs and system account. Address/name become reusable (migration 0003 uses partial unique indexes on live rows).
+- Every action is state-checked and audited.
+
+Verified on VPS 162.4.35.76:
+- example.com (behind Cloudflare, not this server) -> not verified, message with exact records; site creation refused.
+- 162.4.35.76.nip.io -> verified.
+- Suspend -> 404; resume -> 200. PHP restart 200; logs 200 (real nginx error lines); versions ["8.3"]; same-version switch 409; missing version 422.
+- Delete shop1 -> job succeeded; files, account, DB, pool, vhost removed; address 404.
+- Recreate shop1 with same name -> provisioned successfully.
+- Unknown hosts -> 404 (installer replaces Ubuntu default site with zenex-default catch-all).
+
+Not built (the "full manage" gap):
+- Backups / restore, SSL, staging / clone, cache clear, WordPress updates, plugin/theme management, add domain aliases, resource limits, per-site traffic/health monitoring, malware scanning.
+
+Operational notes:
+- raw.githubusercontent.com caches briefly and different edges can serve different versions. If the VPS runs an old installer, run it from the git checkout: `git -C /opt/zenex/src fetch --depth 1 origin main && git -C /opt/zenex/src reset --hard FETCH_HEAD && bash /opt/zenex/src/infrastructure/deployment/install.sh`.
