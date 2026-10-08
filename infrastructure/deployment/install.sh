@@ -84,7 +84,7 @@ create_service_user() {
 create_dirs() {
     log "creating Zenex directories"
     install -d -m 0750 -o root -g root "$CONF_DIR"
-    install -d -m 0750 -o root -g root "$TLS_DIR"
+    install -d -m 0750 -o root -g "$ZENEX_USER" "$TLS_DIR"
     install -d -m 0750 -o "$ZENEX_USER" -g "$ZENEX_USER" "$STATE_DIR"
     install -d -m 0750 -o "$ZENEX_USER" -g adm "$LOG_DIR"
     install -d -m 0755 -o root -g root "$(dirname "$SRC_DIR")"
