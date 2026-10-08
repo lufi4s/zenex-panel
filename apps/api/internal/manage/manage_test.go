@@ -93,3 +93,5 @@ func TestSwitchPHPRejectsSameVersion(t *testing.T) {
 		t.Fatalf("expected refusal, got %v", err)
 	}
 }
+
+func (f *fakeStore) Notify(context.Context, string, string, string, string) error { return nil }

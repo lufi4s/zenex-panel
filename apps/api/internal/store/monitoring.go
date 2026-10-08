@@ -139,14 +139,15 @@ func (s *Store) InsertSiteCheck(ctx context.Context, c SiteCheck) error {
 
 // LiveSite is the minimum the monitor needs to probe a website.
 type LiveSite struct {
-	ID     string
-	Domain string
+	ID      string
+	Domain  string
+	OwnerID string
 }
 
 // ReadySites returns every live website for uptime probes.
 func (s *Store) ReadySites(ctx context.Context) ([]LiveSite, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id::text, primary_domain::text FROM sites
+		SELECT id::text, primary_domain::text, owner_user_id::text FROM sites
 		WHERE state = 'ready' AND deleted_at IS NULL`)
 	if err != nil {
 		return nil, err
@@ -155,7 +156,7 @@ func (s *Store) ReadySites(ctx context.Context) ([]LiveSite, error) {
 	var out []LiveSite
 	for rows.Next() {
 		var ls LiveSite
-		if err := rows.Scan(&ls.ID, &ls.Domain); err != nil {
+		if err := rows.Scan(&ls.ID, &ls.Domain, &ls.OwnerID); err != nil {
 			return nil, err
 		}
 		out = append(out, ls)

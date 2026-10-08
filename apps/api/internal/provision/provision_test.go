@@ -229,3 +229,5 @@ func siteServer(t *testing.T) *httptest.Server {
 	t.Cleanup(srv.Close)
 	return srv
 }
+
+func (m *memStore) Notify(context.Context, string, string, string, string) error { return nil }

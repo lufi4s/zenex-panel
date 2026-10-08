@@ -1,11 +1,13 @@
 import {
+  MutationCache,
   QueryClient,
   useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { apiRequest, newIdempotencyKey, ApiError } from "./client";
+import { apiRequest, describeError, newIdempotencyKey, ApiError } from "./client";
+import { toast } from "../lib/toast";
 import type {
   ActivityPage,
   ActivityResult,
@@ -14,6 +16,7 @@ import type {
   JobLogLine,
   Metrics,
   MetricSeries,
+  NotificationsPage,
   ServiceState,
   Site,
   SiteCredentials,
@@ -23,6 +26,13 @@ import type {
 } from "./types";
 
 export const queryClient = new QueryClient({
+  mutationCache: new MutationCache({
+    onError: (error, _variables, _context, mutation) => {
+      // Forms that already show their own error set meta.silent to avoid a second message.
+      if (mutation.meta?.silent) return;
+      toast.error(describeError(error));
+    },
+  }),
   defaultOptions: {
     queries: {
       retry: (failureCount, error) => {
@@ -60,6 +70,7 @@ export function useMe() {
 export function useLogin() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { silent: true },
     mutationFn: (input: { email: string; password: string }) =>
       apiRequest<User>("/api/v1/auth/login", { method: "POST", body: input }),
     onSuccess: (user) => qc.setQueryData(keys.me, user),
@@ -100,6 +111,7 @@ export function useDomains() {
 export function useAddDomain() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { silent: true },
     mutationFn: (apex: string) =>
       apiRequest<Domain>("/api/v1/domains", { method: "POST", body: { apex } }),
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.domains }),
@@ -109,6 +121,7 @@ export function useAddDomain() {
 export function useCheckDomain() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { silent: true },
     mutationFn: (id: string) =>
       apiRequest<Domain>(`/api/v1/domains/${id}/verify`, { method: "POST" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.domains }),
@@ -140,6 +153,7 @@ export interface CreateSiteResult {
 export function useCreateSite() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { silent: true },
     mutationFn: (input: { label: string; apex: string }) =>
       apiRequest<CreateSiteResult>("/api/v1/sites", {
         method: "POST",
@@ -154,6 +168,7 @@ export function useCreateSite() {
 export function useSiteAction() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { silent: true },
     mutationFn: (input: { id: string; action: "suspend" | "resume" | "php-restart" }) =>
       apiRequest<Site | void>(`/api/v1/sites/${input.id}/${input.action}`, { method: "POST" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.sites }),
@@ -163,6 +178,7 @@ export function useSiteAction() {
 export function useChangePHP() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { silent: true },
     mutationFn: (input: { id: string; version: string }) =>
       apiRequest<Site>(`/api/v1/sites/${input.id}/php`, {
         method: "POST",
@@ -175,6 +191,7 @@ export function useChangePHP() {
 export function useDeleteSite() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { silent: true },
     mutationFn: (id: string) =>
       apiRequest<{ job_id: string }>(`/api/v1/sites/${id}`, { method: "DELETE" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.sites }),
@@ -183,6 +200,7 @@ export function useDeleteSite() {
 
 export function useCredentials() {
   return useMutation({
+    meta: { silent: true },
     mutationFn: (id: string) => apiRequest<SiteCredentials>(`/api/v1/sites/${id}/credentials`),
   });
 }
@@ -222,6 +240,7 @@ export function useJob(id: string | null) {
 export function useRetryJob() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { silent: true },
     mutationFn: (id: string) =>
       apiRequest<{ job_id: string }>(`/api/v1/jobs/${id}/retry`, { method: "POST" }),
     onSuccess: (_result, id) => {
@@ -286,5 +305,43 @@ export function useJobLogs(jobId: string | null, enabled: boolean) {
     queryFn: () => apiRequest<JobLogLine[]>(`/api/v1/jobs/${jobId}/logs`),
     enabled: enabled && jobId !== null,
     refetchInterval: enabled ? 2_000 : false,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Notifications and domain removal
+// ---------------------------------------------------------------------------
+
+export function useNotifications() {
+  return useQuery({
+    queryKey: ["notifications"],
+    queryFn: () => apiRequest<NotificationsPage>("/api/v1/notifications?limit=30"),
+    refetchInterval: 30_000,
+  });
+}
+
+export function useMarkNotificationsRead() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { ids?: number[]; all?: boolean }) =>
+      apiRequest<void>("/api/v1/notifications/read", {
+        method: "POST",
+        body: { ids: input.ids ?? [], all: input.all ?? false },
+      }),
+    meta: { silent: true },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["notifications"] }),
+  });
+}
+
+export function useDeleteDomain() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { silent: true },
+    mutationFn: (id: string) => apiRequest<void>(`/api/v1/domains/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      toast.success("Domain removed");
+      qc.invalidateQueries({ queryKey: keys.domains });
+      qc.invalidateQueries({ queryKey: keys.sites });
+    },
   });
 }

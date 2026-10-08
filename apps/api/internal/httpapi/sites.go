@@ -30,6 +30,7 @@ var uuidRe = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[
 
 // SiteStore is the persistence surface for domains, sites and jobs.
 type SiteStore interface {
+	NotificationStore
 	CreateDomain(ctx context.Context, ownerID, apex string) (store.Domain, error)
 	ListDomains(ctx context.Context, ownerID string) ([]store.Domain, error)
 	DomainOwnedBy(ctx context.Context, ownerID, apex string) (string, error)
@@ -126,6 +127,13 @@ func (d Deps) checkDomain(r *http.Request, ownerID string, dom store.Domain) sto
 		return dom
 	}
 	res := d.Site.DNS.CheckDomain(r.Context(), dom.Apex)
+	if dom.Verified != res.Verified {
+		if res.Verified {
+			d.notify(r, ownerID, "success", "DNS is ready for "+dom.Apex, res.Message)
+		} else {
+			d.notify(r, ownerID, "warning", "DNS problem for "+dom.Apex, res.Message)
+		}
+	}
 	if err := d.Sites.SetDomainCheck(r.Context(), dom.ID, res.Verified, res.Message); err != nil {
 		d.Log.Error("saving domain check failed", "request_id", requestIDFrom(r), "operation", "domains.check", "error", err)
 		dom.Verified, dom.Message = res.Verified, res.Message

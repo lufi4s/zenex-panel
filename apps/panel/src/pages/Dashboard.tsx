@@ -6,6 +6,7 @@ import { ActivityCard } from "@/components/ActivityCard";
 import { DomainsCard } from "@/components/DomainsCard";
 import { JobProgress } from "@/components/JobProgress";
 import { MonitoringCard } from "@/components/MonitoringCard";
+import { NotificationBell } from "@/components/NotificationBell";
 import { NewWebsiteCard } from "@/components/NewWebsiteCard";
 import { ServerStrip } from "@/components/ServerStrip";
 import { ServicesCard } from "@/components/ServicesCard";
@@ -59,7 +60,11 @@ export function Dashboard({ user }: { user: User }) {
               </a>
             ))}
           </nav>
-          <span className="ml-auto truncate text-sm text-muted-foreground">{user.email}</span>
+          <span className="ml-auto" />
+          <NotificationBell />
+          <span className="hidden truncate text-sm text-muted-foreground sm:inline">
+            {user.email}
+          </span>
           <Button
             variant="ghost"
             size="sm"

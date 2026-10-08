@@ -38,6 +38,7 @@ type Store interface {
 	CreateManagementJob(ctx context.Context, actorID, siteID, nodeID, jobType string) (string, error)
 	FinishJob(ctx context.Context, jobID, status, errMsg string) error
 	AppendJobLog(ctx context.Context, jobID, level, msg string) error
+	Notify(ctx context.Context, userID, level, title, body string) error
 }
 
 // Helper runs privileged operations.
@@ -146,11 +147,11 @@ func (m *Manager) Delete(ctx context.Context, site store.Site, actorID string) (
 	if err != nil {
 		return "", err
 	}
-	go m.runDelete(site, jobID)
+	go m.runDelete(site, jobID, actorID)
 	return jobID, nil
 }
 
-func (m *Manager) runDelete(site store.Site, jobID string) {
+func (m *Manager) runDelete(site store.Site, jobID, actorID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), m.DeleteTimeout)
 	defer cancel()
 
@@ -162,6 +163,7 @@ func (m *Manager) runDelete(site store.Site, jobID string) {
 		_ = m.Store.AppendJobLog(ctx, jobID, "error", msg)
 		_ = m.Store.FinishJob(ctx, jobID, "failed", msg)
 		_ = m.Store.SetSiteState(ctx, site.ID, "failed")
+		_ = m.Store.Notify(ctx, actorID, "error", "Could not delete "+site.Domain, "Some parts were not removed. Try the delete again. Details are in the job log.")
 		return
 	}
 	if err := m.Store.MarkSiteDeleted(ctx, site.ID); err != nil {
@@ -169,6 +171,7 @@ func (m *Manager) runDelete(site store.Site, jobID string) {
 		return
 	}
 	_ = m.Store.AppendJobLog(ctx, jobID, "info", "website deleted")
+	_ = m.Store.Notify(ctx, actorID, "success", "Website deleted", site.Domain+" and its files, database and login were removed.")
 	_ = m.Store.FinishJob(ctx, jobID, "succeeded", "")
 }
 

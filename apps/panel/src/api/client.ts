@@ -64,3 +64,15 @@ export async function apiRequest<T>(
 export function newIdempotencyKey(): string {
   return crypto.randomUUID();
 }
+
+/**
+ * A short, plain-language message for any failure. Technical details from the
+ * server are never shown here, only the API's own sentence.
+ */
+export function describeError(err: unknown): string {
+  if (err instanceof ApiError) return err.message;
+  if (err instanceof TypeError) {
+    return "Cannot reach the panel. Check your internet connection and try again.";
+  }
+  return "Something unexpected happened. Please try again.";
+}

@@ -135,3 +135,23 @@ export interface JobLogLine {
   level: "info" | "warn" | "error";
   message: string;
 }
+
+// ---------------------------------------------------------------------------
+// Notifications
+// ---------------------------------------------------------------------------
+
+export type NotificationLevel = "info" | "success" | "warning" | "error";
+
+export interface Notification {
+  id: number;
+  level: NotificationLevel;
+  title: string;
+  body: string;
+  created_at: string;
+  read_at?: string;
+}
+
+export interface NotificationsPage {
+  items: Notification[];
+  unread: number;
+}

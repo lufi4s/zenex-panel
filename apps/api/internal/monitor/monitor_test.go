@@ -17,6 +17,7 @@ import (
 
 type fakeStore struct {
 	mu      sync.Mutex
+	notes   []string
 	samples []store.MetricSample
 	checks  []store.SiteCheck
 	sites   []store.LiveSite
@@ -129,5 +130,32 @@ func TestProbeOnceChecksEverySite(t *testing.T) {
 	c.probeOnce(context.Background())
 	if len(fs.checks) != 2 {
 		t.Fatalf("checks recorded = %d, want 2", len(fs.checks))
+	}
+}
+
+func (f *fakeStore) Notify(_ context.Context, _, level, title, _ string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.notes = append(f.notes, level+": "+title)
+	return nil
+}
+
+// Only changes of state are announced: the first result is a baseline, and a
+// repeat of the same state is silent.
+func TestOwnerNotifiedOnlyWhenStateChanges(t *testing.T) {
+	fs := &fakeStore{}
+	c := New(fs, quiet())
+	ctx := context.Background()
+	site := store.LiveSite{ID: "s1", Domain: "example.com", OwnerID: "u1"}
+
+	c.recordTransition(ctx, site, store.SiteCheck{OK: true}) // baseline
+	c.recordTransition(ctx, site, store.SiteCheck{OK: true}) // unchanged
+	c.recordTransition(ctx, site, store.SiteCheck{OK: false, Error: "timed out"})
+	c.recordTransition(ctx, site, store.SiteCheck{OK: false}) // still down
+	c.recordTransition(ctx, site, store.SiteCheck{OK: true})
+
+	want := []string{"error: Website is down", "success: Website is back online"}
+	if len(fs.notes) != len(want) || fs.notes[0] != want[0] || fs.notes[1] != want[1] {
+		t.Fatalf("notifications = %v, want %v", fs.notes, want)
 	}
 }

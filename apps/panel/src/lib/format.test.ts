@@ -50,3 +50,24 @@ describe("errorMessageFrom", () => {
     expect(errorMessageFrom({ error: {} }, "fallback")).toBe("fallback");
   });
 });
+
+describe("describeError", () => {
+  it("uses the API's sentence for API errors", async () => {
+    const { ApiError, describeError } = await import("../api/client");
+    expect(describeError(new ApiError(409, "domain_in_use", "still has 2 live websites"))).toBe(
+      "still has 2 live websites",
+    );
+  });
+
+  it("explains a network failure in plain words", async () => {
+    const { describeError } = await import("../api/client");
+    expect(describeError(new TypeError("Failed to fetch"))).toMatch(/Cannot reach the panel/);
+  });
+
+  it("never shows raw technical text for unknown errors", async () => {
+    const { describeError } = await import("../api/client");
+    expect(describeError(new Error("ECONNRESET socket 10.0.0.1"))).toBe(
+      "Something unexpected happened. Please try again.",
+    );
+  });
+});

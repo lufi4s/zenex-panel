@@ -56,6 +56,7 @@ type Store interface {
 	SetStepStatus(ctx context.Context, jobID, name, status, errMsg string) error
 	FinishJob(ctx context.Context, jobID, status, errMsg string) error
 	AppendJobLog(ctx context.Context, jobID, level, msg string) error
+	Notify(ctx context.Context, userID, level, title, body string) error
 }
 
 // Helper runs privileged operations. Implemented by helperclient.Client.
@@ -188,7 +189,11 @@ func (p *Provisioner) Run(ctx context.Context, jobID string) error {
 	if err := p.Store.FinishJob(ctx, jobID, "succeeded", ""); err != nil {
 		return err
 	}
-	return p.Store.SetSiteState(ctx, site.ID, "ready")
+	if err := p.Store.SetSiteState(ctx, site.ID, "ready"); err != nil {
+		return err
+	}
+	_ = p.Store.Notify(ctx, job.ActorID, "success", "Website is live", site.Domain+" is ready. Open it from your websites list.")
+	return nil
 }
 
 // ResumePending runs every provisioning job that was interrupted by a restart.
@@ -203,17 +208,44 @@ func (p *Provisioner) ResumePending(ctx context.Context, ids []string) {
 // fail records the failure on the step, the job and the site. The message is
 // stripped of every derived secret before it is stored.
 func (p *Provisioner) fail(ctx context.Context, jobID, step string, secrets []string, err error) error {
-	msg := sanitize(err.Error(), secrets)
+	detail := sanitize(err.Error(), secrets)
+	summary := FriendlyFailure(step, detail)
 	if step != "" {
-		_ = p.Store.SetStepStatus(ctx, jobID, step, "failed", msg)
+		_ = p.Store.SetStepStatus(ctx, jobID, step, "failed", detail)
 	}
-	_ = p.Store.FinishJob(ctx, jobID, "failed", msg)
-	if job, jerr := p.Store.GetJob(ctx, jobID); jerr == nil && job.SiteID != "" {
-		_ = p.Store.SetSiteState(ctx, job.SiteID, "failed")
+	_ = p.Store.FinishJob(ctx, jobID, "failed", summary)
+	if job, jerr := p.Store.GetJob(ctx, jobID); jerr == nil {
+		if job.SiteID != "" {
+			_ = p.Store.SetSiteState(ctx, job.SiteID, "failed")
+		}
+		_ = p.Store.Notify(ctx, job.ActorID, "error", "Website build failed", summary)
 	}
-	p.log(ctx, jobID, "error", msg)
-	p.Log.Warn("provisioning step failed", "job_id", jobID, "step", step, "error", msg)
-	return fmt.Errorf("provisioning failed at %s: %s", step, msg)
+	p.log(ctx, jobID, "error", detail)
+	p.Log.Warn("provisioning step failed", "job_id", jobID, "step", step, "error", detail)
+	return fmt.Errorf("provisioning failed at %s: %s", step, detail)
+}
+
+// stepProblems explains, in plain language, what went wrong at each step.
+var stepProblems = map[string]string{
+	"create_account":     "Could not create the website's system account.",
+	"prepare_files":      "Could not prepare the website folder.",
+	"create_database":    "Could not create the database.",
+	"php_pool":           "Could not start PHP for this website.",
+	"download_wordpress": "Could not download WordPress. Check the server's internet connection and retry.",
+	"create_wp_config":   "Could not create the WordPress configuration.",
+	"install_wordpress":  "Could not install WordPress.",
+	"harden_wordpress":   "Could not apply the WordPress security settings.",
+	"web_site":           "Could not publish the website on the web server.",
+	"health_check":       "The website was published but did not answer. Check its DNS record, then retry.",
+}
+
+// FriendlyFailure returns the summary shown to the customer for a failed step.
+// The technical detail is kept on the step itself for support.
+func FriendlyFailure(step, detail string) string {
+	if title, ok := stepProblems[step]; ok {
+		return title
+	}
+	return "The build stopped unexpectedly. Retry, or contact support if it keeps failing."
 }
 
 func (p *Provisioner) log(ctx context.Context, jobID, level, msg string) {

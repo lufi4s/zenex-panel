@@ -99,6 +99,27 @@ function mockApi(options: { signedIn: boolean }) {
         ],
       });
     }
+    if (url.includes("/api/v1/notifications")) {
+      return json({
+        unread: 2,
+        items: [
+          {
+            id: 1,
+            level: "error",
+            title: "Website build failed",
+            body: "Could not download WordPress.",
+            created_at: "2026-10-08T10:00:00Z",
+          },
+          {
+            id: 2,
+            level: "success",
+            title: "Website is live",
+            body: "shop.ozima.cloud is ready.",
+            created_at: "2026-10-08T09:00:00Z",
+          },
+        ],
+      });
+    }
     if (url.endsWith("/api/v1/php-versions")) return json({ versions: ["8.3"] });
     return json({ error: { code: "not_found", message: "not found" } }, 404);
   });
@@ -184,5 +205,42 @@ describe("panel", () => {
     fireEvent.click(manage);
     expect(await screen.findByRole("button", { name: "Restart PHP" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Delete" })).toBeTruthy();
+  });
+});
+
+describe("notifications and domain removal", () => {
+  beforeEach(() => {
+    queryClient.clear();
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it("shows the unread count on the bell", async () => {
+    vi.stubGlobal("fetch", mockApi({ signedIn: true }));
+    renderApp();
+    expect(await screen.findByRole("button", { name: "Notifications, 2 unread" })).toBeTruthy();
+  });
+
+  it("opens the notification list", async () => {
+    vi.stubGlobal("fetch", mockApi({ signedIn: true }));
+    renderApp();
+    fireEvent.click(await screen.findByRole("button", { name: "Notifications, 2 unread" }));
+    expect(await screen.findByText("Website build failed")).toBeTruthy();
+    expect(screen.getByText("Could not download WordPress.")).toBeTruthy();
+  });
+
+  it("keeps Remove domain disabled until the domain name is typed", async () => {
+    vi.stubGlobal("fetch", mockApi({ signedIn: true }));
+    renderApp();
+    fireEvent.click(await screen.findByRole("button", { name: /Remove/ }));
+    const confirm = await screen.findByRole("button", { name: "Remove domain" });
+    expect((confirm as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText(/Type/), { target: { value: "ozima.cloud" } });
+    expect(
+      (screen.getByRole("button", { name: "Remove domain" }) as HTMLButtonElement).disabled,
+    ).toBe(false);
   });
 });

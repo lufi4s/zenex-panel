@@ -28,6 +28,7 @@ const (
 
 // Store is the persistence surface the collector needs.
 type Store interface {
+	Notify(ctx context.Context, userID, level, title, body string) error
 	InsertMetricSample(ctx context.Context, m store.MetricSample) error
 	ReadySites(ctx context.Context) ([]store.LiveSite, error)
 	InsertSiteCheck(ctx context.Context, c store.SiteCheck) error
@@ -49,6 +50,9 @@ type Collector struct {
 	RootCAs *x509.CertPool
 
 	client *http.Client
+
+	mu     sync.Mutex
+	lastOK map[string]bool // last known state per site, for change notices
 }
 
 // New returns a collector with production defaults.
@@ -61,6 +65,7 @@ func New(s Store, log *slog.Logger) *Collector {
 		ProbeEvery:   defaultProbeEvery,
 		Retention:    defaultRetention,
 		TLSAddr:      "127.0.0.1:443",
+		lastOK:       map[string]bool{},
 	}
 }
 
@@ -133,6 +138,7 @@ func (c *Collector) probeOnce(ctx context.Context) {
 			defer wg.Done()
 			defer func() { <-sem }()
 			check := c.probe(ctx, s)
+			c.recordTransition(ctx, s, check)
 			if err := c.Store.InsertSiteCheck(ctx, check); err != nil && ctx.Err() == nil {
 				c.Log.Warn("saving uptime check failed", "error", err)
 			}
@@ -208,4 +214,28 @@ func describeProbeError(err error) string {
 
 func tlsConfig(roots *x509.CertPool) *tls.Config {
 	return &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}
+}
+
+// recordTransition tells the site owner when a website goes down or comes back.
+// Repeated results with the same state are not announced again, and the first
+// result after start is treated as the baseline.
+func (c *Collector) recordTransition(ctx context.Context, site store.LiveSite, check store.SiteCheck) {
+	c.mu.Lock()
+	prev, known := c.lastOK[site.ID]
+	c.lastOK[site.ID] = check.OK
+	c.mu.Unlock()
+	if !known || prev == check.OK || ctx.Err() != nil {
+		return
+	}
+	var err error
+	if check.OK {
+		err = c.Store.Notify(ctx, site.OwnerID, "success", "Website is back online",
+			site.Domain+" is answering again.")
+	} else {
+		err = c.Store.Notify(ctx, site.OwnerID, "error", "Website is down",
+			site.Domain+" is not answering ("+check.Error+"). The panel keeps checking and will tell you when it recovers.")
+	}
+	if err != nil {
+		c.Log.Warn("saving website notification failed", "site_id", site.ID, "error", err)
+	}
 }
