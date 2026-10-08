@@ -1,10 +1,11 @@
 import { useState, type FormEvent } from "react";
 import { useCreateSite, useDomains } from "@/api/queries";
 import { ApiError } from "@/api/client";
-import { Alert } from "@/components/ui/badge-alert";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input, Label } from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 const LABEL_PATTERN = /^[a-z][a-z0-9-]{1,26}[a-z0-9]$/;
 
@@ -101,7 +102,9 @@ export function NewWebsiteCard({ onStarted }: NewWebsiteCardProps) {
             </p>
             {error && (
               <div className="sm:col-span-3">
-                <Alert tone="danger">{error}</Alert>
+                <Alert variant="destructive">
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
               </div>
             )}
           </form>

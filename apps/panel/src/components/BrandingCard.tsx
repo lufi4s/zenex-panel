@@ -3,10 +3,11 @@ import { Check } from "lucide-react";
 import { useBranding, useSaveBranding } from "@/api/queries";
 import { describeError } from "@/api/client";
 import type { Branding } from "@/api/types";
-import { Alert } from "@/components/ui/badge-alert";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input, Label } from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { ACCENT_PRESETS, foregroundFor } from "@/lib/brand";
 import { cn } from "@/lib/utils";
 
@@ -109,7 +110,11 @@ export function BrandingCard() {
               </div>
             </div>
 
-            {save.isError && <Alert tone="danger">{describeError(save.error)}</Alert>}
+            {save.isError && (
+              <Alert variant="destructive">
+                <AlertDescription>{describeError(save.error)}</AlertDescription>
+              </Alert>
+            )}
 
             <div className="flex gap-2">
               <Button

@@ -1,6 +1,6 @@
 import { useServices } from "@/api/queries";
 import type { ServiceState } from "@/api/types";
-import { Alert } from "@/components/ui/badge-alert";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
@@ -59,7 +59,11 @@ export function ServicesCard() {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        {services.isError && <Alert tone="danger">Could not check services right now.</Alert>}
+        {services.isError && (
+          <Alert variant="destructive">
+            <AlertDescription>Could not check services right now.</AlertDescription>
+          </Alert>
+        )}
         {services.data && (
           <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {services.data.map((s) => (

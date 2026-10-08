@@ -8,7 +8,7 @@ import { JobProgress } from "@/components/JobProgress";
 import { NewWebsiteCard } from "@/components/NewWebsiteCard";
 import { ServerStrip } from "@/components/ServerStrip";
 import { WebsitesCard } from "@/components/WebsitesCard";
-import { CardSkeleton } from "@/components/ui/skeleton";
+import { CardSkeleton } from "@/components/CardSkeleton";
 
 // Heavier sections load on demand, so the first paint stays quick.
 const MonitoringCard = lazy(() =>

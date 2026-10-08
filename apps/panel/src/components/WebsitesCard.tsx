@@ -12,7 +12,9 @@ import {
 } from "@/api/queries";
 import { ApiError, errorMessageFrom } from "@/api/client";
 import type { Site, SiteHealth, SiteState } from "@/api/types";
-import { Alert, Badge } from "@/components/ui/badge-alert";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { badgeTone } from "@/lib/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -23,7 +25,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Input, Label } from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { siteUrl } from "@/lib/format";
 import { Terminal, levelFromText } from "@/components/Terminal";
 import { FileManager } from "@/components/FileManager";
@@ -72,7 +75,9 @@ function LoginDialog({ site }: { site: Site }) {
         </DialogHeader>
         {creds.isPending && <p className="text-sm text-muted-foreground">Loading…</p>}
         {creds.isError && (
-          <Alert tone="danger">{errorOf(creds.error, "Could not load the login.")}</Alert>
+          <Alert variant="destructive">
+            <AlertDescription>{errorOf(creds.error, "Could not load the login.")}</AlertDescription>
+          </Alert>
         )}
         {creds.data && (
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
@@ -114,7 +119,9 @@ function LogDialog({ site }: { site: Site }) {
         </DialogHeader>
         {log.isPending && <p className="text-sm text-muted-foreground">Loading…</p>}
         {log.isError && (
-          <Alert tone="danger">{errorOf(log.error, "Could not read the log.")}</Alert>
+          <Alert variant="destructive">
+            <AlertDescription>{errorOf(log.error, "Could not read the log.")}</AlertDescription>
+          </Alert>
         )}
         {log.data !== undefined && (
           <Terminal
@@ -187,7 +194,11 @@ function DeleteDialog({
           />
         </div>
         {del.isError && (
-          <Alert tone="danger">{errorOf(del.error, "Could not delete the website.")}</Alert>
+          <Alert variant="destructive">
+            <AlertDescription>
+              {errorOf(del.error, "Could not delete the website.")}
+            </AlertDescription>
+          </Alert>
         )}
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={() => setOpen(false)}>
@@ -247,7 +258,7 @@ function WebsiteRow({
             <span className="font-medium">{site.domain}</span>
           )}
         </div>
-        <Badge tone={STATE_TONE[site.state]}>
+        <Badge variant="outline" className={badgeTone(STATE_TONE[site.state])}>
           {busy && <span className="size-1.5 animate-pulse rounded-full bg-current" aria-hidden />}
           {STATE_LABEL[site.state]}
         </Badge>
@@ -352,9 +363,17 @@ function WebsiteRow({
           )}
 
           {message && (
-            <Alert tone="danger">{errorOf(message, "That did not work. Try again.")}</Alert>
+            <Alert variant="destructive">
+              <AlertDescription>
+                {errorOf(message, "That did not work. Try again.")}
+              </AlertDescription>
+            </Alert>
           )}
-          {action.isSuccess && !action.isPending && <Alert tone="success">Done.</Alert>}
+          {action.isSuccess && !action.isPending && (
+            <Alert className="border-success/40 bg-success/5 text-success">
+              <AlertDescription>Done.</AlertDescription>
+            </Alert>
+          )}
 
           <div className="border-t border-border pt-4">
             <p className="mb-2 text-xs text-muted-foreground">Danger zone</p>
@@ -383,7 +402,11 @@ export function WebsitesCard({ onStarted }: { onStarted: (jobId: string, title: 
       </CardHeader>
       <CardContent>
         {sites.isPending && <p className="text-sm text-muted-foreground">Loading…</p>}
-        {sites.isError && <Alert tone="danger">Could not load your websites.</Alert>}
+        {sites.isError && (
+          <Alert variant="destructive">
+            <AlertDescription>Could not load your websites.</AlertDescription>
+          </Alert>
+        )}
         {sites.data && sites.data.length === 0 && (
           <p className="text-sm text-muted-foreground">
             No websites yet. Create your first one above.

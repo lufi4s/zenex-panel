@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Cpu, HardDrive, MemoryStick, Timer } from "lucide-react";
 import { useMetrics } from "@/api/queries";
-import { Alert } from "@/components/ui/badge-alert";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatBytes, formatUptime, usedPercent } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -53,7 +53,12 @@ function Tile({
 export function ServerStrip() {
   const { data, isError, isPending } = useMetrics();
 
-  if (isError) return <Alert tone="danger">Server status is unavailable right now.</Alert>;
+  if (isError)
+    return (
+      <Alert variant="destructive">
+        <AlertDescription>Server status is unavailable right now.</AlertDescription>
+      </Alert>
+    );
   if (isPending || !data) {
     return (
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4" aria-label="Loading server status">

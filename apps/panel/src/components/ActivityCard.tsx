@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useActivity, useSites } from "@/api/queries";
 import type { ActivityResult, ActivityRow } from "@/api/types";
-import { Alert, Badge } from "@/components/ui/badge-alert";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { badgeTone } from "@/lib/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -65,7 +67,9 @@ function Row({ row, siteNames }: { row: ActivityRow; siteNames: Map<string, stri
         {target && <div className="truncate text-xs text-muted-foreground">{target}</div>}
       </td>
       <td className="py-2 pr-3">
-        <Badge tone={RESULT_TONE[row.result]}>{row.result}</Badge>
+        <Badge variant="outline" className={badgeTone(RESULT_TONE[row.result])}>
+          {row.result}
+        </Badge>
       </td>
       <td className="hidden whitespace-nowrap py-2 pr-3 text-xs text-muted-foreground md:table-cell">
         {row.error_code ? row.error_code : ""}
@@ -151,7 +155,11 @@ export function ActivityCard() {
           </div>
         </div>
 
-        {feed.isError && <Alert tone="danger">Could not load activity.</Alert>}
+        {feed.isError && (
+          <Alert variant="destructive">
+            <AlertDescription>Could not load activity.</AlertDescription>
+          </Alert>
+        )}
         {feed.isPending && <p className="text-sm text-muted-foreground">Loading…</p>}
         {feed.data && rows.length === 0 && (
           <p className="text-sm text-muted-foreground">Nothing matches these filters.</p>

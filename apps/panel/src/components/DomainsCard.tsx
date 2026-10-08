@@ -3,7 +3,8 @@ import { AlertTriangle, CheckCircle2, RefreshCw, Trash2 } from "lucide-react";
 import { useAddDomain, useCheckDomain, useDeleteDomain, useDomains } from "@/api/queries";
 import { ApiError, describeError } from "@/api/client";
 import type { Domain } from "@/api/types";
-import { Alert, Badge } from "@/components/ui/badge-alert";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -14,7 +15,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Input, Label } from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 const APEX_PATTERN = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 
@@ -70,7 +72,11 @@ function DeleteDomainDialog({ domain }: { domain: Domain }) {
             onChange={(e) => setTyped(e.target.value)}
           />
         </div>
-        {remove.isError && <Alert tone="danger">{describeError(remove.error)}</Alert>}
+        {remove.isError && (
+          <Alert variant="destructive">
+            <AlertDescription>{describeError(remove.error)}</AlertDescription>
+          </Alert>
+        )}
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={() => setOpen(false)}>
             Cancel
@@ -91,11 +97,11 @@ function DomainItem({ domain }: { domain: Domain }) {
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-medium">{domain.apex}</span>
         {domain.verified ? (
-          <Badge tone="success">
+          <Badge variant="outline" className="border-success/40 bg-success/10 text-success">
             <CheckCircle2 className="size-3" aria-hidden /> DNS ready
           </Badge>
         ) : (
-          <Badge tone="warning">
+          <Badge variant="outline" className="border-warning/40 bg-warning/10 text-warning">
             <AlertTriangle className="size-3" aria-hidden /> DNS not set
           </Badge>
         )}
@@ -117,7 +123,11 @@ function DomainItem({ domain }: { domain: Domain }) {
           {domain.message}
         </p>
       )}
-      {check.isError && <Alert tone="danger">{describeError(check.error)}</Alert>}
+      {check.isError && (
+        <Alert variant="destructive">
+          <AlertDescription>{describeError(check.error)}</AlertDescription>
+        </Alert>
+      )}
     </li>
   );
 }
@@ -153,7 +163,11 @@ export function DomainsCard() {
       </CardHeader>
       <CardContent className="space-y-4">
         {domains.isPending && <p className="text-sm text-muted-foreground">Loading…</p>}
-        {domains.isError && <Alert tone="danger">{describeError(domains.error)}</Alert>}
+        {domains.isError && (
+          <Alert variant="destructive">
+            <AlertDescription>{describeError(domains.error)}</AlertDescription>
+          </Alert>
+        )}
         {domains.data && domains.data.length === 0 && (
           <p className="text-sm text-muted-foreground">No domain added yet.</p>
         )}

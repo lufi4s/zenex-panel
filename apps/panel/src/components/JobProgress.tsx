@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useJob, useJobLogs, useRetryJob } from "@/api/queries";
 import { errorMessageFrom } from "@/api/client";
 import type { JobStep, StepStatus } from "@/api/types";
-import { Alert } from "@/components/ui/badge-alert";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Terminal, type TerminalLine } from "@/components/Terminal";
@@ -44,7 +44,12 @@ function StepRow({ step }: { step: JobStep }) {
 function LogLines({ jobId }: { jobId: string }) {
   const logs = useJobLogs(jobId, true);
   if (logs.isPending) return <p className="text-xs text-muted-foreground">Loading log…</p>;
-  if (logs.isError) return <Alert tone="danger">Could not load the log.</Alert>;
+  if (logs.isError)
+    return (
+      <Alert variant="destructive">
+        <AlertDescription>Could not load the log.</AlertDescription>
+      </Alert>
+    );
   const lines: TerminalLine[] = (logs.data ?? []).map((line) => ({
     id: line.id,
     time: new Date(line.time).toLocaleTimeString(),
@@ -104,8 +109,10 @@ export function JobProgress({ jobId, title, onDismiss }: JobProgressProps) {
       <CardContent className="space-y-3">
         {job.isPending && <p className="text-sm text-muted-foreground">Starting…</p>}
         {job.isError && (
-          <Alert tone="danger">
-            {errorMessageFrom(null, "Could not load progress. Refresh the page.")}
+          <Alert variant="destructive">
+            <AlertDescription>
+              {errorMessageFrom(null, "Could not load progress. Refresh the page.")}
+            </AlertDescription>
           </Alert>
         )}
         {job.data && (
@@ -117,7 +124,11 @@ export function JobProgress({ jobId, title, onDismiss }: JobProgressProps) {
         )}
         {status === "failed" && (
           <div className="space-y-2">
-            {job.data?.job.error && <Alert tone="danger">{job.data.job.error}</Alert>}
+            {job.data?.job.error && (
+              <Alert variant="destructive">
+                <AlertDescription>{job.data.job.error}</AlertDescription>
+              </Alert>
+            )}
             <Button
               variant="outline"
               size="sm"
@@ -127,11 +138,17 @@ export function JobProgress({ jobId, title, onDismiss }: JobProgressProps) {
               {retry.isPending ? "Retrying…" : "Retry"}
             </Button>
             {retry.isError && (
-              <Alert tone="danger">{errorMessageFrom(null, "Could not retry.")}</Alert>
+              <Alert variant="destructive">
+                <AlertDescription>{errorMessageFrom(null, "Could not retry.")}</AlertDescription>
+              </Alert>
             )}
           </div>
         )}
-        {status === "succeeded" && <Alert tone="success">Finished successfully.</Alert>}
+        {status === "succeeded" && (
+          <Alert className="border-success/40 bg-success/5 text-success">
+            <AlertDescription>Finished successfully.</AlertDescription>
+          </Alert>
+        )}
         {showLog && <LogLines jobId={jobId} />}
       </CardContent>
     </Card>

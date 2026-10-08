@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useMetricSeries } from "@/api/queries";
 import type { TimeRange } from "@/api/types";
-import { Alert } from "@/components/ui/badge-alert";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { LineChart } from "@/components/LineChart";
 import { cn } from "@/lib/utils";
@@ -121,7 +121,11 @@ export function MonitoringCard() {
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        {series.isError && <Alert tone="danger">Could not load history right now.</Alert>}
+        {series.isError && (
+          <Alert variant="destructive">
+            <AlertDescription>Could not load history right now.</AlertDescription>
+          </Alert>
+        )}
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Summary

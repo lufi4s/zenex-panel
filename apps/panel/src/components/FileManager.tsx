@@ -20,7 +20,7 @@ import {
 } from "@/api/queries";
 import { describeError } from "@/api/client";
 import type { FileEntry, Site } from "@/api/types";
-import { Alert } from "@/components/ui/badge-alert";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -83,7 +83,12 @@ function Listing({
   const [confirming, setConfirming] = useState<string | null>(null);
 
   if (folder.isPending) return <p className="p-4 text-sm text-muted-foreground">Loading folder…</p>;
-  if (folder.isError) return <Alert tone="danger">{describeError(folder.error)}</Alert>;
+  if (folder.isError)
+    return (
+      <Alert variant="destructive">
+        <AlertDescription>{describeError(folder.error)}</AlertDescription>
+      </Alert>
+    );
   const entries: FileEntry[] = folder.data ?? [];
   if (entries.length === 0)
     return <p className="p-6 text-center text-sm text-muted-foreground">This folder is empty.</p>;
@@ -176,7 +181,9 @@ function Listing({
       </table>
       {remove.isError && (
         <div className="p-2">
-          <Alert tone="danger">{describeError(remove.error)}</Alert>
+          <Alert variant="destructive">
+            <AlertDescription>{describeError(remove.error)}</AlertDescription>
+          </Alert>
         </div>
       )}
     </div>
@@ -219,7 +226,9 @@ function Editor({ siteId, path, onClose }: { siteId: string; path: string; onClo
   if (file.isError) {
     return (
       <div className="space-y-3">
-        <Alert tone="danger">{describeError(file.error)}</Alert>
+        <Alert variant="destructive">
+          <AlertDescription>{describeError(file.error)}</AlertDescription>
+        </Alert>
         <Button variant="outline" size="sm" onClick={onClose}>
           Back to folder
         </Button>
@@ -253,7 +262,11 @@ function Editor({ siteId, path, onClose }: { siteId: string; path: string; onClo
         aria-label={`Edit ${name}`}
         className="min-h-[50vh] w-full resize-y rounded-md border border-border bg-background p-3 font-mono text-xs leading-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
       />
-      {save.isError && <Alert tone="danger">{describeError(save.error)}</Alert>}
+      {save.isError && (
+        <Alert variant="destructive">
+          <AlertDescription>{describeError(save.error)}</AlertDescription>
+        </Alert>
+      )}
     </div>
   );
 }

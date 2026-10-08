@@ -2,9 +2,10 @@ import { useState, type FormEvent, type ReactNode } from "react";
 import { Activity, Eye, EyeOff, Globe, Loader2, ShieldCheck } from "lucide-react";
 import { useBranding, useLogin } from "@/api/queries";
 import { ApiError, describeError } from "@/api/client";
-import { Alert } from "@/components/ui/badge-alert";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Input, Label } from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 
 const FEATURES: { icon: typeof Globe; title: string; text: string }[] = [
@@ -183,7 +184,11 @@ export function LoginPage() {
           </div>
         </div>
 
-        {message && <Alert tone="danger">{message}</Alert>}
+        {message && (
+          <Alert variant="destructive">
+            <AlertDescription>{message}</AlertDescription>
+          </Alert>
+        )}
 
         <Button
           type="submit"
