@@ -37,6 +37,7 @@ func TestProductionRequiresDatabaseAndTLS(t *testing.T) {
 	cfg, err := loadFrom(lookupMap(map[string]string{
 		"ZENEX_ENV": "production", "ZENEX_DATABASE_URL": "postgres://x",
 		"ZENEX_TLS_CERT": "/c.pem", "ZENEX_TLS_KEY": "/k.pem",
+		"ZENEX_SECRET_KEY": "0123456789abcdef0123456789abcdef",
 	}))
 	if err != nil || !cfg.TLSEnabled() {
 		t.Fatalf("valid production config rejected: %v", err)

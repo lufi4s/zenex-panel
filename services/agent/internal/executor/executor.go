@@ -64,6 +64,12 @@ func NewRunner(allowedBinaries ...string) (*Runner, error) {
 // reported in Result.ExitCode. An error is returned only when the command could
 // not be run, was not allowlisted, had invalid arguments, or timed out.
 func (r *Runner) Run(ctx context.Context, bin string, args []string, timeout time.Duration) (Result, error) {
+	return r.RunInput(ctx, bin, args, "", timeout)
+}
+
+// RunInput is Run with data written to the program's standard input. Use it for
+// secrets and multi-line payloads (for example SQL) so they never appear in argv.
+func (r *Runner) RunInput(ctx context.Context, bin string, args []string, stdin string, timeout time.Duration) (Result, error) {
 	if _, ok := r.allowed[bin]; !ok {
 		return Result{}, fmt.Errorf("%w: %s", ErrBinaryNotAllowed, bin)
 	}
@@ -86,6 +92,9 @@ func (r *Runner) Run(ctx context.Context, bin string, args []string, timeout tim
 	cmd.Env = []string{"PATH=" + safePath, "LC_ALL=C"}
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+	if stdin != "" {
+		cmd.Stdin = strings.NewReader(stdin)
+	}
 
 	start := time.Now()
 	err := cmd.Run()

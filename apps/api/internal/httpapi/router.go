@@ -18,6 +18,8 @@ var Version = "0.2.0-dev"
 type Deps struct {
 	Log           *slog.Logger
 	Users         AuthStore
+	Sites         SiteStore
+	Site          SiteSettings
 	SecureCookies bool // true when served over TLS
 	LoginLimiter  *fixedWindowLimiter
 	SessionTTL    time.Duration
@@ -38,6 +40,15 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("POST /api/v1/auth/logout", requireCSRF(d.requireSession(d.handleLogout)))
 	mux.Handle("GET /api/v1/auth/me", d.requireSession(d.handleMe))
 	mux.Handle("GET /api/v1/system/metrics", d.requireSession(d.handleMetrics))
+
+	mux.Handle("GET /api/v1/domains", d.requireSession(d.handleListDomains))
+	mux.Handle("POST /api/v1/domains", requireCSRF(d.requireSession(d.handleConnectDomain)))
+	mux.Handle("GET /api/v1/sites", d.requireSession(d.handleListSites))
+	mux.Handle("POST /api/v1/sites", requireCSRF(d.requireSession(d.handleCreateSite)))
+	mux.Handle("GET /api/v1/sites/{id}", d.requireSession(d.handleGetSite))
+	mux.Handle("GET /api/v1/sites/{id}/credentials", d.requireSession(d.handleSiteCredentials))
+	mux.Handle("GET /api/v1/jobs/{id}", d.requireSession(d.handleGetJob))
+	mux.Handle("POST /api/v1/jobs/{id}/retry", requireCSRF(d.requireSession(d.handleRetryJob)))
 
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, requestIDFrom(r), ErrNotFound)

@@ -22,22 +22,82 @@
     </form>
   </main>
 
-  <div id="dashboard-view" hidden>
+  <div id="app-view" hidden>
     <header class="topbar">
       <strong>Zenex Panel</strong>
+      <nav class="tabs" aria-label="Sections">
+        <button type="button" class="tab" data-tab="dashboard">Dashboard</button>
+        <button type="button" class="tab" data-tab="websites">Websites</button>
+      </nav>
       <span class="spacer"></span>
       <span id="who"></span>
       <button id="logout" type="button" class="ghost">Sign out</button>
     </header>
+
     <main class="content">
-      <p id="metrics-error" class="error" role="alert"></p>
-      <section class="grid" aria-label="Host metrics">
-        <div class="tile"><span class="label">Load (1 / 5 / 15 min)</span><span class="value" id="m-load">—</span><span class="sub" id="m-cpus"></span></div>
-        <div class="tile"><span class="label">Memory</span><span class="value" id="m-mem">—</span><span class="sub" id="m-mem-pct"></span></div>
-        <div class="tile"><span class="label">Disk (/)</span><span class="value" id="m-disk">—</span><span class="sub" id="m-disk-pct"></span></div>
-        <div class="tile"><span class="label">Uptime</span><span class="value" id="m-uptime">—</span></div>
+      <section id="tab-dashboard" hidden>
+        <p id="metrics-error" class="error" role="alert"></p>
+        <div class="grid" aria-label="Host metrics">
+          <div class="tile"><span class="label">Load (1 / 5 / 15 min)</span><span class="value" id="m-load">—</span><span class="sub" id="m-cpus"></span></div>
+          <div class="tile"><span class="label">Memory</span><span class="value" id="m-mem">—</span><span class="sub" id="m-mem-pct"></span></div>
+          <div class="tile"><span class="label">Disk (/)</span><span class="value" id="m-disk">—</span><span class="sub" id="m-disk-pct"></span></div>
+          <div class="tile"><span class="label">Uptime</span><span class="value" id="m-uptime">—</span></div>
+        </div>
+        <p class="note">Values are read from this server every 5 seconds.</p>
       </section>
-      <p class="note">Values are read from this server every 5 seconds. Site management is not available yet.</p>
+
+      <section id="tab-websites" hidden>
+        <div class="two-col">
+          <div class="card panel">
+            <h2>Connected domains</h2>
+            <p class="note">Point your domain's DNS at this server's IP, or let a wildcard record handle subdomains. Then add it here.</p>
+            <ul id="domain-list" class="list"></ul>
+            <form id="domain-form" class="inline" novalidate>
+              <input name="apex" placeholder="example.com" required maxlength="253" aria-label="Domain">
+              <button type="submit">Connect domain</button>
+            </form>
+            <p id="domain-error" class="error" role="alert"></p>
+          </div>
+
+          <div class="card panel">
+            <h2>Create website</h2>
+            <form id="site-form" novalidate>
+              <label>Domain
+                <select name="apex" id="site-apex" required></select>
+              </label>
+              <label>Website name
+                <input name="label" placeholder="shop" required maxlength="28" pattern="[a-z][a-z0-9-]{1,26}[a-z0-9]">
+              </label>
+              <p class="note" id="site-preview"></p>
+              <button type="submit">Create website</button>
+            </form>
+            <p id="site-error" class="error" role="alert"></p>
+          </div>
+        </div>
+
+        <div id="progress-card" class="card panel" hidden>
+          <h2 id="progress-title">Building website</h2>
+          <ol id="progress-steps" class="steps"></ol>
+          <p id="progress-error" class="error" role="alert"></p>
+          <button type="button" id="retry-job" class="ghost" hidden>Retry from the failed step</button>
+        </div>
+
+        <div class="card panel">
+          <h2>Your websites</h2>
+          <table class="sites">
+            <thead><tr><th>Address</th><th>Status</th><th></th></tr></thead>
+            <tbody id="site-rows"></tbody>
+          </table>
+          <p id="sites-empty" class="note" hidden>No websites yet.</p>
+          <div id="cred-box" class="cred" hidden>
+            <strong>WordPress login</strong>
+            <div id="cred-url"></div>
+            <div id="cred-user"></div>
+            <div id="cred-pass"></div>
+            <button type="button" class="ghost" id="cred-hide">Hide</button>
+          </div>
+        </div>
+      </section>
     </main>
   </div>
 

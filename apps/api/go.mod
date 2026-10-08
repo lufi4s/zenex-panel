@@ -15,3 +15,7 @@ require (
 	golang.org/x/sys v0.28.0 // indirect
 	golang.org/x/text v0.21.0 // indirect
 )
+
+require github.com/zenexcloud/zenex-panel/packages/validation v0.0.0
+
+replace github.com/zenexcloud/zenex-panel/packages/validation => ../../packages/validation

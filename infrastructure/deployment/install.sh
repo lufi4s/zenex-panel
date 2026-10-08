@@ -42,18 +42,25 @@ readonly CREDS_FILE="/root/zenex-admin-credentials.txt"
 readonly DB_NAME="zenex_panel"
 readonly DB_ROLE="zenex_panel"
 readonly PORT_CANDIDATES="8443 8444 8445 8446 8447 8448 8449 8450"
+readonly RUN_DIR="/run/zenex"
+readonly HELPER_BIN="/usr/local/sbin/zenex-helper"
+readonly HELPER_SOCKET="/run/zenex/helper.sock"
+readonly HELPER_UNIT="/etc/systemd/system/zenex-helper.service"
+readonly WP_BIN="/usr/local/bin/wp"
+readonly WP_URL="https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar"
 
 ZENEX_ADMIN_EMAIL="${ZENEX_ADMIN_EMAIL:-admin@zenex.local}"
 ZENEX_REPO_URL="${ZENEX_REPO_URL:-https://github.com/lufi4s/zenex-panel.git}"
 ZENEX_REF="${ZENEX_REF:-main}"
 
-readonly STEP_TOTAL=14
+readonly STEP_TOTAL=15
 STEP_NO=0
 CURRENT_STEP="starting"
 PANEL_PORT=""
 PUBLIC_IP=""
 DB_PASSWORD=""
 PHP_VER=""
+SECRET_KEY=""
 ADMIN_PASSWORD_NEW=""
 
 # ---------------------------------------------------------------------------
@@ -264,6 +271,84 @@ fetch_source() {
     info "download complete"
 }
 
+build_helper() {
+    local attempt
+    for attempt in 1 2; do
+        if (cd "$SRC_DIR/services/agent" && go build -buildvcs=false -trimpath -o "$HELPER_BIN.new" ./cmd/zenex-helper); then
+            install -m 0755 -o root -g root "$HELPER_BIN.new" "$HELPER_BIN"
+            rm -f "$HELPER_BIN.new"
+            info "website helper built"
+            return 0
+        fi
+        info "helper build failed (attempt $attempt of 2). Clearing the build cache and trying again..."
+        go clean -cache >/dev/null 2>&1 || true
+        sleep 5
+    done
+    return 1
+}
+
+# WP-CLI is the official WordPress command-line tool. It is installed only after
+# its published SHA-512 checksum matches the download.
+install_wp_cli() {
+    if [[ -f "$WP_BIN" ]] && php "$WP_BIN" --info >/dev/null 2>&1; then
+        info "WP-CLI already installed"
+        return 0
+    fi
+    local tmp sum
+    tmp="$(mktemp)"
+    sum="$(mktemp)"
+    retry 3 5 curl -fsSL -o "$tmp" "$WP_URL"
+    retry 3 5 curl -fsSL -o "$sum" "$WP_URL.sha512"
+    local expected actual
+    expected="$(awk '{print $1}' "$sum")"
+    actual="$(sha512sum "$tmp" | awk '{print $1}')"
+    if [[ -z "$expected" || "$expected" != "$actual" ]]; then
+        rm -f "$tmp" "$sum"
+        fail "the WP-CLI download did not match its checksum. Re-run the command in a few minutes."
+    fi
+    install -m 0755 -o root -g root "$tmp" "$WP_BIN"
+    rm -f "$tmp" "$sum"
+    info "WP-CLI installed"
+}
+
+install_helper_unit() {
+    cat > "$HELPER_UNIT" <<EOF
+[Unit]
+Description=Zenex website helper (runs fixed site-building operations only)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=root
+Environment=ZENEX_HELPER_SOCKET=${HELPER_SOCKET}
+Environment=ZENEX_HELPER_GROUP=${ZENEX_USER}
+ExecStart=${HELPER_BIN}
+Restart=always
+RestartSec=3
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    systemctl daemon-reload
+}
+
+start_helper() {
+    systemctl enable zenex-helper >/dev/null 2>&1 || true
+    systemctl restart zenex-helper
+    local i
+    for i in $(seq 1 20); do
+        if [[ -S "$HELPER_SOCKET" ]]; then
+            info "website helper running"
+            return 0
+        fi
+        sleep 1
+    done
+    fail "the website helper did not start. Run: journalctl -u zenex-helper -n 50"
+}
+
 build_api() {
     local attempt
     for attempt in 1 2; do
@@ -368,7 +453,17 @@ SQL
 }
 
 write_env_file() {
-    local tmp="$ENV_FILE.tmp"
+    local tmp="$ENV_FILE.tmp" php_ver
+    # The server secret derives every site password. It must never change once
+    # sites exist, so it is generated once and then kept.
+    if [[ -z "$SECRET_KEY" ]]; then
+        SECRET_KEY="$(existing_env_value ZENEX_SECRET_KEY)"
+    fi
+    if [[ -z "$SECRET_KEY" ]]; then
+        SECRET_KEY="$(openssl rand -hex 32)"
+    fi
+    php_ver="$(php -r 'echo PHP_MAJOR_VERSION, ".", PHP_MINOR_VERSION;')"
+
     cat > "$tmp" <<EOF
 ZENEX_ENV=production
 ZENEX_API_ADDR=0.0.0.0:${PANEL_PORT}
@@ -377,6 +472,10 @@ ZENEX_TLS_CERT=${TLS_DIR}/panel.crt
 ZENEX_TLS_KEY=${TLS_DIR}/panel.key
 ZENEX_DB_PASSWORD=${DB_PASSWORD}
 ZENEX_PUBLIC_IP=${PUBLIC_IP}
+ZENEX_SECRET_KEY=${SECRET_KEY}
+ZENEX_PHP_VERSION=${php_ver}
+ZENEX_HELPER_SOCKET=${HELPER_SOCKET}
+ZENEX_NODE_NAME=this-server
 EOF
     mv -f "$tmp" "$ENV_FILE"
     fix_file_permissions
@@ -410,8 +509,8 @@ install_unit() {
     cat > "$UNIT_PATH" <<EOF
 [Unit]
 Description=Zenex Panel API
-After=network-online.target postgresql.service
-Wants=network-online.target postgresql.service
+After=network-online.target postgresql.service zenex-helper.service
+Wants=network-online.target postgresql.service zenex-helper.service
 StartLimitIntervalSec=0
 
 [Service]
@@ -432,7 +531,7 @@ ProtectKernelModules=true
 ProtectControlGroups=true
 RestrictSUIDSGID=true
 LockPersonality=true
-ReadWritePaths=${STATE_DIR} ${LOG_DIR}
+ReadWritePaths=${STATE_DIR} ${LOG_DIR} -${RUN_DIR}
 ReadOnlyPaths=${TLS_DIR}
 CapabilityBoundingSet=
 AmbientCapabilities=
@@ -614,6 +713,8 @@ final_checks() {
     check_item "database for sites (MariaDB) is running" systemctl is-active --quiet mariadb || failed=1
     check_item "cache (Redis) is running" systemctl is-active --quiet redis-server || failed=1
     check_item "firewall is on" bash -c 'ufw status | grep -q "Status: active"' || failed=1
+    check_item "website helper is running" systemctl is-active --quiet zenex-helper || failed=1
+    check_item "WP-CLI is installed" bash -c "php '$WP_BIN' --info >/dev/null 2>&1" || failed=1
 
     if (( failed )); then
         fail "some checks did not pass (see [FAIL] above). Re-run the same command; it repairs most issues automatically."
@@ -650,8 +751,8 @@ print_summary() {
 
  Re-running this command is safe. It keeps your data.
 
- Available now: sign-in, live server dashboard.
- Coming next: connecting servers, creating WordPress sites.
+ Available now: sign-in, live server dashboard, connect domains, create WordPress websites.
+ Coming next: SSL, DNS automation, separate servers.
 ============================================================
 EOF
 }
@@ -686,6 +787,12 @@ main() {
 
     step "Building the Zenex panel"
     build_api || fail "the panel could not be built. Check your internet connection and run the command again."
+
+    step "Installing website tools (WP-CLI and the website helper)"
+    install_wp_cli
+    build_helper || fail "the website helper could not be built. Check your internet connection and run the command again."
+    install_helper_unit
+    start_helper
 
     step "Finding your server IP and a free port"
     detect_public_ip

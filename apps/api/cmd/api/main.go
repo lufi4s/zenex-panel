@@ -21,7 +21,9 @@ import (
 
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/auth"
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/config"
+	"github.com/zenexcloud/zenex-panel/apps/api/internal/helperclient"
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/httpapi"
+	"github.com/zenexcloud/zenex-panel/apps/api/internal/provision"
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/store"
 	"github.com/zenexcloud/zenex-panel/apps/api/migrations"
 )
@@ -51,7 +53,7 @@ func main() {
 			if err := s.Migrate(ctx, migrations.FS); err != nil {
 				return fmt.Errorf("migrate: %w", err)
 			}
-			return createAdmin(ctx, s, os.Stdin, os.Stdout)
+			return createAdmin(ctx, s, cfg.NodeName, cfg.PublicIP, os.Stdin, os.Stdout)
 		})
 	default:
 		err = fmt.Errorf("unknown command %q", cmd)
@@ -92,11 +94,44 @@ func serve(cfg config.Config, log *slog.Logger) error {
 		return fmt.Errorf("migrate: %w", err)
 	}
 
+	nodeID, err := s.EnsureLocalNode(ctx, cfg.NodeName, cfg.PublicIP)
+	if err != nil {
+		// Not fatal: the panel still serves sign-in until an administrator exists.
+		log.Warn("this server is not registered yet; website creation is unavailable", "reason", err.Error())
+	}
+
+	prov := provision.New(s, helperclient.New(cfg.HelperSocket), []byte(cfg.SecretKey), log)
+	startJob := func(jobID string) {
+		go func() {
+			if err := prov.Run(context.Background(), jobID); err != nil {
+				log.Error("provisioning job failed", "job_id", jobID, "error", err)
+			}
+		}()
+	}
+	// A restart can leave jobs half done. Put them back in the queue and resume.
+	if err := s.ResetRunningJobs(ctx); err != nil {
+		return fmt.Errorf("reset jobs: %w", err)
+	}
+	pending, err := s.UnfinishedProvisionJobs(ctx)
+	if err != nil {
+		return fmt.Errorf("list jobs: %w", err)
+	}
+	for _, id := range pending {
+		startJob(id)
+	}
+
 	srv := &http.Server{
 		Addr: cfg.ListenAddr,
 		Handler: httpapi.NewRouter(httpapi.Deps{
-			Log:           log,
-			Users:         s,
+			Log:   log,
+			Users: s,
+			Sites: s,
+			Site: httpapi.SiteSettings{
+				NodeID:     nodeID,
+				PHPVersion: cfg.PHPVersion,
+				SecretKey:  []byte(cfg.SecretKey),
+				StartJob:   startJob,
+			},
 			SecureCookies: cfg.TLSEnabled(),
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
@@ -133,7 +168,7 @@ func serve(cfg config.Config, log *slog.Logger) error {
 
 // createAdmin reads the email on the first line and the password on the second,
 // so secrets never appear in process arguments or shell history.
-func createAdmin(ctx context.Context, s *store.Store, in io.Reader, out io.Writer) error {
+func createAdmin(ctx context.Context, s *store.Store, nodeName, publicIP string, in io.Reader, out io.Writer) error {
 	r := bufio.NewReader(in)
 	email, err := r.ReadString('\n')
 	if err != nil && !errors.Is(err, io.EOF) {
@@ -156,6 +191,9 @@ func createAdmin(ctx context.Context, s *store.Store, in io.Reader, out io.Write
 	id, err := s.UpsertAdmin(ctx, email, hash)
 	if err != nil {
 		return fmt.Errorf("create admin: %w", err)
+	}
+	if _, err := s.EnsureLocalNode(ctx, nodeName, publicIP); err != nil {
+		return fmt.Errorf("register this server: %w", err)
 	}
 	fmt.Fprintf(out, "administrator ready: %s (id %s)\n", email, id)
 	return nil
