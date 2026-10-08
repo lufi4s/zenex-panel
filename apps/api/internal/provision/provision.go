@@ -1,7 +1,8 @@
 // Package provision builds WordPress sites as a sequence of recorded, idempotent steps.
 //
 // Each step can be repeated safely. A failed step stops the job and records the
-// exact error; a retry starts again from the first step that did not succeed.
+// exact error; a retry runs the steps again from the beginning, and each step
+// skips work that is already done.
 // Passwords are derived from the server secret and the site ID, so nothing
 // secret is stored and a resumed job can always recompute them.
 package provision
@@ -166,19 +167,10 @@ func (p *Provisioner) Run(ctx context.Context, jobID string) error {
 	}
 	secrets := []string{r.dbPass, r.wpPass}
 
-	steps, err := p.Store.JobSteps(ctx, jobID)
-	if err != nil {
-		return p.fail(ctx, jobID, "", secrets, err)
-	}
-	done := map[string]bool{}
-	for _, s := range steps {
-		done[s.Name] = s.Status == "succeeded"
-	}
-
+	// Every step runs on every attempt. Each one checks the current state first
+	// and does nothing if the work is already in place, so a retry also applies
+	// any fix that changed a step's behaviour since the last attempt.
 	for _, name := range stepNames {
-		if done[name] {
-			continue
-		}
 		if err := p.Store.SetStepStatus(ctx, jobID, name, "running", ""); err != nil {
 			return p.fail(ctx, jobID, name, secrets, err)
 		}

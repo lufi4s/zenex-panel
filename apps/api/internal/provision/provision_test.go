@@ -110,6 +110,15 @@ func (f *fakeHelper) Do(_ context.Context, op string, args map[string]string) (s
 
 func quietLogger() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
 
+func contains(list []string, want string) bool {
+	for _, v := range list {
+		if v == want {
+			return true
+		}
+	}
+	return false
+}
+
 var testKey = []byte("0123456789abcdef0123456789abcdef")
 
 func TestRunSucceedsInOrder(t *testing.T) {
@@ -165,10 +174,12 @@ func TestFailureRecordsStepAndResumesFromIt(t *testing.T) {
 	if err := p.Run(context.Background(), "job-1"); err != nil {
 		t.Fatalf("retry: %v", err)
 	}
-	for _, c := range h.calls {
-		if c == "user.create" || c == "fs.prepare" {
-			t.Fatalf("retry repeated a finished step: %v", h.calls)
-		}
+	// Every step runs again on retry; each is idempotent on the helper side.
+	if len(h.calls) == 0 || h.calls[0] != "user.create" {
+		t.Fatalf("retry did not start from the first step: %v", h.calls)
+	}
+	if !contains(h.calls, "fs.prepare") {
+		t.Fatalf("retry skipped the file preparation step: %v", h.calls)
 	}
 	if st.job.Status != "succeeded" {
 		t.Fatalf("retry did not finish: %s", st.job.Status)
