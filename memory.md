@@ -238,3 +238,11 @@ Not committed/deployed in the first pass; see the commit that follows this secti
 - VPS (162.4.35.76) updated to commit 532a16c/acaf239 via install.sh; log at /root/zenex-run01.log on the VPS.
 - Verified: zenex-api, zenex-helper and caddy active; https://127.0.0.1:8443 /, /websites, /login return 200; served bundle index-9F6vqxRE.js includes the Silk chunk.
 - Root password was shared in chat again on this date; rotation still recommended.
+
+## 16. StatusMark in the build progress
+
+- Installed React Bits StatusMark via `npx shadcn@latest add @react-bits/StatusMark-JS-CSS` → `apps/panel/src/components/StatusMark.jsx` and `StatusMark.css`.
+- Added `apps/panel/src/components/StatusMark.d.ts` so the JS component types in the TypeScript project.
+- `apps/panel/src/components/JobProgress.tsx`: each build step's icon is now a StatusMark (succeeded→done, running→running, failed→failed, pending/skipped→pending). The lucide icon map was removed from this file.
+- Checks: vp check clean, tsc clean, vitest 34/34, vite build OK.
+- Not deployed to the VPS in this step.

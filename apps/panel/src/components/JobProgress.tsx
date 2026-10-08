@@ -1,5 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
-import { CheckCircle2, CircleDashed, Loader2, XCircle } from "lucide-react";
+import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useJob, useJobLogs, useRetryJob } from "@/api/queries";
 import { errorMessageFrom } from "@/api/client";
@@ -7,6 +6,7 @@ import type { JobStep, StepStatus } from "@/api/types";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import StatusMark, { type StatusMarkStatus } from "@/components/StatusMark";
 import { Terminal, type TerminalLine } from "@/components/Terminal";
 import { stepLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -18,18 +18,20 @@ interface JobProgressProps {
   defaultShowLog?: boolean;
 }
 
-const ICON: Record<StepStatus, ReactNode> = {
-  succeeded: <CheckCircle2 className="text-success" aria-hidden />,
-  running: <Loader2 className="animate-spin text-primary" aria-hidden />,
-  failed: <XCircle className="text-destructive" aria-hidden />,
-  pending: <CircleDashed className="text-muted-foreground" aria-hidden />,
-  skipped: <CircleDashed className="text-muted-foreground" aria-hidden />,
+const MARK: Record<StepStatus, StatusMarkStatus> = {
+  succeeded: "done",
+  running: "running",
+  failed: "failed",
+  pending: "pending",
+  skipped: "pending",
 };
 
 function StepRow({ step }: { step: JobStep }) {
   return (
     <li className="flex items-start gap-3 py-1.5">
-      <span className="mt-0.5 [&_svg]:size-4">{ICON[step.status]}</span>
+      <span className="mt-0.5">
+        <StatusMark status={MARK[step.status]} size={18} />
+      </span>
       <div className="min-w-0 flex-1">
         <span className={cn("text-sm", step.status === "pending" && "text-muted-foreground")}>
           {stepLabel(step.name)}
