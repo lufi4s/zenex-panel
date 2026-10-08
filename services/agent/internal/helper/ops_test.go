@@ -120,6 +120,10 @@ func TestVhostBlocksPHPInUploads(t *testing.T) {
 	if !strings.Contains(cfg, "server_name shop.example.com;") {
 		t.Fatal("server_name missing")
 	}
+	// The PHP snippet already sets try_files; a second one makes nginx refuse the config.
+	if n := strings.Count(cfg, "try_files"); n != 1 {
+		t.Fatalf("expected exactly one try_files directive in a location, got %d", n)
+	}
 }
 
 func TestWriteFileAtomicReplaces(t *testing.T) {

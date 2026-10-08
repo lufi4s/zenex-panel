@@ -462,8 +462,8 @@ server {
         try_files $uri $uri/ /index.php?$args;
     }
 
+    # snippets/fastcgi-php.conf already sets try_files for PHP requests.
     location ~ \.php$ {
-        try_files $uri =404;
         include snippets/fastcgi-php.conf;
         fastcgi_pass unix:/run/php/zx-%[1]s.sock;
     }
