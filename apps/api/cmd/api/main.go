@@ -28,6 +28,7 @@ import (
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/monitor"
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/provision"
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/store"
+	"github.com/zenexcloud/zenex-panel/apps/api/internal/update"
 	"github.com/zenexcloud/zenex-panel/apps/api/migrations"
 )
 
@@ -136,6 +137,7 @@ func serve(cfg config.Config, log *slog.Logger) error {
 			Sites:   s,
 			Manage:  manager,
 			Monitor: s,
+			Updates: update.New(helpers),
 			Site: httpapi.SiteSettings{
 				NodeID:     nodeID,
 				PHPVersion: cfg.PHPVersion,

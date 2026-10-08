@@ -246,3 +246,17 @@ Not committed/deployed in the first pass; see the commit that follows this secti
 - `apps/panel/src/components/JobProgress.tsx`: each build step's icon is now a StatusMark (succeeded→done, running→running, failed→failed, pending/skipped→pending). The lucide icon map was removed from this file.
 - Checks: vp check clean, tsc clean, vitest 34/34, vite build OK.
 - Not deployed to the VPS in this step.
+
+## 17. In-panel update (in progress, NOT yet verified)
+
+Goal: admins see "new version" and click "Update now" in the panel; the panel updates itself.
+
+Written, not compiled or tested (Bash was denied by the auto-mode classifier in this session):
+- `infrastructure/deployment/update.sh`: fetch+reset origin/main, then runs install.sh. Writes `/var/log/zenex/update.log`; last line `== update finished OK` or `== update FAILED`.
+- `services/agent/internal/helper/update.go`: ops `panel.version`, `panel.latest` (git ls-remote), `panel.update-start` (systemd-run --unit=zenex-update --collect), `panel.update-status` (JSON state+log). Wired in `ops.go` dispatcher; binaries git, systemd-run, bash added to `AllowedBinaries`.
+- `apps/api/internal/update/update.go`: Service.Status / Start (ErrRunning).
+- `apps/api/internal/httpapi/updates.go`: GET and POST `/api/v1/system/update` (admin only; POST is CSRF-protected and audited as `panel.update`). Routes in `router.go`; Deps.Updates wired in `cmd/api/main.go`.
+- `apps/panel`: `useSystemUpdate` / `useStartUpdate` in `api/queries.ts`; `components/UpdateCard.tsx` on Settings; admin banner on Overview; test "offers the panel update on the settings page" in `app.test.tsx`.
+
+To verify before commit: `go vet ./... && go test ./...` in services/agent and apps/api; `vp check --fix`; `npx tsc -b`; `npx vitest run`; `npx vite build`.
+Note: the first run of this feature must be deployed manually (the in-panel button does not exist on the VPS yet). The update runs `git reset --hard` on /opt/zenex/src and runs install.sh as root; admin-only and audited.

@@ -171,6 +171,15 @@ function mockApi(options: { signedIn: boolean }) {
         },
       ]);
     }
+    if (url.endsWith("/api/v1/system/update")) {
+      return json({
+        current: "f781dd8",
+        latest: "532a16c",
+        update_available: true,
+        state: "idle",
+        log: "",
+      });
+    }
     if (url.endsWith("/api/v1/php-versions")) return json({ versions: ["8.3"] });
     return json({ error: { code: "not_found", message: "not found" } }, 404);
   });
@@ -195,6 +204,11 @@ function chooseTab(name: string) {
 
 // jsdom lacks matchMedia and the Font Loading API (the animation libraries read them).
 vi.hoisted(() => {
+  // Animation loops schedule frames; jsdom has no requestAnimationFrame.
+  window.requestAnimationFrame = ((cb: FrameRequestCallback) =>
+    window.setTimeout(() => cb(Date.now()), 16)) as unknown as typeof window.requestAnimationFrame;
+  window.cancelAnimationFrame = ((id: number) =>
+    window.clearTimeout(id)) as typeof window.cancelAnimationFrame;
   Object.defineProperty(document, "fonts", {
     configurable: true,
     value: {
@@ -348,6 +362,13 @@ describe("navigation", () => {
     expect(
       (screen.getByRole("button", { name: "Remove domain" }) as HTMLButtonElement).disabled,
     ).toBe(false);
+  });
+
+  it("offers the panel update on the settings page when a new version exists", async () => {
+    vi.stubGlobal("fetch", mockApi({ signedIn: true }));
+    renderAt("/settings");
+    expect(await screen.findByText("Panel updates")).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /Update now/ })).toBeTruthy();
   });
 
   it("shows a not-found page for unknown addresses", async () => {

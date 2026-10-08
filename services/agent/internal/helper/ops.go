@@ -30,6 +30,9 @@ const (
 	binMariadb   = "/usr/bin/mariadb"
 	binSystemctl = "/usr/bin/systemctl"
 	binWP        = "/usr/local/bin/wp"
+	binGit        = "/usr/bin/git"
+	binSystemdRun = "/usr/bin/systemd-run"
+	binBash       = "/usr/bin/bash"
 )
 
 var (
@@ -125,6 +128,14 @@ func (o *Ops) Do(ctx context.Context, op string, args map[string]string) (Result
 		return o.logsTail(args)
 	case "wp.harden":
 		return Result{}, o.wpHarden(ctx, args)
+	case "panel.version":
+		return o.panelVersion(ctx)
+	case "panel.latest":
+		return o.panelLatest(ctx)
+	case "panel.update-start":
+		return o.updateStart(ctx)
+	case "panel.update-status":
+		return o.updateStatusOutput(ctx)
 	default:
 		return Result{}, fmt.Errorf("unknown operation %q", op)
 	}
@@ -547,7 +558,7 @@ func trim(s string) string {
 // AllowedBinaries lists every program the helper may execute. phpFPM is the
 // set of PHP-FPM binaries installed on the server, discovered at startup.
 func AllowedBinaries(phpFPM []string) []string {
-	base := []string{binUseradd, binUserdel, binRunuser, binEnv, binMariadb, binSystemctl, binWP}
+	base := []string{binUseradd, binUserdel, binRunuser, binEnv, binMariadb, binSystemctl, binWP, binGit, binSystemdRun, binBash}
 	base = append(base, caddy.AllowedBinaries...)
 	return append(base, phpFPM...)
 }

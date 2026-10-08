@@ -471,3 +471,35 @@ export function useSiteLogs(id: string, enabled: boolean) {
     refetchInterval: enabled ? 10_000 : false,
   });
 }
+
+// ---------------------------------------------------------------------------
+// Panel updates (administrators)
+// ---------------------------------------------------------------------------
+
+export interface UpdateStatus {
+  current: string;
+  latest: string;
+  update_available: boolean;
+  state: "idle" | "running" | "succeeded" | "failed";
+  log: string;
+  error?: string;
+}
+
+export function useSystemUpdate(enabled: boolean) {
+  return useQuery({
+    queryKey: ["system-update"],
+    queryFn: () => apiRequest<UpdateStatus>("/api/v1/system/update"),
+    enabled,
+    // Check every minute, and every 3 seconds while an update is running.
+    refetchInterval: (query) => (query.state.data?.state === "running" ? 3_000 : 60_000),
+  });
+}
+
+export function useStartUpdate() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { silent: true },
+    mutationFn: () => apiRequest<{ state: string }>("/api/v1/system/update", { method: "POST" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["system-update"] }),
+  });
+}

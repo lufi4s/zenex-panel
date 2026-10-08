@@ -1,5 +1,6 @@
 import { BrandingCard } from "@/components/BrandingCard";
 import { PageHeader } from "@/components/PageHeader";
+import { UpdateCard } from "@/components/UpdateCard";
 
 /** Panel settings. Administrators only. */
 export function SettingsPage() {
@@ -7,8 +8,9 @@ export function SettingsPage() {
     <>
       <PageHeader
         title="Settings"
-        description="Change how the panel is named and coloured for your team."
+        description="Change how the panel is named and coloured for your team, and keep it up to date."
       />
+      <UpdateCard />
       <BrandingCard />
     </>
   );

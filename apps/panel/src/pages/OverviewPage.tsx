@@ -1,7 +1,8 @@
 import { ArrowRight, Layers } from "lucide-react";
 import { Link } from "react-router";
-import { useSites } from "@/api/queries";
+import { useMe, useSites, useSystemUpdate } from "@/api/queries";
 import type { Site } from "@/api/types";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -49,6 +50,10 @@ function RecentSites({ sites }: { sites: Site[] }) {
 /** Landing page: server health, a quick look at the websites, and service status. */
 export function OverviewPage() {
   const sites = useSites();
+  const me = useMe();
+  const isAdmin = me.data?.roles.includes("administrator") ?? false;
+  const update = useSystemUpdate(isAdmin);
+  const updateReady = update.data?.update_available && update.data.state !== "running";
   const list = sites.data ?? [];
   const live = list.filter((s) => s.state === "ready").length;
   const building = list.filter((s) => s.state === "provisioning").length;
@@ -59,6 +64,16 @@ export function OverviewPage() {
         title="Overview"
         description="How your server and websites are doing right now."
       />
+      {updateReady && (
+        <Alert>
+          <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
+            <span>A new version of the panel is available ({update.data?.latest}).</span>
+            <Button size="sm" asChild>
+              <Link to="/settings">Update in Settings</Link>
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
       <ServerStrip />
 
       <div className="grid gap-4 lg:grid-cols-5">

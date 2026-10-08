@@ -22,6 +22,7 @@ type Deps struct {
 	Sites         SiteStore
 	Manage        SiteManager
 	Monitor       MonitorStore
+	Updates       UpdateService
 	Site          SiteSettings
 	SecureCookies bool // true when served over TLS
 	LoginLimiter  *fixedWindowLimiter
@@ -45,6 +46,8 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("POST /api/v1/auth/logout", requireCSRF(d.requireSession(d.handleLogout)))
 	mux.Handle("GET /api/v1/auth/me", d.requireSession(d.handleMe))
 	mux.Handle("GET /api/v1/system/metrics", d.requireSession(d.handleMetrics))
+	mux.Handle("GET /api/v1/system/update", d.requireSession(d.handleGetUpdate))
+	mux.Handle("POST /api/v1/system/update", requireCSRF(d.requireSession(d.handleStartUpdate)))
 
 	mux.Handle("GET /api/v1/domains", d.requireSession(d.handleListDomains))
 	mux.Handle("POST /api/v1/domains", requireCSRF(d.requireSession(d.handleConnectDomain)))
