@@ -62,6 +62,43 @@ function mockApi(options: { signedIn: boolean }) {
     if (url.endsWith("/api/v1/system/metrics")) return json(metrics);
     if (url.endsWith("/api/v1/domains")) return json(domains);
     if (url.endsWith("/api/v1/sites")) return json(sites);
+    if (url.includes("/api/v1/monitoring/metrics")) {
+      return json({
+        points: [
+          { t: "2026-10-08T10:00:00Z", load: 0.3, cpus: 2, mem_pct: 25, disk_pct: 20 },
+          { t: "2026-10-08T10:01:00Z", load: 0.5, cpus: 2, mem_pct: 26, disk_pct: 20 },
+        ],
+        bucket_seconds: 60,
+      });
+    }
+    if (url.includes("/api/v1/monitoring/services")) {
+      return json([
+        { name: "caddy", state: "active" },
+        { name: "postgresql", state: "inactive" },
+      ]);
+    }
+    if (url.includes("/api/v1/monitoring/sites")) return json([]);
+    if (url.includes("/api/v1/activity")) {
+      return json({
+        items: [
+          {
+            id: 9,
+            time: "2026-10-08T10:00:00Z",
+            action: "site.create",
+            target_type: "site",
+            target_id: "s1",
+            result: "success",
+          },
+          {
+            id: 8,
+            time: "2026-10-08T09:00:00Z",
+            action: "login.failure",
+            result: "failure",
+            error_code: "invalid_credentials",
+          },
+        ],
+      });
+    }
     if (url.endsWith("/api/v1/php-versions")) return json({ versions: ["8.3"] });
     return json({ error: { code: "not_found", message: "not found" } }, 404);
   });
@@ -107,9 +144,13 @@ describe("panel", () => {
     expect(await screen.findByText("Your websites")).toBeTruthy();
     expect(screen.getByText("Your domain")).toBeTruthy();
     expect(screen.getByText("New website")).toBeTruthy();
-    expect(await screen.findByText("shop.ozima.cloud")).toBeTruthy();
+    expect((await screen.findAllByText("shop.ozima.cloud")).length).toBeGreaterThan(0);
     expect(screen.getAllByText("ozima.cloud").length).toBeGreaterThan(0);
     expect(screen.getByText("0.42")).toBeTruthy();
+    expect((await screen.findAllByText("Services")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("Caddy (web server)")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("Created website")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("Sign-in failed")).length).toBeGreaterThan(0);
   });
 
   it("sends the anti-CSRF header on sign-in", async () => {

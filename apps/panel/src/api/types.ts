@@ -75,3 +75,63 @@ export interface SiteCredentials {
 export interface ApiErrorBody {
   error: { code: string; message: string; request_id: string };
 }
+
+// ---------------------------------------------------------------------------
+// Monitoring and activity
+// ---------------------------------------------------------------------------
+
+export type TimeRange = "1h" | "6h" | "24h" | "7d";
+
+export interface MetricPoint {
+  t: string;
+  load: number;
+  cpus: number;
+  mem_pct: number;
+  disk_pct: number;
+}
+
+export interface MetricSeries {
+  points: MetricPoint[];
+  bucket_seconds: number;
+}
+
+export interface SiteHealth {
+  site_id: string;
+  checks: number;
+  ok_checks: number;
+  avg_latency_ms: number;
+  last_check?: string;
+  last_ok: boolean;
+  last_status: number;
+}
+
+export interface ServiceState {
+  name: string;
+  state: string;
+}
+
+export type ActivityResult = "success" | "failure" | "denied";
+
+export interface ActivityRow {
+  id: number;
+  time: string;
+  action: string;
+  target_type?: string;
+  target_id?: string;
+  result: ActivityResult;
+  error_code?: string;
+  ip?: string;
+  actor_role?: string;
+}
+
+export interface ActivityPage {
+  items: ActivityRow[];
+  next_before?: number;
+}
+
+export interface JobLogLine {
+  id: number;
+  time: string;
+  level: "info" | "warn" | "error";
+  message: string;
+}

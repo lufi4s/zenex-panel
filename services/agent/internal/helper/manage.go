@@ -258,3 +258,24 @@ func contains(list []string, v string) bool {
 	}
 	return false
 }
+
+// servicesStatus reports the state of every service the panel depends on.
+// Only fixed unit names are queried: the installed PHP-FPM versions and a short
+// list of Zenex and system units.
+func (o *Ops) servicesStatus(ctx context.Context) (Result, error) {
+	units := []string{"postgresql", "mariadb", "redis-server", "caddy", "fail2ban", "zenex-api", "zenex-helper"}
+	for _, v := range o.phpVersions() {
+		units = append(units, "php"+v+"-fpm")
+	}
+	var lines []string
+	for _, unit := range units {
+		state := "unknown"
+		if res, err := o.Exec.Run(ctx, binSystemctl, []string{"is-active", unit}, 15*time.Second); err == nil {
+			if s := strings.TrimSpace(res.Stdout); s != "" {
+				state = s
+			}
+		}
+		lines = append(lines, unit+" "+state)
+	}
+	return Result{Output: strings.Join(lines, "\n")}, nil
+}

@@ -105,6 +105,8 @@ func (o *Ops) Do(ctx context.Context, op string, args map[string]string) (Result
 		return Result{}, o.wpConfigCreate(ctx, args)
 	case "wp.core-install":
 		return Result{}, o.wpCoreInstall(ctx, args)
+	case "services.status":
+		return o.servicesStatus(ctx)
 	case "php.versions":
 		return o.phpVersionsOutput(), nil
 	case "php.restart":

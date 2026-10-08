@@ -20,6 +20,7 @@ type Deps struct {
 	Users         AuthStore
 	Sites         SiteStore
 	Manage        SiteManager
+	Monitor       MonitorStore
 	Site          SiteSettings
 	SecureCookies bool // true when served over TLS
 	LoginLimiter  *fixedWindowLimiter
@@ -58,6 +59,11 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("GET /api/v1/sites/{id}/logs", d.requireSession(d.handleSiteLogs))
 	mux.Handle("DELETE /api/v1/sites/{id}", requireCSRF(d.requireSession(d.handleDeleteSite)))
 	mux.Handle("GET /api/v1/php-versions", d.requireSession(d.handleListPHPVersions))
+	mux.Handle("GET /api/v1/monitoring/metrics", d.requireSession(d.handleMetricSeries))
+	mux.Handle("GET /api/v1/monitoring/sites", d.requireSession(d.handleSiteHealth))
+	mux.Handle("GET /api/v1/monitoring/services", d.requireSession(d.handleServices))
+	mux.Handle("GET /api/v1/activity", d.requireSession(d.handleActivity))
+	mux.Handle("GET /api/v1/jobs/{id}/logs", d.requireSession(d.handleJobLogs))
 
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, requestIDFrom(r), ErrNotFound)

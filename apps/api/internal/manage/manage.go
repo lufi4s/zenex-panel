@@ -171,3 +171,29 @@ func (m *Manager) runDelete(site store.Site, jobID string) {
 	_ = m.Store.AppendJobLog(ctx, jobID, "info", "website deleted")
 	_ = m.Store.FinishJob(ctx, jobID, "succeeded", "")
 }
+
+// ServiceState is the reported state of one service (for example "active").
+type ServiceState struct {
+	Name  string `json:"name"`
+	State string `json:"state"`
+}
+
+// Services reports the state of every service the panel depends on.
+func (m *Manager) Services(ctx context.Context) ([]ServiceState, error) {
+	out, err := m.Helper.Output(ctx, "services.status", map[string]string{})
+	if err != nil {
+		return nil, err
+	}
+	var list []ServiceState
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 2 {
+			continue
+		}
+		list = append(list, ServiceState{Name: fields[0], State: fields[1]})
+	}
+	if list == nil {
+		list = []ServiceState{}
+	}
+	return list, nil
+}

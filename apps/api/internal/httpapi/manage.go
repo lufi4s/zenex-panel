@@ -19,6 +19,7 @@ type SiteManager interface {
 	PHPVersions(ctx context.Context) ([]string, error)
 	Logs(ctx context.Context, site store.Site) (string, error)
 	Delete(ctx context.Context, site store.Site, actorID string) (string, error)
+	Services(ctx context.Context) ([]manage.ServiceState, error)
 }
 
 // manageError maps an operation failure to a response. Refusals carry a message

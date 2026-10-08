@@ -6,11 +6,12 @@ import {
   useDeleteSite,
   usePHPVersions,
   useSiteAction,
+  useSiteHealth,
   useSiteLog,
   useSites,
 } from "@/api/queries";
 import { ApiError, errorMessageFrom } from "@/api/client";
-import type { Site, SiteState } from "@/api/types";
+import type { Site, SiteHealth, SiteState } from "@/api/types";
 import { Alert, Badge } from "@/components/ui/badge-alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -200,9 +201,11 @@ function DeleteDialog({
 function WebsiteRow({
   site,
   onStarted,
+  health,
 }: {
   site: Site;
   onStarted: (jobId: string, title: string) => void;
+  health?: SiteHealth;
 }) {
   const [expanded, setExpanded] = useState(false);
   const action = useSiteAction();
@@ -240,6 +243,14 @@ function WebsiteRow({
           {busy && <span className="size-1.5 animate-pulse rounded-full bg-current" aria-hidden />}
           {STATE_LABEL[site.state]}
         </Badge>
+        {health && health.checks > 0 && (
+          <span
+            className="text-xs tabular-nums text-muted-foreground"
+            title="Last 24 hours, one check per minute"
+          >
+            {((health.ok_checks / health.checks) * 100).toFixed(1)}% up · {health.avg_latency_ms} ms
+          </span>
+        )}
         <Button
           variant="ghost"
           size="sm"
@@ -347,6 +358,8 @@ function WebsiteRow({
 
 export function WebsitesCard({ onStarted }: { onStarted: (jobId: string, title: string) => void }) {
   const sites = useSites();
+  const health = useSiteHealth("24h");
+  const healthById = new Map((health.data ?? []).map((h) => [h.site_id, h]));
 
   return (
     <Card>
@@ -365,7 +378,12 @@ export function WebsitesCard({ onStarted }: { onStarted: (jobId: string, title: 
         {sites.data && sites.data.length > 0 && (
           <ul className="divide-y divide-border">
             {sites.data.map((site) => (
-              <WebsiteRow key={site.id} site={site} onStarted={onStarted} />
+              <WebsiteRow
+                key={site.id}
+                site={site}
+                onStarted={onStarted}
+                health={healthById.get(site.id)}
+              />
             ))}
           </ul>
         )}

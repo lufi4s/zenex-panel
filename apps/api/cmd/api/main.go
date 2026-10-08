@@ -25,6 +25,7 @@ import (
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/helperclient"
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/httpapi"
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/manage"
+	"github.com/zenexcloud/zenex-panel/apps/api/internal/monitor"
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/provision"
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/store"
 	"github.com/zenexcloud/zenex-panel/apps/api/migrations"
@@ -116,6 +117,9 @@ func serve(cfg config.Config, log *slog.Logger) error {
 	if err := s.ResetRunningJobs(ctx); err != nil {
 		return fmt.Errorf("reset jobs: %w", err)
 	}
+	// Host metrics and website uptime are recorded in the background.
+	go monitor.New(s, log).Run(ctx)
+
 	pending, err := s.UnfinishedProvisionJobs(ctx)
 	if err != nil {
 		return fmt.Errorf("list jobs: %w", err)
@@ -127,10 +131,11 @@ func serve(cfg config.Config, log *slog.Logger) error {
 	srv := &http.Server{
 		Addr: cfg.ListenAddr,
 		Handler: httpapi.NewRouter(httpapi.Deps{
-			Log:    log,
-			Users:  s,
-			Sites:  s,
-			Manage: manager,
+			Log:     log,
+			Users:   s,
+			Sites:   s,
+			Manage:  manager,
+			Monitor: s,
 			Site: httpapi.SiteSettings{
 				NodeID:     nodeID,
 				PHPVersion: cfg.PHPVersion,

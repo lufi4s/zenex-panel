@@ -1,6 +1,26 @@
-import { QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  QueryClient,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { apiRequest, newIdempotencyKey, ApiError } from "./client";
-import type { Domain, JobDetail, Metrics, Site, SiteCredentials, User } from "./types";
+import type {
+  ActivityPage,
+  ActivityResult,
+  Domain,
+  JobDetail,
+  JobLogLine,
+  Metrics,
+  MetricSeries,
+  ServiceState,
+  Site,
+  SiteCredentials,
+  SiteHealth,
+  TimeRange,
+  User,
+} from "./types";
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -208,5 +228,63 @@ export function useRetryJob() {
       qc.invalidateQueries({ queryKey: keys.job(id) });
       qc.invalidateQueries({ queryKey: keys.sites });
     },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Monitoring, services, activity and job logs
+// ---------------------------------------------------------------------------
+
+export function useMetricSeries(range: TimeRange) {
+  return useQuery({
+    queryKey: ["monitoring", "metrics", range],
+    queryFn: () => apiRequest<MetricSeries>(`/api/v1/monitoring/metrics?range=${range}`),
+    refetchInterval: 30_000,
+  });
+}
+
+export function useSiteHealth(range: TimeRange) {
+  return useQuery({
+    queryKey: ["monitoring", "sites", range],
+    queryFn: () => apiRequest<SiteHealth[]>(`/api/v1/monitoring/sites?range=${range}`),
+    refetchInterval: 60_000,
+  });
+}
+
+export function useServices() {
+  return useQuery({
+    queryKey: ["monitoring", "services"],
+    queryFn: () => apiRequest<ServiceState[]>("/api/v1/monitoring/services"),
+    refetchInterval: 30_000,
+  });
+}
+
+export interface ActivityFilter {
+  action: string;
+  result: ActivityResult | "";
+}
+
+export function useActivity(filter: ActivityFilter, live: boolean) {
+  return useInfiniteQuery({
+    queryKey: ["activity", filter.action, filter.result],
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) => {
+      const params = new URLSearchParams({ limit: "50" });
+      if (pageParam) params.set("before", String(pageParam));
+      if (filter.action) params.set("action", filter.action);
+      if (filter.result) params.set("result", filter.result);
+      return apiRequest<ActivityPage>(`/api/v1/activity?${params.toString()}`);
+    },
+    getNextPageParam: (last) => last.next_before ?? undefined,
+    refetchInterval: live ? 15_000 : false,
+  });
+}
+
+export function useJobLogs(jobId: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: ["job-logs", jobId],
+    queryFn: () => apiRequest<JobLogLine[]>(`/api/v1/jobs/${jobId}/logs`),
+    enabled: enabled && jobId !== null,
+    refetchInterval: enabled ? 2_000 : false,
   });
 }
