@@ -1,4 +1,4 @@
-import { ArrowRight, Layers } from "@/components/icons";
+import { Layers } from "@/components/icons";
 import { Link } from "@/lib/router";
 import { useMe, useSites, useSystemUpdate } from "@/api/queries";
 import type { Site } from "@/api/types";
@@ -102,12 +102,6 @@ export function OverviewPage() {
           <ServicesCard />
         </div>
       </div>
-
-      <Button variant="link" className="self-start px-0" asChild>
-        <Link to="/server">
-          Open server monitoring <ArrowRight aria-hidden />
-        </Link>
-      </Button>
     </>
   );
 }

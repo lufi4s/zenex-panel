@@ -28,15 +28,13 @@ function tone(state: string): { dot: string; text: string } {
   return { dot: "bg-warning", text: state };
 }
 
-function ServiceTile({ service }: { service: ServiceState }) {
+function ServiceRow({ service }: { service: ServiceState }) {
   const t = tone(service.state);
   return (
-    <li className="flex items-center gap-3 rounded-md border border-border p-3">
-      <span className={cn("size-2.5 shrink-0 rounded-full", t.dot)} aria-hidden />
-      <div className="min-w-0">
-        <div className="truncate text-sm font-medium">{label(service.name)}</div>
-        <div className="text-xs text-muted-foreground">{t.text}</div>
-      </div>
+    <li className="flex items-center gap-3 py-2.5">
+      <span className={cn("size-2 shrink-0 rounded-full", t.dot)} aria-hidden />
+      <span className="min-w-0 flex-1 text-sm font-medium">{label(service.name)}</span>
+      <span className="shrink-0 text-xs text-muted-foreground">{t.text}</span>
     </li>
   );
 }
@@ -65,9 +63,9 @@ export function ServicesCard() {
           </Alert>
         )}
         {services.data && (
-          <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          <ul className="divide-y divide-border">
             {services.data.map((s) => (
-              <ServiceTile key={s.name} service={s} />
+              <ServiceRow key={s.name} service={s} />
             ))}
           </ul>
         )}
