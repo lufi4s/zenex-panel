@@ -63,10 +63,10 @@ func NewRouter(d Deps) http.Handler {
 		writeError(w, requestIDFrom(r), ErrNotFound)
 	})
 
-	// UI: index page at "/" and embedded assets under /assets/.
-	mux.HandleFunc("GET /{$}", serveIndex)
-	assets, _ := fs.Sub(web.FS, "assets")
-	mux.Handle("GET /assets/", http.StripPrefix("/assets/", http.FileServerFS(assets)))
+	// UI: the single-page app at "/" and its hashed assets under /assets/.
+	ui := web.FS()
+	mux.HandleFunc("GET /{$}", serveIndex(ui))
+	mux.Handle("GET /assets/", http.FileServerFS(ui))
 
 	var h http.Handler = mux
 	h = limitBody(h)
@@ -77,14 +77,16 @@ func NewRouter(d Deps) http.Handler {
 	return h
 }
 
-func serveIndex(w http.ResponseWriter, r *http.Request) {
-	data, err := fs.ReadFile(web.FS, "index.html")
-	if err != nil {
-		writeError(w, requestIDFrom(r), ErrInternal)
-		return
+func serveIndex(ui fs.FS) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		data, err := fs.ReadFile(ui, "index.html")
+		if err != nil {
+			writeError(w, requestIDFrom(r), ErrInternal)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write(data)
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write(data)
 }
 
 type healthResponse struct {

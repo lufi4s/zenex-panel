@@ -287,10 +287,37 @@ func TestIndexServesUIWithStrictCSP(t *testing.T) {
 	}
 }
 
-func TestAssetsServed(t *testing.T) {
-	rec := httptest.NewRecorder()
-	newTestRouter(nil).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/assets/app.js", nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("app.js status = %d", rec.Code)
+// The page must reference only assets the server actually serves, under /assets/.
+func TestPageReferencesServedAssets(t *testing.T) {
+	r := newTestRouter(nil)
+	index := httptest.NewRecorder()
+	r.ServeHTTP(index, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	html := index.Body.String()
+	found := false
+	for _, marker := range []string{`src="/assets/`, `href="/assets/`} {
+		rest := html
+		for {
+			i := strings.Index(rest, marker)
+			if i < 0 {
+				break
+			}
+			rest = rest[i+len(marker)-len("/assets/"):]
+			end := strings.IndexByte(rest, '"')
+			if end < 0 {
+				break
+			}
+			path := rest[:end]
+			rest = rest[end:]
+			found = true
+			rec := httptest.NewRecorder()
+			r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+			if rec.Code != http.StatusOK {
+				t.Errorf("referenced asset %s returned %d", path, rec.Code)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("index.html references no /assets/ files")
 	}
 }
