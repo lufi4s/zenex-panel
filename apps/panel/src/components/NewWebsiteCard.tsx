@@ -63,7 +63,7 @@ export function NewWebsiteCard({ onCreated }: NewWebsiteCardProps) {
             noValidate
           >
             <div className="space-y-1.5">
-              <Label htmlFor="site-label">Website name</Label>
+              <Label htmlFor="site-label">Subdomain name</Label>
               <Input
                 id="site-label"
                 placeholder="shop"

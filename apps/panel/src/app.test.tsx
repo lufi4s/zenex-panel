@@ -64,7 +64,33 @@ function mockApi(options: { signedIn: boolean }) {
     }
     if (url.endsWith("/api/v1/system/metrics")) return json(metrics);
     if (url.endsWith("/api/v1/domains")) return json(domains);
+    if (url.endsWith("/api/v1/sites") && method === "POST") {
+      return json({
+        site: {
+          ...sites[0],
+          id: "s2",
+          slug: "blog",
+          domain: "blog.ozima.cloud",
+          state: "provisioning",
+        },
+        job_id: "j1",
+      });
+    }
     if (url.endsWith("/api/v1/sites")) return json(sites);
+    if (url.endsWith("/api/v1/jobs/j1/logs")) {
+      return json([
+        { id: 1, time: "2026-10-08T10:00:00Z", level: "info", message: "Creating site account" },
+      ]);
+    }
+    if (url.endsWith("/api/v1/jobs/j1")) {
+      return json({
+        job: { id: "j1", type: "provision", status: "running", attempts: 1 },
+        steps: [
+          { name: "create_account", status: "running", attempts: 1 },
+          { name: "download_wordpress", status: "pending", attempts: 0 },
+        ],
+      });
+    }
     if (url.endsWith("/api/v1/sites/s1")) return json({ site: sites[0] });
     if (url.endsWith("/api/v1/sites/s1/logs")) {
       return json({ log: "203.0.113.5 - GET / 200\n203.0.113.9 - GET /wp-login.php 200" });
@@ -269,6 +295,20 @@ describe("navigation", () => {
     await screen.findByRole("heading", { name: "shop.ozima.cloud" });
     chooseTab("Logs");
     expect(await screen.findByText(/wp-login\.php/)).toBeTruthy();
+  });
+
+  it("shows the build status and log in the popup after creating a website", async () => {
+    vi.stubGlobal("fetch", mockApi({ signedIn: true }));
+    renderAt("/websites");
+    fireEvent.click(await screen.findByRole("button", { name: /New website/ }));
+    fireEvent.change(await screen.findByLabelText("Subdomain name"), {
+      target: { value: "blog" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create website" }));
+
+    expect(await screen.findByRole("heading", { name: "Building website" })).toBeTruthy();
+    expect(await screen.findByText("Creating site account")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Open website" })).toBeTruthy();
   });
 
   it("keeps Remove domain disabled until the domain name is typed", async () => {

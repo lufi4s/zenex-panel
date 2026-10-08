@@ -15,6 +15,7 @@ interface JobProgressProps {
   jobId: string;
   title: string;
   onDismiss: () => void;
+  defaultShowLog?: boolean;
 }
 
 const ICON: Record<StepStatus, ReactNode> = {
@@ -71,11 +72,11 @@ function LogLines({ jobId }: { jobId: string }) {
  * Polls while the job runs, refreshes the website list when it finishes, offers
  * a retry when a step fails, and can show the full step-by-step log.
  */
-export function JobProgress({ jobId, title, onDismiss }: JobProgressProps) {
+export function JobProgress({ jobId, title, onDismiss, defaultShowLog = false }: JobProgressProps) {
   const qc = useQueryClient();
   const job = useJob(jobId);
   const retry = useRetryJob();
-  const [showLog, setShowLog] = useState(false);
+  const [showLog, setShowLog] = useState(defaultShowLog);
   const status = job.data?.job.status;
   const finished =
     status === "succeeded" || status === "failed" || status === "cancelled" || status === "dead";

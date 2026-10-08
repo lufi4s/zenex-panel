@@ -15,6 +15,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { CardSkeleton } from "@/components/CardSkeleton";
+import { JobProgress } from "@/components/JobProgress";
 import { NewWebsiteCard } from "@/components/NewWebsiteCard";
 import { PageHeader } from "@/components/PageHeader";
 import { badgeTone } from "@/lib/badge";
@@ -77,6 +78,8 @@ export function WebsitesPage() {
   const health = useSiteHealth("24h");
   const navigate = useNavigate();
   const [creating, setCreating] = useState(false);
+  // The website and build job started from the dialog; set once "Create website" succeeds.
+  const [build, setBuild] = useState<{ siteId: string; jobId: string } | null>(null);
 
   const uptime = new Map(
     (health.data ?? [])
@@ -84,26 +87,50 @@ export function WebsitesPage() {
       .map((h) => [h.site_id, `${((h.ok_checks / h.checks) * 100).toFixed(1)}%`]),
   );
 
+  const closeDialog = (open: boolean) => {
+    setCreating(open);
+    if (!open) setBuild(null);
+  };
+
   const newWebsite = (
-    <Dialog open={creating} onOpenChange={setCreating}>
+    <Dialog open={creating} onOpenChange={closeDialog}>
       <DialogTrigger asChild>
         <Button>
           <Plus aria-hidden /> New website
         </Button>
       </DialogTrigger>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>New website</DialogTitle>
-          <DialogDescription>
-            Pick a domain and a short label. WordPress is installed for you.
-          </DialogDescription>
-        </DialogHeader>
-        <NewWebsiteCard
-          onCreated={(siteId) => {
-            setCreating(false);
-            navigate(`/websites/${siteId}`);
-          }}
-        />
+        {build ? (
+          <>
+            <DialogHeader>
+              <DialogTitle>Building website</DialogTitle>
+              <DialogDescription>
+                Live status of each step. You can close this window; the build keeps running.
+              </DialogDescription>
+            </DialogHeader>
+            <JobProgress
+              jobId={build.jobId}
+              title="Building your website"
+              defaultShowLog
+              onDismiss={() => closeDialog(false)}
+            />
+            <div className="flex justify-end">
+              <Button variant="outline" onClick={() => navigate(`/websites/${build.siteId}`)}>
+                Open website
+              </Button>
+            </div>
+          </>
+        ) : (
+          <>
+            <DialogHeader>
+              <DialogTitle>New website</DialogTitle>
+              <DialogDescription>
+                Enter a subdomain name and choose its domain. WordPress is installed for you.
+              </DialogDescription>
+            </DialogHeader>
+            <NewWebsiteCard onCreated={(siteId, jobId) => setBuild({ siteId, jobId })} />
+          </>
+        )}
       </DialogContent>
     </Dialog>
   );

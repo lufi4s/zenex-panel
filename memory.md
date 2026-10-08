@@ -192,3 +192,19 @@ Operational notes:
 - Suspend 404 / resume restored verified on the server.
 - Existing site `yokohama.ozima.cloud` was re-written to the Caddy config via helper `vhost.write`.
 - Operations: the VPS has a real domain `ozima.cloud` with wildcard DNS; use it for SSL tests (nip.io shares a Let's Encrypt rate limit).
+
+## 11. Multi-page panel (latest)
+
+- Frontend is now a routed, multi-page panel: sidebar layout (AppLayout + app-sidebar), pages in apps/panel/src/pages: Overview, Websites, Website (SitePage with Overview / Files / Logs / Settings tabs), Domains, Server, Activity, Settings (admins only).
+- Removed the old single-page files: Dashboard.tsx, WebsitesCard.tsx, AppShell.tsx.
+- Checks passing locally: tsc -b, vp check (lint + format), vitest (33 tests), vite build into apps/api/web/dist, go vet and go test ./... in apps/api.
+- Pushed to origin main as 707024e.
+- NOT yet deployed to the VPS (162.4.35.76). Deploy needs ZENEX_VPS_PASS in the environment; run the install script from the git checkout on the VPS (`git -C /opt/zenex/src fetch -q --depth 1 origin main && git -C /opt/zenex/src reset -q --hard FETCH_HEAD && bash /opt/zenex/src/infrastructure/deployment/install.sh`).
+- Not yet verified: visual/mobile check of the new pages in headless Chrome.
+
+## 12. Create-website popup shows build status (latest)
+
+- "New website" dialog (apps/panel/src/pages/WebsitesPage.tsx): the form is labelled "Subdomain name" (apps/panel/src/components/NewWebsiteCard.tsx). After "Create website" succeeds, the dialog stays open and shows JobProgress with the step list and the build log expanded, plus an "Open website" button. Closing the dialog does not stop the build.
+- JobProgress (apps/panel/src/components/JobProgress.tsx) has a new optional prop defaultShowLog.
+- Test added in apps/panel/src/app.test.tsx: "shows the build status and log in the popup after creating a website". 34 frontend tests pass; vp check, tsc and vite build pass.
+- Not committed or deployed in this step.
