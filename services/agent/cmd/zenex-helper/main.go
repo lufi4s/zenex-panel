@@ -36,9 +36,10 @@ type request struct {
 }
 
 type response struct {
-	OK    bool   `json:"ok"`
-	UID   string `json:"uid,omitempty"`
-	Error string `json:"error,omitempty"`
+	OK     bool   `json:"ok"`
+	UID    string `json:"uid,omitempty"`
+	Output string `json:"output,omitempty"`
+	Error  string `json:"error,omitempty"`
 }
 
 func main() {
@@ -119,7 +120,7 @@ func handler(log *slog.Logger, ops *helper.Ops) http.Handler {
 			return
 		}
 		log.Info("operation ok", "op", req.Op)
-		writeJSON(w, http.StatusOK, response{OK: true, UID: res.UID})
+		writeJSON(w, http.StatusOK, response{OK: true, UID: res.UID, Output: res.Output})
 	})
 	return mux
 }

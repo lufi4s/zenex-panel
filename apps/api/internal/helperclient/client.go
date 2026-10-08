@@ -41,13 +41,18 @@ type request struct {
 }
 
 type response struct {
-	OK    bool   `json:"ok"`
-	UID   string `json:"uid,omitempty"`
-	Error string `json:"error,omitempty"`
+	OK     bool   `json:"ok"`
+	UID    string `json:"uid,omitempty"`
+	Output string `json:"output,omitempty"`
+	Error  string `json:"error,omitempty"`
 }
 
 // Do runs one named operation and returns the account UID when the operation sets one.
 func (c *Client) Do(ctx context.Context, op string, args map[string]string) (string, error) {
+	return c.call(ctx, op, args, func(r response) string { return r.UID })
+}
+
+func (c *Client) call(ctx context.Context, op string, args map[string]string, pick func(response) string) (string, error) {
 	body, err := json.Marshal(request{Op: op, Args: args})
 	if err != nil {
 		return "", err
@@ -75,5 +80,5 @@ func (c *Client) Do(ctx context.Context, op string, args map[string]string) (str
 		}
 		return "", &Error{Message: msg}
 	}
-	return out.UID, nil
+	return pick(out), nil
 }

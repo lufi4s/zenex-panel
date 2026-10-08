@@ -20,9 +20,12 @@ func isUniqueViolation(err error) bool {
 
 // Domain is a customer's connected apex domain (e.g. example.com).
 type Domain struct {
-	ID        string    `json:"id"`
-	Apex      string    `json:"apex"`
-	CreatedAt time.Time `json:"created_at"`
+	ID        string     `json:"id"`
+	Apex      string     `json:"apex"`
+	Verified  bool       `json:"verified"`
+	Message   string     `json:"message"`
+	CheckedAt *time.Time `json:"checked_at,omitempty"`
+	CreatedAt time.Time  `json:"created_at"`
 }
 
 // Site is a WordPress site hosted on a node.
@@ -110,7 +113,7 @@ func (s *Store) CreateDomain(ctx context.Context, ownerID, apex string) (Domain,
 
 func (s *Store) ListDomains(ctx context.Context, ownerID string) ([]Domain, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id::text, apex_domain::text, created_at
+		SELECT `+domainColumns+`
 		FROM dns_zones WHERE owner_user_id = $1::uuid ORDER BY apex_domain`, ownerID)
 	if err != nil {
 		return nil, err
@@ -118,8 +121,8 @@ func (s *Store) ListDomains(ctx context.Context, ownerID string) ([]Domain, erro
 	defer rows.Close()
 	out := []Domain{}
 	for rows.Next() {
-		var d Domain
-		if err := rows.Scan(&d.ID, &d.Apex, &d.CreatedAt); err != nil {
+		d, err := scanDomain(rows)
+		if err != nil {
 			return nil, err
 		}
 		out = append(out, d)
@@ -427,4 +430,47 @@ func (s *Store) AppendJobLog(ctx context.Context, jobID, level, msg string) erro
 	_, err := s.pool.Exec(ctx,
 		`INSERT INTO job_logs (job_id, level, message) VALUES ($1::uuid, $2, $3)`, jobID, level, msg)
 	return err
+}
+
+const domainColumns = `id::text, apex_domain::text, verified_at IS NOT NULL,
+	COALESCE(check_message, ''), last_checked_at, created_at`
+
+func scanDomain(row pgx.Row) (Domain, error) {
+	var d Domain
+	err := row.Scan(&d.ID, &d.Apex, &d.Verified, &d.Message, &d.CheckedAt, &d.CreatedAt)
+	return d, err
+}
+
+// GetDomainOwned returns one of the owner's domains.
+func (s *Store) GetDomainOwned(ctx context.Context, ownerID, id string) (Domain, error) {
+	d, err := scanDomain(s.pool.QueryRow(ctx, `
+		SELECT `+domainColumns+` FROM dns_zones
+		WHERE id = $1::uuid AND owner_user_id = $2::uuid`, id, ownerID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Domain{}, ErrNotFound
+	}
+	return d, err
+}
+
+// SetDomainCheck records the outcome of a DNS check.
+func (s *Store) SetDomainCheck(ctx context.Context, id string, verified bool, message string) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE dns_zones
+		SET verified_at = CASE WHEN $2::boolean THEN COALESCE(verified_at, now()) ELSE NULL END,
+		    check_message = $3, last_checked_at = now()
+		WHERE id = $1::uuid`, id, verified, message)
+	return err
+}
+
+// FindSiteByIdempotencyKey returns the site and job created with this key, so a
+// repeated request is answered without creating anything again.
+func (s *Store) FindSiteByIdempotencyKey(ctx context.Context, actorID, key string) (string, string, error) {
+	var siteID, jobID string
+	err := s.pool.QueryRow(ctx, `
+		SELECT COALESCE(site_id::text, ''), id::text FROM jobs
+		WHERE actor_user_id = $1::uuid AND idempotency_key = $2`, actorID, key).Scan(&siteID, &jobID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", "", ErrNotFound
+	}
+	return siteID, jobID, err
 }

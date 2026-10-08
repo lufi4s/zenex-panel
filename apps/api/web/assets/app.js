@@ -10,6 +10,7 @@ let metricsTimer = null;
 let jobTimer = null;
 let activeJobId = null;
 let activeSiteId = null;
+let managedSite = null;
 
 async function api(path, options = {}) {
   const headers = { ...BASE_HEADERS, ...(options.headers || {}) };
@@ -108,10 +109,31 @@ async function refreshMetrics() {
 }
 
 // ---------------------------------------------------------------------------
-// Domains
+// Domains and DNS verification
 // ---------------------------------------------------------------------------
 
 let domains = [];
+
+function domainRow(d) {
+  const li = el("li", undefined, "domain-item");
+  const head = el("div", undefined, "domain-head");
+  head.append(
+    el("strong", d.apex),
+    el("span", d.verified ? "DNS verified" : "Not pointing here", d.verified ? "badge badge-ok" : "badge badge-bad"),
+  );
+  const check = el("button", "Check again", "ghost");
+  check.type = "button";
+  check.addEventListener("click", async () => {
+    check.disabled = true;
+    await api(`/api/v1/domains/${d.id}/verify`, { method: "POST" });
+    check.disabled = false;
+    loadDomains();
+  });
+  head.appendChild(check);
+  li.appendChild(head);
+  if (d.message) li.appendChild(el("p", d.message, d.verified ? "note" : "error"));
+  return li;
+}
 
 async function loadDomains() {
   const res = await api("/api/v1/domains");
@@ -119,13 +141,13 @@ async function loadDomains() {
   domains = res.ok ? res.body : [];
   const list = $("domain-list");
   list.replaceChildren();
-  domains.forEach((d) => list.appendChild(el("li", d.apex)));
+  domains.forEach((d) => list.appendChild(domainRow(d)));
   if (domains.length === 0) list.appendChild(el("li", "No domains connected yet.", "muted"));
 
   const select = $("site-apex");
   select.replaceChildren();
   domains.forEach((d) => {
-    const opt = el("option", d.apex);
+    const opt = el("option", d.verified ? d.apex : `${d.apex} (not verified)`);
     opt.value = d.apex;
     select.appendChild(opt);
   });
@@ -156,7 +178,7 @@ $("domain-form").addEventListener("submit", async (e) => {
 function updatePreview() {
   const label = $("site-form").label.value.trim().toLowerCase();
   const apex = $("site-apex").value;
-  $("site-preview").textContent = label && apex ? `Address: https://${label}.${apex} (HTTP until SSL is set up)` : "";
+  $("site-preview").textContent = label && apex ? `Address: http://${label}.${apex}` : "";
 }
 
 $("site-form").label.addEventListener("input", updatePreview);
@@ -185,10 +207,13 @@ $("site-form").addEventListener("submit", async (e) => {
 });
 
 // ---------------------------------------------------------------------------
-// Sites and progress
+// Sites list
 // ---------------------------------------------------------------------------
 
-const STATUS_TEXT = { ready: "Ready", provisioning: "Building", failed: "Failed", suspended: "Suspended", deleting: "Deleting", deleted: "Deleted" };
+const STATE_TEXT = {
+  ready: "Ready", provisioning: "Building", failed: "Failed", suspended: "Suspended",
+  deleting: "Deleting", deleted: "Deleted",
+};
 
 async function loadSites() {
   const res = await api("/api/v1/sites");
@@ -209,24 +234,20 @@ async function loadSites() {
     } else {
       addr.textContent = s.domain;
     }
-    const status = el("td", STATUS_TEXT[s.state] || s.state, `state state-${s.state}`);
+    const status = el("td", STATE_TEXT[s.state] || s.state, `state state-${s.state}`);
     const actions = el("td", undefined, "actions");
-    if (s.state === "ready") {
-      const login = el("button", "WordPress login", "ghost");
-      login.type = "button";
-      login.addEventListener("click", () => showCredentials(s));
-      actions.appendChild(login);
-    }
-    if (s.state === "provisioning" || s.state === "failed") {
-      const view = el("button", "View progress", "ghost");
-      view.type = "button";
-      view.addEventListener("click", () => openSite(s.id));
-      actions.appendChild(view);
-    }
+    const manage = el("button", "Manage", "ghost");
+    manage.type = "button";
+    manage.addEventListener("click", () => openManage(s.id));
+    actions.appendChild(manage);
     tr.append(addr, status, actions);
     rows.appendChild(tr);
   });
 }
+
+// ---------------------------------------------------------------------------
+// Build progress
+// ---------------------------------------------------------------------------
 
 function renderSteps(steps) {
   const list = $("progress-steps");
@@ -258,7 +279,7 @@ async function pollJob() {
     loadSites();
   } else if (job.status === "failed") {
     $("progress-title").textContent = "Website build stopped";
-    $("progress-error").textContent = job.error || "The build stopped. Retry to continue from the failed step.";
+    $("progress-error").textContent = job.error || "The build stopped. Retry to continue.";
     $("retry-job").hidden = false;
     finishWatch();
     loadSites();
@@ -279,20 +300,6 @@ function watchJob(jobId, siteId) {
   jobTimer = setInterval(pollJob, JOB_POLL_MS);
 }
 
-async function openSite(siteId) {
-  const res = await api(`/api/v1/sites/${siteId}`);
-  if (!res.ok || !res.body.job) return;
-  showProgress(res.body.site.state === "ready" ? "Website is ready" : "Website build");
-  renderSteps(res.body.steps || []);
-  if (res.body.job.status === "failed") {
-    $("progress-error").textContent = res.body.job.error || "The build stopped.";
-    $("retry-job").hidden = false;
-    activeJobId = res.body.job.id;
-  } else if (res.body.job.status !== "succeeded") {
-    watchJob(res.body.job.id, siteId);
-  }
-}
-
 $("retry-job").addEventListener("click", async () => {
   if (!activeJobId) return;
   const res = await api(`/api/v1/jobs/${activeJobId}/retry`, { method: "POST" });
@@ -303,21 +310,146 @@ $("retry-job").addEventListener("click", async () => {
   }
 });
 
-async function showCredentials(site) {
-  const res = await api(`/api/v1/sites/${site.id}/credentials`);
+// ---------------------------------------------------------------------------
+// Manage a website
+// ---------------------------------------------------------------------------
+
+function setManageError(msg) { $("manage-error").textContent = msg || ""; }
+
+function renderManage(site) {
+  managedSite = site;
+  $("manage-card").hidden = false;
+  $("manage-title").textContent = site.domain;
+  const badge = $("manage-state");
+  badge.textContent = STATE_TEXT[site.state] || site.state;
+  badge.className = `badge ${site.state === "ready" ? "badge-ok" : site.state === "failed" ? "badge-bad" : ""}`;
+  $("manage-info").textContent = `PHP ${site.php_version} · Account ${site.slug} · Created ${new Date(site.created_at).toLocaleString()}`;
+
+  const ready = site.state === "ready";
+  const suspended = site.state === "suspended";
+  $("m-login").disabled = !ready;
+  $("m-open").disabled = !ready;
+  $("m-restart").disabled = !ready;
+  $("m-logs").disabled = false;
+  $("m-suspend").hidden = suspended;
+  $("m-suspend").disabled = !ready;
+  $("m-resume").hidden = !suspended;
+  $("php-select").disabled = !ready;
+  $("delete-form").confirm.placeholder = `type ${site.domain} to confirm`;
+  setManageError("");
+}
+
+async function openManage(siteId) {
+  const res = await api(`/api/v1/sites/${siteId}`);
+  if (!res.ok) { $("site-error").textContent = errorText(res, "Could not open the website."); return; }
+  $("manage-log").hidden = true;
+  renderManage(res.body.site);
+  await loadPHPVersions(res.body.site.php_version);
+  $("manage-card").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+async function loadPHPVersions(current) {
+  const res = await api("/api/v1/php-versions");
+  const select = $("php-select");
+  select.replaceChildren();
+  const versions = res.ok ? res.body.versions : [current];
+  versions.forEach((v) => {
+    const opt = el("option", `PHP ${v}`);
+    opt.value = v;
+    if (v === current) opt.selected = true;
+    select.appendChild(opt);
+  });
+}
+
+async function refreshManaged() {
+  if (!managedSite) return;
+  const res = await api(`/api/v1/sites/${managedSite.id}`);
+  if (res.ok) renderManage(res.body.site);
+  loadSites();
+}
+
+async function runSiteAction(path, body) {
+  setManageError("");
+  const res = await api(path, body === undefined ? { method: "POST" } : { method: "POST", body: JSON.stringify(body) });
   if (!res.ok) {
-    $("site-error").textContent = errorText(res, "Could not load the login.");
-    return;
+    setManageError(errorText(res, "The action did not complete."));
+    return null;
   }
+  return res.body;
+}
+
+$("manage-close").addEventListener("click", () => {
+  $("manage-card").hidden = true;
+  managedSite = null;
+});
+
+$("m-login").addEventListener("click", async () => {
+  if (!managedSite) return;
+  const res = await api(`/api/v1/sites/${managedSite.id}/credentials`);
+  if (!res.ok) { setManageError(errorText(res, "Could not load the login.")); return; }
   $("cred-url").textContent = `Dashboard: ${res.body.url}`;
   $("cred-user").textContent = `Username: ${res.body.username}`;
   $("cred-pass").textContent = `Password: ${res.body.password}`;
   $("cred-box").hidden = false;
-}
+  $("cred-box").scrollIntoView({ behavior: "smooth", block: "nearest" });
+});
 
 $("cred-hide").addEventListener("click", () => {
   $("cred-box").hidden = true;
   $("cred-pass").textContent = "";
+});
+
+$("m-open").addEventListener("click", () => {
+  if (managedSite) window.open(`http://${managedSite.domain}`, "_blank", "noopener");
+});
+
+$("m-suspend").addEventListener("click", async () => {
+  if (managedSite && await runSiteAction(`/api/v1/sites/${managedSite.id}/suspend`)) refreshManaged();
+});
+
+$("m-resume").addEventListener("click", async () => {
+  if (managedSite && await runSiteAction(`/api/v1/sites/${managedSite.id}/resume`)) refreshManaged();
+});
+
+$("m-restart").addEventListener("click", async () => {
+  if (!managedSite) return;
+  if (await runSiteAction(`/api/v1/sites/${managedSite.id}/php-restart`)) {
+    setManageError("PHP restarted. Other websites on the same PHP version were restarted too.");
+  }
+});
+
+$("m-logs").addEventListener("click", async () => {
+  if (!managedSite) return;
+  const res = await api(`/api/v1/sites/${managedSite.id}/logs`);
+  const box = $("manage-log");
+  if (!res.ok) { setManageError(errorText(res, "Could not read the log.")); return; }
+  box.textContent = res.body.log || "No errors recorded yet.";
+  box.hidden = false;
+});
+
+$("php-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (!managedSite) return;
+  const version = $("php-select").value;
+  if (version === managedSite.php_version) { setManageError("The website already uses this PHP version."); return; }
+  const res = await runSiteAction(`/api/v1/sites/${managedSite.id}/php`, { version });
+  if (res) { renderManage(res); }
+});
+
+$("delete-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (!managedSite) return;
+  const typed = e.currentTarget.confirm.value.trim().toLowerCase();
+  if (typed !== managedSite.domain.toLowerCase()) {
+    setManageError(`Type ${managedSite.domain} exactly to confirm.`);
+    return;
+  }
+  const res = await api(`/api/v1/sites/${managedSite.id}`, { method: "DELETE" });
+  if (!res.ok) { setManageError(errorText(res, "Could not delete the website.")); return; }
+  $("manage-card").hidden = true;
+  managedSite = null;
+  e.currentTarget.confirm.value = "";
+  loadSites();
 });
 
 // ---------------------------------------------------------------------------

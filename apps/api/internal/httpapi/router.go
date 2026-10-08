@@ -19,6 +19,7 @@ type Deps struct {
 	Log           *slog.Logger
 	Users         AuthStore
 	Sites         SiteStore
+	Manage        SiteManager
 	Site          SiteSettings
 	SecureCookies bool // true when served over TLS
 	LoginLimiter  *fixedWindowLimiter
@@ -49,6 +50,14 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("GET /api/v1/sites/{id}/credentials", d.requireSession(d.handleSiteCredentials))
 	mux.Handle("GET /api/v1/jobs/{id}", d.requireSession(d.handleGetJob))
 	mux.Handle("POST /api/v1/jobs/{id}/retry", requireCSRF(d.requireSession(d.handleRetryJob)))
+	mux.Handle("POST /api/v1/domains/{id}/verify", requireCSRF(d.requireSession(d.handleVerifyDomain)))
+	mux.Handle("POST /api/v1/sites/{id}/suspend", requireCSRF(d.requireSession(d.handleSuspendSite())))
+	mux.Handle("POST /api/v1/sites/{id}/resume", requireCSRF(d.requireSession(d.handleResumeSite())))
+	mux.Handle("POST /api/v1/sites/{id}/php-restart", requireCSRF(d.requireSession(d.handleRestartPHP())))
+	mux.Handle("POST /api/v1/sites/{id}/php", requireCSRF(d.requireSession(d.handleSwitchPHP)))
+	mux.Handle("GET /api/v1/sites/{id}/logs", d.requireSession(d.handleSiteLogs))
+	mux.Handle("DELETE /api/v1/sites/{id}", requireCSRF(d.requireSession(d.handleDeleteSite)))
+	mux.Handle("GET /api/v1/php-versions", d.requireSession(d.handleListPHPVersions))
 
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, requestIDFrom(r), ErrNotFound)

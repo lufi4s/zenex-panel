@@ -21,8 +21,10 @@ import (
 
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/auth"
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/config"
+	"github.com/zenexcloud/zenex-panel/apps/api/internal/dnscheck"
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/helperclient"
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/httpapi"
+	"github.com/zenexcloud/zenex-panel/apps/api/internal/manage"
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/provision"
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/store"
 	"github.com/zenexcloud/zenex-panel/apps/api/migrations"
@@ -100,7 +102,9 @@ func serve(cfg config.Config, log *slog.Logger) error {
 		log.Warn("this server is not registered yet; website creation is unavailable", "reason", err.Error())
 	}
 
-	prov := provision.New(s, helperclient.New(cfg.HelperSocket), []byte(cfg.SecretKey), log)
+	helpers := helperclient.New(cfg.HelperSocket)
+	prov := provision.New(s, helpers, []byte(cfg.SecretKey), log)
+	manager := manage.New(s, helpers, log)
 	startJob := func(jobID string) {
 		go func() {
 			if err := prov.Run(context.Background(), jobID); err != nil {
@@ -123,14 +127,16 @@ func serve(cfg config.Config, log *slog.Logger) error {
 	srv := &http.Server{
 		Addr: cfg.ListenAddr,
 		Handler: httpapi.NewRouter(httpapi.Deps{
-			Log:   log,
-			Users: s,
-			Sites: s,
+			Log:    log,
+			Users:  s,
+			Sites:  s,
+			Manage: manager,
 			Site: httpapi.SiteSettings{
 				NodeID:     nodeID,
 				PHPVersion: cfg.PHPVersion,
 				SecretKey:  []byte(cfg.SecretKey),
 				StartJob:   startJob,
+				DNS:        dnscheck.New(cfg.PublicIP),
 			},
 			SecureCookies: cfg.TLSEnabled(),
 		}),

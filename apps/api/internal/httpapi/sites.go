@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/zenexcloud/zenex-panel/apps/api/internal/dnscheck"
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/provision"
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/store"
 	"github.com/zenexcloud/zenex-panel/packages/validation"
@@ -39,6 +40,9 @@ type SiteStore interface {
 	GetJob(ctx context.Context, id string) (store.Job, error)
 	JobSteps(ctx context.Context, jobID string) ([]store.JobStep, error)
 	RequeueFailedJob(ctx context.Context, jobID string) (bool, error)
+	GetDomainOwned(ctx context.Context, ownerID, id string) (store.Domain, error)
+	SetDomainCheck(ctx context.Context, id string, verified bool, message string) error
+	FindSiteByIdempotencyKey(ctx context.Context, actorID, key string) (string, string, error)
 }
 
 // SiteSettings are the server-level values the site handlers need.
@@ -46,6 +50,8 @@ type SiteSettings struct {
 	NodeID     string
 	PHPVersion string
 	SecretKey  []byte
+	// DNS checks that customer domains point at this server.
+	DNS *dnscheck.Checker
 	// StartJob runs a job in the background.
 	StartJob func(jobID string)
 }
@@ -111,7 +117,47 @@ func (d Deps) handleConnectDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d.audit(r.Context(), r, store.AuditEntry{ActorUserID: user.ID, ActorRole: primaryRole(user), Action: "domain.connect", TargetType: "domain", TargetID: dom.ID, Result: "success"})
-	writeJSON(w, http.StatusCreated, dom)
+	writeJSON(w, http.StatusCreated, d.checkDomain(r, user.ID, dom))
+}
+
+// checkDomain runs the DNS check, stores the result and returns the updated domain.
+func (d Deps) checkDomain(r *http.Request, ownerID string, dom store.Domain) store.Domain {
+	if d.Site.DNS == nil {
+		return dom
+	}
+	res := d.Site.DNS.CheckDomain(r.Context(), dom.Apex)
+	if err := d.Sites.SetDomainCheck(r.Context(), dom.ID, res.Verified, res.Message); err != nil {
+		d.Log.Error("saving domain check failed", "request_id", requestIDFrom(r), "operation", "domains.check", "error", err)
+		dom.Verified, dom.Message = res.Verified, res.Message
+		return dom
+	}
+	if updated, err := d.Sites.GetDomainOwned(r.Context(), ownerID, dom.ID); err == nil {
+		return updated
+	}
+	dom.Verified, dom.Message = res.Verified, res.Message
+	return dom
+}
+
+// handleVerifyDomain runs the DNS check again, after the customer changed DNS.
+func (d Deps) handleVerifyDomain(w http.ResponseWriter, r *http.Request) {
+	user, _ := currentUser(r)
+	id := r.PathValue("id")
+	if !uuidRe.MatchString(id) {
+		writeError(w, requestIDFrom(r), ErrNotFound)
+		return
+	}
+	dom, err := d.Sites.GetDomainOwned(r.Context(), user.ID, id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, requestIDFrom(r), ErrNotFound)
+		return
+	}
+	if err != nil {
+		d.internal(w, r, "domains.verify", err)
+		return
+	}
+	dom = d.checkDomain(r, user.ID, dom)
+	d.audit(r.Context(), r, store.AuditEntry{ActorUserID: user.ID, ActorRole: primaryRole(user), Action: "domain.verify", TargetType: "domain", TargetID: dom.ID, Result: "success"})
+	writeJSON(w, http.StatusOK, dom)
 }
 
 // ---------------------------------------------------------------------------
@@ -155,6 +201,18 @@ func (d Deps) handleCreateSite(w http.ResponseWriter, r *http.Request) {
 		writeError(w, reqID, ErrIdempotencyNeeded)
 		return
 	}
+	// A repeated request with the same key returns the original site, without
+	// running DNS checks again or creating anything.
+	if siteID, jobID, err := d.Sites.FindSiteByIdempotencyKey(r.Context(), user.ID, key); err == nil {
+		if site, gerr := d.Sites.GetSite(r.Context(), siteID); gerr == nil {
+			writeJSON(w, http.StatusOK, siteResponse{Site: site, JobID: jobID})
+			return
+		}
+	} else if !errors.Is(err, store.ErrNotFound) {
+		d.internal(w, r, "sites.create", err)
+		return
+	}
+
 	if d.Site.NodeID == "" {
 		writeError(w, reqID, ErrNodeMissing)
 		return
@@ -188,6 +246,14 @@ func (d Deps) handleCreateSite(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		d.internal(w, r, "sites.create", err)
 		return
+	}
+
+	// The website name itself must resolve to this server before anything is built.
+	if d.Site.DNS != nil {
+		if ok, msg := d.Site.DNS.CheckHost(r.Context(), domain); !ok {
+			writeError(w, reqID, APIError{Status: http.StatusBadRequest, Code: "dns_not_pointing", Message: msg})
+			return
+		}
 	}
 
 	// Account, database and database user share one name: zx_<label>.

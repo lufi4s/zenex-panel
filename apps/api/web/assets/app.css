@@ -48,3 +48,15 @@ button:disabled { opacity:.6; cursor:default; }
 .step-failed .step-status { color:var(--err); }
 .cred { margin-top:16px; padding:14px; border:1px solid var(--line); border-radius:8px; background:var(--bg); }
 .cred > div { margin:4px 0; font-variant-numeric:tabular-nums; word-break:break-all; }
+.badge { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; border:1px solid var(--line); color:var(--muted); }
+.badge-ok { color:var(--ok); border-color:var(--ok); }
+.badge-bad { color:var(--err); border-color:var(--err); }
+.domain-item { padding:10px 0; border-bottom:1px solid var(--line); }
+.domain-head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.manage-head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:6px; }
+.manage-actions { display:flex; gap:8px; flex-wrap:wrap; margin:12px 0; }
+.inline label.grow { flex:1; margin:0; }
+.log { background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:10px; max-height:320px; overflow:auto; white-space:pre-wrap; font-size:12px; }
+.danger { margin-top:24px; padding-top:16px; border-top:1px solid var(--line); }
+.danger h3 { font-size:14px; margin:0 0 6px; color:var(--err); }
+.danger-btn { background:var(--err); border-color:var(--err); }

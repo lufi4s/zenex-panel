@@ -47,6 +47,7 @@ type Paths struct {
 	NginxAvailable string // /etc/nginx/sites-available
 	NginxEnabled   string // /etc/nginx/sites-enabled
 	LogDir         string // /var/log/nginx
+	PHPFPMGlob     string // PHP-FPM binaries installed on the server
 }
 
 func DefaultPaths() Paths {
@@ -56,12 +57,14 @@ func DefaultPaths() Paths {
 		NginxAvailable: "/etc/nginx/sites-available",
 		NginxEnabled:   "/etc/nginx/sites-enabled",
 		LogDir:         "/var/log/nginx",
+		PHPFPMGlob:     "/usr/sbin/php-fpm[0-9]*.[0-9]*",
 	}
 }
 
 // Result is returned to the caller for operations that produce a value.
 type Result struct {
-	UID string `json:"uid,omitempty"`
+	UID    string `json:"uid,omitempty"`
+	Output string `json:"output,omitempty"`
 }
 
 // commandRunner is the subset of the executor the helper needs.
@@ -102,6 +105,20 @@ func (o *Ops) Do(ctx context.Context, op string, args map[string]string) (Result
 		return Result{}, o.wpConfigCreate(ctx, args)
 	case "wp.core-install":
 		return Result{}, o.wpCoreInstall(ctx, args)
+	case "php.versions":
+		return o.phpVersionsOutput(), nil
+	case "php.restart":
+		return Result{}, o.phpRestart(ctx, args)
+	case "php.switch":
+		return Result{}, o.phpSwitch(ctx, args)
+	case "vhost.disable":
+		return Result{}, o.vhostDisable(ctx, args)
+	case "vhost.enable":
+		return Result{}, o.vhostEnable(ctx, args)
+	case "site.purge":
+		return Result{}, o.sitePurge(ctx, args)
+	case "logs.tail":
+		return o.logsTail(args)
 	case "wp.harden":
 		return Result{}, o.wpHarden(ctx, args)
 	default:
@@ -527,7 +544,7 @@ func trim(s string) string {
 // AllowedBinaries lists every program the helper may execute. phpFPM is the
 // set of PHP-FPM binaries installed on the server, discovered at startup.
 func AllowedBinaries(phpFPM []string) []string {
-	base := []string{binUseradd, binRunuser, binEnv, binMariadb, binSystemctl, binWP}
+	base := []string{binUseradd, binUserdel, binRunuser, binEnv, binMariadb, binSystemctl, binWP}
 	base = append(base, nginx.AllowedBinaries...)
 	return append(base, phpFPM...)
 }

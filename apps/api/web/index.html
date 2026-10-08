@@ -82,6 +82,40 @@
           <button type="button" id="retry-job" class="ghost" hidden>Retry from the failed step</button>
         </div>
 
+        <div id="manage-card" class="card panel" hidden>
+          <div class="manage-head">
+            <h2 id="manage-title">Website</h2>
+            <span id="manage-state" class="badge"></span>
+            <span class="spacer"></span>
+            <button type="button" class="ghost" id="manage-close">Close</button>
+          </div>
+          <p class="note" id="manage-info"></p>
+          <div class="manage-actions">
+            <button type="button" id="m-login" class="ghost">WordPress login</button>
+            <button type="button" id="m-open" class="ghost">Open site</button>
+            <button type="button" id="m-suspend" class="ghost">Suspend</button>
+            <button type="button" id="m-resume" class="ghost" hidden>Resume</button>
+            <button type="button" id="m-restart" class="ghost">Restart PHP</button>
+            <button type="button" id="m-logs" class="ghost">Error log</button>
+          </div>
+          <form id="php-form" class="inline" novalidate>
+            <label class="grow">PHP version
+              <select name="version" id="php-select" required></select>
+            </label>
+            <button type="submit" class="ghost">Change PHP version</button>
+          </form>
+          <p id="manage-error" class="error" role="alert"></p>
+          <pre id="manage-log" class="log" hidden></pre>
+          <div class="danger">
+            <h3>Delete website</h3>
+            <p class="note">This permanently removes the files, database and login for this website. It cannot be undone.</p>
+            <form id="delete-form" class="inline" novalidate>
+              <input name="confirm" placeholder="type the website address to confirm" autocomplete="off" aria-label="Confirm website address">
+              <button type="submit" class="danger-btn">Delete permanently</button>
+            </form>
+          </div>
+        </div>
+
         <div class="card panel">
           <h2>Your websites</h2>
           <table class="sites">
