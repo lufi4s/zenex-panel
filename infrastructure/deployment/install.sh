@@ -559,6 +559,26 @@ configure_firewall() {
     info "firewall on (SSH ${ssh_port}, web 80/443, panel ${PANEL_PORT})"
 }
 
+# Replaces Ubuntu's welcome page with a plain 404 for unknown addresses, so a
+# suspended or deleted website never shows the server's default page.
+configure_nginx_default() {
+    cat > /etc/nginx/sites-available/zenex-default <<'EOF'
+# Managed by Zenex. Answers any address that has no website.
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+    access_log off;
+    return 404;
+}
+EOF
+    rm -f /etc/nginx/sites-enabled/default
+    ln -sfn /etc/nginx/sites-available/zenex-default /etc/nginx/sites-enabled/zenex-default
+    if nginx -t >/dev/null 2>&1; then
+        systemctl reload nginx
+    fi
+}
+
 start_base_services() {
     local svc
     PHP_VER="$(php -r 'echo PHP_MAJOR_VERSION, ".", PHP_MINOR_VERSION;')"
@@ -567,6 +587,7 @@ start_base_services() {
             fail "could not start $svc. Run: systemctl status $svc"
         fi
     done
+    configure_nginx_default
     info "web, database and cache services running"
 }
 

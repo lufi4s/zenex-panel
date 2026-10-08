@@ -16,10 +16,21 @@ func (s *Store) SetSitePHPVersion(ctx context.Context, siteID, version string) e
 
 // MarkSiteDeleted hides a site after its files, database and account are gone.
 func (s *Store) MarkSiteDeleted(ctx context.Context, siteID string) error {
-	_, err := s.pool.Exec(ctx, `
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	// Remove the address so it can be used again; the site row stays for history.
+	if _, err := tx.Exec(ctx, `DELETE FROM domains WHERE site_id = $1::uuid`, siteID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
 		UPDATE sites SET state = 'deleted', deleted_at = now(), updated_at = now()
-		WHERE id = $1::uuid`, siteID)
-	return err
+		WHERE id = $1::uuid`, siteID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // CreateManagementJob records a site operation (for example deletion) as a running job.
