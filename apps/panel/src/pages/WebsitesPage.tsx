@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { Plus } from "lucide-react";
-import { useNavigate } from "react-router";
+import { Plus } from "@/components/icons";
+import { useNavigate } from "@/lib/router";
 import { useSiteHealth, useSites } from "@/api/queries";
 import type { Site } from "@/api/types";
 import { Alert, AlertDescription } from "@/components/ui/alert";

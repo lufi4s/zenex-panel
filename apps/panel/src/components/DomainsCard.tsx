@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { AlertTriangle, CheckCircle2, RefreshCw, Trash2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, RefreshCw, Trash2 } from "@/components/icons";
 import { useAddDomain, useCheckDomain, useDeleteDomain, useDomains } from "@/api/queries";
 import { ApiError, describeError } from "@/api/client";
 import type { Domain } from "@/api/types";

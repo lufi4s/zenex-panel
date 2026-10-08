@@ -1,7 +1,4 @@
-import { clsx, type ClassValue } from "clsx";
-import { twMerge } from "tailwind-merge";
-
-/** Merges Tailwind class names, letting later classes override earlier ones. */
-export function cn(...inputs: ClassValue[]): string {
-  return twMerge(clsx(inputs));
+/** Joins class names, skipping empty values. Pass classes in the order you want them applied. */
+export function cn(...inputs: Array<string | false | null | undefined>): string {
+  return inputs.filter(Boolean).join(" ");
 }

@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { Check } from "lucide-react";
+import { Check } from "@/components/icons";
 import { useBranding, useSaveBranding } from "@/api/queries";
 import { describeError } from "@/api/client";
 import type { Branding } from "@/api/types";

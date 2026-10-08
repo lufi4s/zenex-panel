@@ -260,3 +260,19 @@ Written, not compiled or tested (Bash was denied by the auto-mode classifier in 
 
 To verify before commit: `go vet ./... && go test ./...` in services/agent and apps/api; `vp check --fix`; `npx tsc -b`; `npx vitest run`; `npx vite build`.
 Note: the first run of this feature must be deployed manually (the in-panel button does not exist on the VPS yet). The update runs `git reset --hard` on /opt/zenex/src and runs install.sh as root; admin-only and audited.
+
+## 18. Plain React + Tailwind frontend (latest)
+
+Removed every UI/animation/data/routing library from apps/panel. Only React, ReactDOM and Tailwind (plus Vite, Vitest and Testing Library for dev) remain.
+
+- Data: `src/api/query.ts` is an in-house cache with the same hook names (`useQuery`, `useMutation`, `useInfiniteQuery`, `queryClient.invalidateQueries/setQueryData/clear`). `src/api/queries.ts` keeps its hook API; only its imports changed.
+- Routing: `src/lib/router.tsx` (history API, `Link`, `NavLink`, `Navigate`, `Routes`, `useParams`, `useLocation`, `useNavigate`). `src/App.tsx` has a flat route table.
+- UI primitives: `src/components/ui/*` rewritten in plain Tailwind (button, card, badge, alert, input, label, separator, skeleton, dialog, tabs). Radix/shadcn/sidebar/sheet/tooltip/avatar/dropdown removed.
+- Icons: `src/components/icons.tsx` (inline SVG). lucide removed.
+- Layout: `src/components/app-sidebar.tsx` and `src/layouts/AppLayout.tsx`, a fixed sidebar on large screens and a drawer on small screens.
+- Typography: system sans for text, Georgia-style serif for headings, system monospace for code (`src/index.css`). No font packages, so the CSP stays strict.
+- React Bits components removed (Silk, SplitText, CountUp, SpotlightCard, StatusMark). JobProgress uses a small inline `StepIcon`.
+- Packages removed: @tanstack/react-query, react-router, lucide-react, radix-ui, @base-ui/react, class-variance-authority, clsx, cn, tailwind-merge, gsap, @gsap/react, motion, three, @react-three/fiber, @types/three, shadcn, tw-animate-css, all @fontsource packages.
+- `components.json` and `src/hooks/use-mobile.ts` removed.
+- Checks: tsc clean, vitest 35/35, vp check clean, vite build OK (JS 321 kB).
+- Not committed or deployed yet at the time of writing.

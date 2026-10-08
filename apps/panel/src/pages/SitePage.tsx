@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { ExternalLink } from "lucide-react";
-import { Link, useNavigate, useParams } from "react-router";
+import { ExternalLink } from "@/components/icons";
+import { Link, useNavigate, useParams } from "@/lib/router";
 import {
   useChangePHP,
   useCredentials,
@@ -171,7 +171,7 @@ function OverviewTab({ site }: { site: Site }) {
         </Card>
       )}
 
-      {message && (
+      {Boolean(message) && (
         <Alert variant="destructive" className="lg:col-span-3">
           <AlertDescription>{errorOf(message, "That did not work. Try again.")}</AlertDescription>
         </Alert>
@@ -399,6 +399,7 @@ export function SitePage() {
     );
   }
 
+  if (!detail.data) return null;
   const { site, job } = detail.data;
   const showJob =
     job &&

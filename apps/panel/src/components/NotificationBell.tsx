@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Bell, CheckCheck, CheckCircle2, Info, AlertTriangle, XCircle } from "lucide-react";
+import { Bell, CheckCheck, CheckCircle2, Info, AlertTriangle, XCircle } from "@/components/icons";
 import { useMarkNotificationsRead, useNotifications } from "@/api/queries";
 import type { Notification, NotificationLevel } from "@/api/types";
 import { Button } from "@/components/ui/button";

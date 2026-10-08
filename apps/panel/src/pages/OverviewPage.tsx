@@ -1,5 +1,5 @@
-import { ArrowRight, Layers } from "lucide-react";
-import { Link } from "react-router";
+import { ArrowRight, Layers } from "@/components/icons";
+import { Link } from "@/lib/router";
 import { useMe, useSites, useSystemUpdate } from "@/api/queries";
 import type { Site } from "@/api/types";
 import { Alert, AlertDescription } from "@/components/ui/alert";

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowUpCircle, CheckCircle2, RefreshCw, XCircle } from "lucide-react";
+import { ArrowUpCircle, CheckCircle2, RefreshCw, XCircle } from "@/components/icons";
 import { useStartUpdate, useSystemUpdate } from "@/api/queries";
 import { describeError } from "@/api/client";
 import { Alert, AlertDescription } from "@/components/ui/alert";

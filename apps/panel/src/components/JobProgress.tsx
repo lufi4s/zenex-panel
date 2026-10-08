@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@/api/query";
 import { useJob, useJobLogs, useRetryJob } from "@/api/queries";
 import { errorMessageFrom } from "@/api/client";
 import type { JobStep, StepStatus } from "@/api/types";
+import { CheckCircle2, CircleDashed, Loader2, XCircle } from "@/components/icons";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import StatusMark, { type StatusMarkStatus } from "@/components/StatusMark";
 import { Terminal, type TerminalLine } from "@/components/Terminal";
 import { stepLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -18,19 +18,19 @@ interface JobProgressProps {
   defaultShowLog?: boolean;
 }
 
-const MARK: Record<StepStatus, StatusMarkStatus> = {
-  succeeded: "done",
-  running: "running",
-  failed: "failed",
-  pending: "pending",
-  skipped: "pending",
-};
+/** The icon for one build step: a tick, a spinner, a cross, or an empty circle. */
+function StepIcon({ status }: { status: StepStatus }) {
+  if (status === "succeeded") return <CheckCircle2 className="size-4 text-success" />;
+  if (status === "running") return <Loader2 className="size-4 animate-spin text-primary" />;
+  if (status === "failed") return <XCircle className="size-4 text-destructive" />;
+  return <CircleDashed className="size-4 text-muted-foreground" />;
+}
 
 function StepRow({ step }: { step: JobStep }) {
   return (
     <li className="flex items-start gap-3 py-1.5">
       <span className="mt-0.5">
-        <StatusMark status={MARK[step.status]} size={18} />
+        <StepIcon status={step.status} />
       </span>
       <div className="min-w-0 flex-1">
         <span className={cn("text-sm", step.status === "pending" && "text-muted-foreground")}>
@@ -91,22 +91,24 @@ export function JobProgress({ jobId, title, onDismiss, defaultShowLog = false }:
 
   return (
     <Card>
-      <CardHeader className="flex-row items-center justify-between gap-3">
-        <CardTitle>{heading}</CardTitle>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            aria-expanded={showLog}
-            onClick={() => setShowLog((v) => !v)}
-          >
-            {showLog ? "Hide log" : "Show log"}
-          </Button>
-          {finished && (
-            <Button variant="ghost" size="sm" onClick={onDismiss}>
-              Dismiss
+      <CardHeader className="gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <CardTitle>{heading}</CardTitle>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-expanded={showLog}
+              onClick={() => setShowLog((v) => !v)}
+            >
+              {showLog ? "Hide log" : "Show log"}
             </Button>
-          )}
+            {finished && (
+              <Button variant="ghost" size="sm" onClick={onDismiss}>
+                Dismiss
+              </Button>
+            )}
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-3">

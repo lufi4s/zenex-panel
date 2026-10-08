@@ -1,8 +1,8 @@
 import { useEffect, type ReactNode } from "react";
-import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router";
 import { useBranding, useMe } from "@/api/queries";
 import { ApiError, describeError } from "@/api/client";
 import { applyBranding } from "@/lib/brand";
+import { Navigate, Routes, type RouteDef } from "@/lib/router";
 import { AppLayout } from "@/layouts/AppLayout";
 import { ActivityPage } from "@/pages/ActivityPage";
 import { DomainsPage } from "@/pages/DomainsPage";
@@ -48,20 +48,19 @@ function LoginRoute() {
 }
 
 /** Protects every page: visitors without a session are sent to sign-in. */
-function ProtectedRoute() {
+function Protected({ children }: { children: ReactNode }) {
   const me = useMe();
-  const location = useLocation();
   if (me.isPending) return <Loading />;
   if (me.error instanceof ApiError && me.error.status === 401) {
-    return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+    return <Navigate to="/login" replace />;
   }
   if (!me.data)
     return <ConnectionError message={describeError(me.error)} onRetry={() => me.refetch()} />;
-  return <AppLayout />;
+  return <AppLayout>{children}</AppLayout>;
 }
 
 /** Settings are for administrators only. */
-function AdminRoute({ children }: { children: ReactNode }) {
+function AdminOnly({ children }: { children: ReactNode }) {
   const me = useMe();
   if (me.data && !me.data.roles.includes("administrator")) return <Navigate to="/" replace />;
   return <>{children}</>;
@@ -76,6 +75,68 @@ function NotFound() {
   );
 }
 
+const ROUTES: RouteDef[] = [
+  { path: "/login", element: <LoginRoute /> },
+  {
+    path: "/",
+    element: (
+      <Protected>
+        <OverviewPage />
+      </Protected>
+    ),
+  },
+  {
+    path: "/websites",
+    element: (
+      <Protected>
+        <WebsitesPage />
+      </Protected>
+    ),
+  },
+  {
+    path: "/websites/:id",
+    element: (
+      <Protected>
+        <SitePage />
+      </Protected>
+    ),
+  },
+  {
+    path: "/domains",
+    element: (
+      <Protected>
+        <DomainsPage />
+      </Protected>
+    ),
+  },
+  {
+    path: "/server",
+    element: (
+      <Protected>
+        <ServerPage />
+      </Protected>
+    ),
+  },
+  {
+    path: "/activity",
+    element: (
+      <Protected>
+        <ActivityPage />
+      </Protected>
+    ),
+  },
+  {
+    path: "/settings",
+    element: (
+      <Protected>
+        <AdminOnly>
+          <SettingsPage />
+        </AdminOnly>
+      </Protected>
+    ),
+  },
+];
+
 /** The application: routes, the saved branding, and the signed-in frame. */
 export function App() {
   const branding = useBranding();
@@ -85,27 +146,13 @@ export function App() {
   }, [branding.data]);
 
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/login" element={<LoginRoute />} />
-        <Route element={<ProtectedRoute />}>
-          <Route index element={<OverviewPage />} />
-          <Route path="websites" element={<WebsitesPage />} />
-          <Route path="websites/:id" element={<SitePage />} />
-          <Route path="domains" element={<DomainsPage />} />
-          <Route path="server" element={<ServerPage />} />
-          <Route path="activity" element={<ActivityPage />} />
-          <Route
-            path="settings"
-            element={
-              <AdminRoute>
-                <SettingsPage />
-              </AdminRoute>
-            }
-          />
-          <Route path="*" element={<NotFound />} />
-        </Route>
-      </Routes>
-    </BrowserRouter>
+    <Routes
+      routes={ROUTES}
+      fallback={
+        <Protected>
+          <NotFound />
+        </Protected>
+      }
+    />
   );
 }

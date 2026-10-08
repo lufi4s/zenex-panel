@@ -1,12 +1,5 @@
-import {
-  MutationCache,
-  QueryClient,
-  useInfiniteQuery,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
-import { apiRequest, describeError, newIdempotencyKey, ApiError } from "./client";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "./query";
+import { apiRequest, newIdempotencyKey } from "./client";
 import { toast } from "../lib/toast";
 import type {
   ActivityPage,
@@ -29,27 +22,6 @@ import type {
   TimeRange,
   User,
 } from "./types";
-
-export const queryClient = new QueryClient({
-  mutationCache: new MutationCache({
-    onError: (error, _variables, _context, mutation) => {
-      // Forms that already show their own error set meta.silent to avoid a second message.
-      if (mutation.meta?.silent) return;
-      toast.error(describeError(error));
-    },
-  }),
-  defaultOptions: {
-    queries: {
-      retry: (failureCount, error) => {
-        // Never retry an expired session or a refused request.
-        if (error instanceof ApiError && error.status < 500) return false;
-        return failureCount < 1;
-      },
-      refetchOnWindowFocus: true,
-      staleTime: 2_000,
-    },
-  },
-});
 
 const keys = {
   me: ["me"] as const,

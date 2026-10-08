@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, Copy, Pause, Play, Search } from "lucide-react";
+import { Check, Copy, Pause, Play, Search } from "@/components/icons";
 import { cn } from "@/lib/utils";
 
 export type TerminalLevel = "info" | "warn" | "error" | "debug" | "success";

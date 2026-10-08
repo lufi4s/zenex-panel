@@ -1,9 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { QueryClientProvider } from "@tanstack/react-query";
 import { App } from "./App";
-import { queryClient } from "./api/queries";
+import { resetQueryCache } from "./api/query";
 
 // Answers the API calls the panel makes, using the same JSON shapes as the server.
 function mockApi(options: { signedIn: boolean }) {
@@ -188,65 +187,18 @@ function mockApi(options: { signedIn: boolean }) {
 /** Opens the panel at a path, the way the browser would. */
 function renderAt(path: string) {
   window.history.pushState({}, "", path);
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <App />
-    </QueryClientProvider>,
-  );
+  return render(<App />);
 }
 
-/** Radix tabs switch on mouse-down, so a click alone is not enough in jsdom. */
+/** Tabs switch on mouse-down in the panel, so the test presses the same way a person does. */
 function chooseTab(name: string) {
   const tab = screen.getByRole("tab", { name });
   fireEvent.mouseDown(tab, { button: 0 });
   fireEvent.click(tab);
 }
 
-// jsdom lacks matchMedia and the Font Loading API (the animation libraries read them).
-vi.hoisted(() => {
-  // Animation loops schedule frames; jsdom has no requestAnimationFrame.
-  window.requestAnimationFrame = ((cb: FrameRequestCallback) =>
-    window.setTimeout(() => cb(Date.now()), 16)) as unknown as typeof window.requestAnimationFrame;
-  window.cancelAnimationFrame = ((id: number) =>
-    window.clearTimeout(id)) as typeof window.cancelAnimationFrame;
-  Object.defineProperty(document, "fonts", {
-    configurable: true,
-    value: {
-      status: "loaded",
-      ready: Promise.resolve(),
-      addEventListener: () => {},
-      removeEventListener: () => {},
-    },
-  });
-  window.matchMedia = ((query: string) => ({
-    matches: false,
-    media: query,
-    onchange: null,
-    addEventListener: () => {},
-    removeEventListener: () => {},
-    addListener: () => {},
-    removeListener: () => {},
-    dispatchEvent: () => false,
-  })) as unknown as typeof window.matchMedia;
-});
-
-// The sign-in shader needs WebGL and the count-up animation needs IntersectionObserver;
-// jsdom has neither, so both are replaced for the tests.
-vi.mock("@/components/Silk", () => ({ default: () => null }));
-
 beforeEach(() => {
-  queryClient.clear();
-  window.IntersectionObserver = class {
-    observe() {}
-    unobserve() {}
-    disconnect() {}
-    takeRecords() {
-      return [];
-    }
-    readonly root = null;
-    readonly rootMargin = "";
-    readonly thresholds = [];
-  } as unknown as typeof IntersectionObserver;
+  resetQueryCache();
 });
 
 afterEach(() => {

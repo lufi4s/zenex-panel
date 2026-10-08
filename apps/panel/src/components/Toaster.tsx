@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { AlertTriangle, CheckCircle2, Info, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Info, X } from "@/components/icons";
 import { dismiss, getToasts, subscribe, type ToastTone } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 
