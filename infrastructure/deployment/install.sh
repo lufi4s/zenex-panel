@@ -210,7 +210,9 @@ create_service_user() {
 }
 
 prepare_directories() {
-    install -d -m 0750 -o root -g root "$CONF_DIR"
+    # The service user must be able to pass through CONF_DIR to reach tls/.
+    # 0710 = owner full, group traverse-only (no listing), others nothing.
+    install -d -m 0710 -o root -g "$ZENEX_USER" "$CONF_DIR"
     install -d -m 0750 -o root -g "$ZENEX_USER" "$TLS_DIR"
     install -d -m 0750 -o "$ZENEX_USER" -g "$ZENEX_USER" "$STATE_DIR"
     install -d -m 0755 -o root -g adm "$LOG_DIR"
@@ -220,7 +222,13 @@ prepare_directories() {
 }
 
 # Applied on every run and after every repair, so permissions always match.
+# Every folder on the path to a file must be traversable by the service user,
+# not only the file itself. Missing this caused "permission denied" on panel.crt.
 fix_file_permissions() {
+    if [[ -d "$CONF_DIR" ]]; then
+        chown root:"$ZENEX_USER" "$CONF_DIR"
+        chmod 0710 "$CONF_DIR"
+    fi
     if [[ -d "$TLS_DIR" ]]; then
         chown root:"$ZENEX_USER" "$TLS_DIR"
         chmod 0750 "$TLS_DIR"
@@ -234,8 +242,9 @@ fix_file_permissions() {
         chmod 0644 "$TLS_DIR/panel.crt"
     fi
     if [[ -f "$ENV_FILE" ]]; then
-        chown root:"$ZENEX_USER" "$ENV_FILE"
-        chmod 0640 "$ENV_FILE"
+        # systemd reads this file as root, so the service user does not need it.
+        chown root:root "$ENV_FILE"
+        chmod 0600 "$ENV_FILE"
     fi
     if [[ -d "$STATE_DIR" ]]; then
         chown -R "$ZENEX_USER":"$ZENEX_USER" "$STATE_DIR"
@@ -485,10 +494,12 @@ wait_for_panel() {
 
 repair_panel_from_logs() {
     local logs
-    logs="$(journalctl -u zenex-api -n 100 --no-pager 2>/dev/null || true)"
+    # Only this attempt's messages. Older lines from previous runs would
+    # otherwise send the repair down the wrong path.
+    logs="$(journalctl -u zenex-api --since "$ATTEMPT_START" --no-pager 2>/dev/null || true)"
 
     if grep -qi "permission denied" <<<"$logs"; then
-        info "fixing file permissions"
+        info "fixing file access for the panel service"
         fix_file_permissions
     elif grep -qiE "panel\.(crt|key)" <<<"$logs"; then
         info "the certificate is missing or unreadable; creating a new one"
@@ -511,9 +522,29 @@ repair_panel_from_logs() {
     fi
 }
 
+# Confirms the service user can read every file it needs, including every
+# folder on the way there. Fixes the folders first, then checks again.
+verify_service_access() {
+    local f
+    for f in "$TLS_DIR/panel.crt" "$TLS_DIR/panel.key" "$BIN_PATH"; do
+        if ! runuser -u "$ZENEX_USER" -- test -r "$f"; then
+            info "the panel service cannot read $f yet; fixing folder access"
+            fix_file_permissions
+            if ! runuser -u "$ZENEX_USER" -- test -r "$f"; then
+                fail "the panel service still cannot read $f. Send the output of: ls -ld $CONF_DIR $TLS_DIR"
+            fi
+        fi
+    done
+    info "panel service can read its files"
+}
+
+ATTEMPT_START=""
+
 start_panel() {
     local attempt
+    verify_service_access
     for attempt in 1 2 3; do
+        ATTEMPT_START="$(date '+%Y-%m-%d %H:%M:%S')"
         systemctl enable zenex-api >/dev/null 2>&1 || true
         systemctl restart zenex-api || true
         if wait_for_panel; then
@@ -524,7 +555,9 @@ start_panel() {
         repair_panel_from_logs
         sleep 3
     done
-    fail "the panel did not start after automatic repairs. Run: journalctl -u zenex-api -n 100"
+    printf '\n      Last messages from the panel:\n'
+    journalctl -u zenex-api --since "$ATTEMPT_START" --no-pager -n 15 2>/dev/null | sed 's/^/      /' || true
+    fail "the panel did not start after automatic repairs. The messages above show the cause."
 }
 
 # ---------------------------------------------------------------------------
