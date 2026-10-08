@@ -140,14 +140,14 @@ check_internet() {
     fi
 }
 
+# Busy means the real package-manager locks are held. Checking process names
+# is not reliable: Ubuntu keeps an idle unattended-upgrade process running.
 package_manager_busy() {
-    local p
-    for p in apt apt-get dpkg unattended-upgr; do
-        if pgrep -x "$p" >/dev/null 2>&1; then
-            return 0
-        fi
-    done
-    return 1
+    if flock -n /var/lib/dpkg/lock-frontend -c true \
+        && flock -n /var/lib/apt/lists/lock -c true; then
+        return 1
+    fi
+    return 0
 }
 
 wait_for_package_manager() {
