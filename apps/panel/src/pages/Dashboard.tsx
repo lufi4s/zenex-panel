@@ -1,8 +1,8 @@
 import { lazy, Suspense, useState, type ReactNode } from "react";
 import type { User } from "@/api/types";
 import { ActivityCard } from "@/components/ActivityCard";
-import { BrandingCard } from "@/components/BrandingCard";
 import { AppShell } from "@/components/AppShell";
+import { BrandingCard } from "@/components/BrandingCard";
 import { DomainsCard } from "@/components/DomainsCard";
 import { JobProgress } from "@/components/JobProgress";
 import { NewWebsiteCard } from "@/components/NewWebsiteCard";
@@ -23,72 +23,73 @@ interface ActiveJob {
   title: string;
 }
 
-/** A page section. Its id is the target of the matching sidebar link. */
-function Section({
-  id,
-  title,
-  description,
-  children,
-}: {
-  id: string;
-  title: string;
-  description?: string;
-  children: ReactNode;
-}) {
+/**
+ * A page section is only an anchor: each card inside carries its own title, so
+ * nothing is labelled twice.
+ */
+function Section({ id, children }: { id: string; children: ReactNode }) {
   return (
-    <section id={id} className="scroll-mt-20 space-y-4">
-      <div>
-        <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
-        {description && <p className="text-sm text-muted-foreground">{description}</p>}
-      </div>
+    <section id={id} className="scroll-mt-28">
       {children}
     </section>
   );
 }
 
-/** The whole panel on one scrollable page, arranged as a dashboard grid. */
+/** Page title shared by the top of the dashboard. */
+function PageHeader({ greeting }: { greeting: string }) {
+  return (
+    <div className="space-y-1">
+      <h1 className="font-heading text-2xl font-semibold tracking-tight sm:text-3xl">Overview</h1>
+      <p className="text-sm text-muted-foreground">{greeting}</p>
+    </div>
+  );
+}
+
+/** The panel on one scrollable page, arranged on a 12-column grid. */
 export function Dashboard({ user }: { user: User }) {
   const [activeJob, setActiveJob] = useState<ActiveJob | null>(null);
   const startJob = (jobId: string, title: string) => setActiveJob({ jobId, title });
+  const isAdmin = user.roles.includes("administrator");
+  const firstName = user.email.split("@")[0] ?? "there";
 
   return (
     <AppShell user={user}>
-      <Section id="overview" title="Overview" description="This server right now.">
+      <PageHeader
+        greeting={`Welcome back, ${firstName}. Here is how your server and websites are doing.`}
+      />
+
+      <Section id="overview">
         <ServerStrip />
       </Section>
 
-      <div className="grid gap-6 xl:grid-cols-3">
-        <div className="xl:col-span-2">
+      <div className="grid gap-6 lg:grid-cols-12">
+        <div className="lg:col-span-8">
           <Suspense fallback={<CardSkeleton height="h-80" />}>
-            <Section
-              id="monitoring"
-              title="Server history"
-              description="CPU, memory and disk over time."
-            >
+            <Section id="monitoring">
               <MonitoringCard />
             </Section>
           </Suspense>
         </div>
-        <div>
+        <div className="lg:col-span-4">
           <Suspense fallback={<CardSkeleton height="h-64" />}>
-            <Section id="services" title="Services" description="Everything the panel depends on.">
+            <Section id="services">
               <ServicesCard />
             </Section>
           </Suspense>
         </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Section id="domains" title="Domains" description="Where your websites live.">
-          <DomainsCard />
-        </Section>
-        <Section
-          id="new-website"
-          title="New website"
-          description="Build a WordPress site in a few minutes."
-        >
-          <NewWebsiteCard onStarted={startJob} />
-        </Section>
+      <div className="grid gap-6 lg:grid-cols-12">
+        <div className="lg:col-span-5">
+          <Section id="domains">
+            <DomainsCard />
+          </Section>
+        </div>
+        <div className="lg:col-span-7">
+          <Section id="new-website">
+            <NewWebsiteCard onStarted={startJob} />
+          </Section>
+        </div>
       </div>
 
       {activeJob && (
@@ -100,31 +101,19 @@ export function Dashboard({ user }: { user: User }) {
         />
       )}
 
-      <Section
-        id="websites"
-        title="Websites"
-        description="Open, manage, check and delete your sites."
-      >
+      <Section id="websites">
         <WebsitesCard onStarted={startJob} />
       </Section>
 
-      {user.roles.includes("administrator") && (
-        <Section
-          id="branding"
-          title="Branding"
-          description="Name, tagline and colour of this panel."
-        >
+      <Section id="activity">
+        <ActivityCard />
+      </Section>
+
+      {isAdmin && (
+        <Section id="branding">
           <BrandingCard />
         </Section>
       )}
-
-      <Section
-        id="activity"
-        title="Activity"
-        description="Everything that happened on your account."
-      >
-        <ActivityCard />
-      </Section>
     </AppShell>
   );
 }

@@ -71,7 +71,7 @@ function NavLink({
       href={`#${id}`}
       aria-current={active ? "location" : undefined}
       className={cn(
-        "flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+        "flex h-full shrink-0 items-center gap-2 whitespace-nowrap border-b-2 px-1 text-sm font-medium transition-colors",
         active
           ? "bg-primary/10 text-primary"
           : "text-muted-foreground hover:bg-muted hover:text-foreground",
