@@ -232,3 +232,9 @@ Not replaced (no React Bits equivalent for the job): LineChart, Terminal, FileMa
 
 Checks: vp check (0 warnings), tsc -b clean, vitest 34/34, vite build OK. Visual check in browser not done yet.
 Not committed/deployed in the first pass; see the commit that follows this section.
+
+## 15. VPS deployed
+
+- VPS (162.4.35.76) updated to commit 532a16c/acaf239 via install.sh; log at /root/zenex-run01.log on the VPS.
+- Verified: zenex-api, zenex-helper and caddy active; https://127.0.0.1:8443 /, /websites, /login return 200; served bundle index-9F6vqxRE.js includes the Silk chunk.
+- Root password was shared in chat again on this date; rotation still recommended.
