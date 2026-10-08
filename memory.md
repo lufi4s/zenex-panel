@@ -124,3 +124,30 @@ Pending (in order):
 4. Site creation: DNS (wildcard), Linux user, PHP-FPM pool, MariaDB, WP-CLI install, Nginx vhost + `nginx -t` gate, SSL.
 5. Password reset, TOTP 2FA, CSRF token (currently custom-header only), session list/revoke UI.
 6. Let's Encrypt for panel domain (currently self-signed IP cert).
+
+## 8. Session 4: WordPress website creation (single VPS)
+
+Built:
+- `services/agent/internal/helper` + `cmd/zenex-helper`: root daemon on `/run/zenex/helper.sock` (group zenex). Fixed operations only: user.create, fs.prepare, db.create (SQL on stdin), pool.write (php-fpm -t gate), vhost.write (nginx -t gate via nginx.Reload), wp.core-download / config-create / core-install / harden. All args validated; site account = `zx_<label>`.
+- `apps/api/internal/provision`: 10 idempotent steps recorded in job_steps. A retry re-runs all steps (each checks state first). Passwords derived via HMAC(ZENEX_SECRET_KEY, site id), never stored. Error text scrubbed of passwords.
+- `apps/api/internal/store/sites.go`, `internal/helperclient`, `internal/httpapi/sites.go`: domains, sites (idempotency key required), jobs (get/retry), site credentials (owner/admin only, audited).
+- UI `apps/api/web`: Websites tab (connect domain, create site with live progress, retry, WordPress login).
+- Installer: 15 steps; builds helper, installs WP-CLI after SHA-512 check, helper systemd unit, keeps ZENEX_SECRET_KEY across runs.
+
+Verified on VPS 162.4.35.76 (end to end):
+- Domain 162.4.35.76.nip.io connected; site shop1 created via API; job succeeded (10/10 steps).
+- http://shop1.162.4.35.76.nip.io -> 200, wp-login 200, dotfiles 403.
+- WordPress login with the panel-provided credentials -> 302 to wp-admin, wp-admin 200.
+
+Bugs found and fixed during this session (keep in mind):
+- site home dir must be traversable (root:root 0751), htdocs zx_<site>:www-data 0750.
+- nginx snippets/fastcgi-php.conf already sets try_files -> do not repeat it.
+- retry must not skip steps (earlier fixes were not applied).
+- Installer: ZENEX_SECRET_KEY must survive reinstalls. If /etc/zenex/panel.env is lost, all site DB and WP admin passwords change and sites break. BACK THIS FILE UP.
+
+Known limitations (not yet built):
+- SSL / Let's Encrypt, real DNS automation, site delete, backups, malware scanning, PHP function restrictions, rollback (retry instead).
+- wp-cli receives DB and WP admin passwords as command arguments (visible to root in process list for the duration of the command). Move to stdin/--prompt.
+- Domain ownership is not verified (no DNS check) before a site is created.
+- The API and helper share one socket group (zenex); any process running as zenex can request site operations.
+- Panel must be served over HTTPS (self-signed IP cert); site HTTP only.
