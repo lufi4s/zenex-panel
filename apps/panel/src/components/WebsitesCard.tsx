@@ -26,6 +26,7 @@ import {
 import { Input, Label } from "@/components/ui/input";
 import { siteUrl } from "@/lib/format";
 import { Terminal, levelFromText } from "@/components/Terminal";
+import { FileManager } from "@/components/FileManager";
 
 const STATE_LABEL: Record<SiteState, string> = {
   ready: "Live",
@@ -280,7 +281,13 @@ function WebsiteRow({
         >
           {ready && (
             <div className="flex flex-wrap gap-2">
+              <Button variant="outline" size="sm" asChild>
+                <a href={`${siteUrl(site.domain)}/wp-admin/`} target="_blank" rel="noopener">
+                  <ExternalLink aria-hidden /> WordPress admin
+                </a>
+              </Button>
               <LoginDialog site={site} />
+              <FileManager site={site} />
               <LogDialog site={site} />
               <Button
                 variant="outline"

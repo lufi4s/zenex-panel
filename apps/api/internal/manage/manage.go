@@ -200,3 +200,24 @@ func (m *Manager) Services(ctx context.Context) ([]ServiceState, error) {
 	}
 	return list, nil
 }
+
+// Files runs one file-manager operation inside a website. Reads work on live and
+// suspended sites; changes need the site to be live or suspended, not mid-build.
+// Writes, folders and deletes are audited by the caller.
+func (m *Manager) Files(ctx context.Context, site store.Site, op, path, content string) (string, error) {
+	if site.State != "ready" && site.State != "suspended" {
+		return "", refuse("files can be managed once the website is ready (it is %s)", site.State)
+	}
+	args := map[string]string{"user": site.LinuxUser, "path": path}
+	switch op {
+	case "files.list", "files.read":
+		return m.Helper.Output(ctx, op, args)
+	case "files.write":
+		args["content"] = content
+	case "files.mkdir", "files.delete":
+	default:
+		return "", refuse("unknown file operation")
+	}
+	_, err := m.Helper.Do(ctx, op, args)
+	return "", err
+}

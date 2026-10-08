@@ -120,6 +120,24 @@ function mockApi(options: { signedIn: boolean }) {
         ],
       });
     }
+    if (url.includes("/files?path=")) {
+      return json([
+        {
+          name: "wp-content",
+          type: "dir",
+          size: 0,
+          modified: "2026-10-08T10:00:00Z",
+          editable: false,
+        },
+        {
+          name: "index.php",
+          type: "file",
+          size: 120,
+          modified: "2026-10-08T10:00:00Z",
+          editable: true,
+        },
+      ]);
+    }
     if (url.endsWith("/api/v1/php-versions")) return json({ versions: ["8.3"] });
     return json({ error: { code: "not_found", message: "not found" } }, 404);
   });
@@ -242,5 +260,21 @@ describe("notifications and domain removal", () => {
     expect(
       (screen.getByRole("button", { name: "Remove domain" }) as HTMLButtonElement).disabled,
     ).toBe(false);
+  });
+});
+
+describe("file manager", () => {
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it("lists the files of a website", async () => {
+    vi.stubGlobal("fetch", mockApi({ signedIn: true }));
+    renderApp();
+    fireEvent.click(await screen.findByRole("button", { name: /Manage/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Files/ }));
+    expect(await screen.findByText("wp-content")).toBeTruthy();
+    expect(await screen.findByText("index.php")).toBeTruthy();
   });
 });

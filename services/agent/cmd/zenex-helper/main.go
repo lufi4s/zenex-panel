@@ -26,7 +26,7 @@ import (
 const (
 	defaultSocket = "/run/zenex/helper.sock"
 	defaultGroup  = "zenex"
-	maxRequest    = 16 << 10
+	maxRequest    = 2 << 20 // large enough for a 1 MB file save
 	opTimeout     = 15 * time.Minute
 )
 

@@ -67,6 +67,11 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("GET /api/v1/monitoring/services", d.requireSession(d.handleServices))
 	mux.Handle("GET /api/v1/activity", d.requireSession(d.handleActivity))
 	mux.Handle("GET /api/v1/jobs/{id}/logs", d.requireSession(d.handleJobLogs))
+	mux.Handle("GET /api/v1/sites/{id}/files", d.requireSession(d.handleListFiles))
+	mux.Handle("GET /api/v1/sites/{id}/file", d.requireSession(d.handleReadFile))
+	mux.Handle("PUT /api/v1/sites/{id}/file", requireCSRF(d.requireSession(d.handleWriteFile)))
+	mux.Handle("POST /api/v1/sites/{id}/folders", requireCSRF(d.requireSession(d.handleCreateFolder)))
+	mux.Handle("DELETE /api/v1/sites/{id}/files", requireCSRF(d.requireSession(d.handleDeleteFile)))
 
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, requestIDFrom(r), ErrNotFound)

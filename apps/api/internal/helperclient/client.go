@@ -20,6 +20,10 @@ type Error struct{ Message string }
 
 func (e *Error) Error() string { return e.Message }
 
+// maxResponseBytes must be larger than the largest reply the helper can send:
+// the biggest is a log tail (64 KB of text, escaped as JSON, can be several times larger).
+const maxResponseBytes = 4 << 20
+
 type Client struct {
 	http *http.Client
 }
@@ -70,8 +74,8 @@ func (c *Client) call(ctx context.Context, op string, args map[string]string, pi
 	defer resp.Body.Close()
 
 	var out response
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&out); err != nil {
-		return "", errors.New("privileged helper returned an unreadable response")
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBytes)).Decode(&out); err != nil {
+		return "", errors.New("the website helper sent a reply the panel could not read; check its service status")
 	}
 	if !out.OK {
 		msg := out.Error

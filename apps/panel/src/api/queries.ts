@@ -12,6 +12,8 @@ import type {
   ActivityPage,
   ActivityResult,
   Domain,
+  FileContent,
+  FileEntry,
   JobDetail,
   JobLogLine,
   Metrics,
@@ -342,6 +344,71 @@ export function useDeleteDomain() {
       toast.success("Domain removed");
       qc.invalidateQueries({ queryKey: keys.domains });
       qc.invalidateQueries({ queryKey: keys.sites });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Website file manager
+// ---------------------------------------------------------------------------
+
+export function useFolder(siteId: string, path: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ["files", siteId, path],
+    queryFn: () =>
+      apiRequest<FileEntry[]>(`/api/v1/sites/${siteId}/files?path=${encodeURIComponent(path)}`),
+    enabled,
+  });
+}
+
+export function useFileContent(siteId: string, path: string | null) {
+  return useQuery({
+    queryKey: ["file", siteId, path],
+    queryFn: () =>
+      apiRequest<FileContent>(
+        `/api/v1/sites/${siteId}/file?path=${encodeURIComponent(path ?? "")}`,
+      ),
+    enabled: path !== null,
+    staleTime: 0,
+    retry: false,
+  });
+}
+
+export function useSaveFile(siteId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { path: string; content: string }) =>
+      apiRequest<void>(`/api/v1/sites/${siteId}/file`, { method: "PUT", body: input }),
+    meta: { silent: true },
+    onSuccess: (_result, input) => {
+      toast.success(`Saved ${input.path.split("/").pop() ?? input.path}`);
+      qc.invalidateQueries({ queryKey: ["files", siteId] });
+      qc.invalidateQueries({ queryKey: ["file", siteId, input.path] });
+    },
+  });
+}
+
+export function useCreateFolder(siteId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (path: string) =>
+      apiRequest<void>(`/api/v1/sites/${siteId}/folders`, { method: "POST", body: { path } }),
+    meta: { silent: true },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["files", siteId] }),
+  });
+}
+
+export function useDeleteFile(siteId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (path: string) =>
+      apiRequest<void>(`/api/v1/sites/${siteId}/files?path=${encodeURIComponent(path)}`, {
+        method: "DELETE",
+      }),
+    meta: { silent: true },
+    onSuccess: (_result, path) => {
+      toast.success(`Deleted ${path.split("/").pop() ?? path}`);
+      qc.invalidateQueries({ queryKey: ["files", siteId] });
     },
   });
 }

@@ -107,6 +107,8 @@ func (o *Ops) Do(ctx context.Context, op string, args map[string]string) (Result
 		return Result{}, o.wpCoreInstall(ctx, args)
 	case "services.status":
 		return o.servicesStatus(ctx)
+	case "files.list", "files.read", "files.write", "files.mkdir", "files.delete":
+		return o.filesOp(ctx, op, args)
 	case "php.versions":
 		return o.phpVersionsOutput(), nil
 	case "php.restart":

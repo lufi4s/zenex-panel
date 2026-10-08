@@ -155,3 +155,20 @@ export interface NotificationsPage {
   items: Notification[];
   unread: number;
 }
+
+// ---------------------------------------------------------------------------
+// Website file manager
+// ---------------------------------------------------------------------------
+
+export interface FileEntry {
+  name: string;
+  type: "dir" | "file";
+  size: number;
+  modified: string;
+  editable: boolean;
+}
+
+export interface FileContent {
+  path: string;
+  content: string;
+}
