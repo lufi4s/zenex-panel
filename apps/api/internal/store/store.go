@@ -168,6 +168,37 @@ func (s *Store) CreateUser(ctx context.Context, email, passwordHash, role string
 	return id, nil
 }
 
+// UpsertAdmin creates the administrator account, or resets its password if it
+// already exists. It is safe to run repeatedly, so the installer never gets stuck
+// on "user already exists".
+func (s *Store) UpsertAdmin(ctx context.Context, email, passwordHash string) (string, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var id string
+	if err := tx.QueryRow(ctx, `
+		INSERT INTO users (email, password_hash) VALUES ($1, $2)
+		ON CONFLICT (email) DO UPDATE
+		SET password_hash = EXCLUDED.password_hash,
+		    status = 'active', failed_logins = 0, locked_until = NULL, updated_at = now()
+		RETURNING id::text`, email, passwordHash).Scan(&id); err != nil {
+		return "", err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO user_roles (user_id, role_id)
+		SELECT $1::uuid, id FROM roles WHERE name = 'administrator'
+		ON CONFLICT DO NOTHING`, id); err != nil {
+		return "", err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
 // RecordFailedLogin increments the counter and locks the account after maxFailures.
 func (s *Store) RecordFailedLogin(ctx context.Context, userID string, maxFailures int, lockFor time.Duration) error {
 	_, err := s.pool.Exec(ctx, `

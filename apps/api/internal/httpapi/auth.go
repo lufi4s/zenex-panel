@@ -28,6 +28,7 @@ type AuthStore interface {
 	SessionUser(ctx context.Context, tokenHash []byte) (*store.User, error)
 	RevokeSession(ctx context.Context, tokenHash []byte) error
 	Audit(ctx context.Context, e store.AuditEntry) error
+	Ping(ctx context.Context) error
 }
 
 type loginRequest struct {

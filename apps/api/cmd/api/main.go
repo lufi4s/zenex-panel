@@ -153,10 +153,10 @@ func createAdmin(ctx context.Context, s *store.Store, in io.Reader, out io.Write
 	if err != nil {
 		return err
 	}
-	id, err := s.CreateUser(ctx, email, hash, "administrator")
+	id, err := s.UpsertAdmin(ctx, email, hash)
 	if err != nil {
 		return fmt.Errorf("create admin: %w", err)
 	}
-	fmt.Fprintf(out, "administrator created: %s (id %s)\n", email, id)
+	fmt.Fprintf(out, "administrator ready: %s (id %s)\n", email, id)
 	return nil
 }

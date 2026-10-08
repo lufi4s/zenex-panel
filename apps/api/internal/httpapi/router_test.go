@@ -94,6 +94,8 @@ func (f *fakeStore) Audit(_ context.Context, e store.AuditEntry) error {
 	return nil
 }
 
+func (f *fakeStore) Ping(_ context.Context) error { return nil }
+
 func newTestRouter(fs AuthStore) http.Handler {
 	return NewRouter(Deps{
 		Log:   slog.New(slog.NewTextHandler(io.Discard, nil)),

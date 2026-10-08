@@ -1,29 +1,31 @@
 #!/usr/bin/env bash
-# Zenex all-in-one installer for a fresh Ubuntu 24.04 LTS VPS.
+# ============================================================================
+#  Zenex Panel - one-command installer for a fresh Ubuntu 24.04 server
+# ============================================================================
+#  Run this single command as root (or with sudo):
 #
-# One command installs and starts the panel, then prints the access link:
-#   https://<server-ip>:8443
+#    curl -fsSL https://raw.githubusercontent.com/lufi4s/zenex-panel/main/infrastructure/deployment/install.sh | sudo bash
 #
-# It installs and configures:
-#   - PostgreSQL (panel database), Go toolchain, git
-#   - Zenex API + web UI, built from source and run as a hardened systemd service
-#   - self-signed TLS certificate for the server IP
-#   - the base web stack for hosted sites: nginx, PHP-FPM, MariaDB, Redis
-#   - UFW firewall (default deny; allows 22, 80, 443, 8443)
-#   - an administrator account with a generated password
+#  At the end it prints the address to open in your browser, plus the login.
 #
-# Usage (as root):
-#   curl -fsSL https://raw.githubusercontent.com/lufi4s/zenex-panel/main/infrastructure/deployment/install.sh | sudo bash
+#  The script repairs common problems on its own:
+#    - Ubuntu's background update holding the package manager (waits for it)
+#    - interrupted package installs (finishes them)
+#    - flaky network downloads (retries)
+#    - small servers running out of memory during build (adds swap)
+#    - wrong file permissions (fixes them)
+#    - a port already in use (picks the next free port)
+#    - an out-of-date or mismatched certificate (creates a new one)
+#    - a panel that does not start (reads the logs and repairs, then retries)
+#  Re-running the same command is always safe. It keeps your data and login.
 #
-# Optional environment overrides:
-#   ZENEX_ADMIN_EMAIL   admin login email         (default admin@zenex.local)
-#   ZENEX_PUBLIC_IP     IP to put in the TLS cert  (default: detected)
-#   ZENEX_REPO_URL      git repository to build    (default: lufi4s/zenex-panel)
-#   ZENEX_REF           branch or tag to build     (default: main)
-#
-# Safe to re-run: existing secrets and the admin account are kept.
+#  Optional settings (put before "sudo bash"):
+#    ZENEX_ADMIN_EMAIL=you@example.com   login email (default admin@zenex.local)
+#    ZENEX_PUBLIC_IP=1.2.3.4             server IP, if auto-detection is wrong
+#    ZENEX_REF=main                      branch or tag to install
+# ============================================================================
 
-set -euo pipefail
+set -Eeuo pipefail
 
 readonly ZENEX_USER="zenex"
 readonly CONF_DIR="/etc/zenex"
@@ -31,48 +33,174 @@ readonly ENV_FILE="/etc/zenex/panel.env"
 readonly TLS_DIR="/etc/zenex/tls"
 readonly STATE_DIR="/var/lib/zenex"
 readonly LOG_DIR="/var/log/zenex"
+readonly LOG_FILE="/var/log/zenex/install.log"
+readonly OPT_DIR="/opt/zenex"
 readonly SRC_DIR="/opt/zenex/src"
 readonly BIN_PATH="/usr/local/bin/zenex-api"
 readonly UNIT_PATH="/etc/systemd/system/zenex-api.service"
 readonly CREDS_FILE="/root/zenex-admin-credentials.txt"
-readonly PANEL_PORT="8443"
 readonly DB_NAME="zenex_panel"
 readonly DB_ROLE="zenex_panel"
+readonly PORT_CANDIDATES="8443 8444 8445 8446 8447 8448 8449 8450"
 
 ZENEX_ADMIN_EMAIL="${ZENEX_ADMIN_EMAIL:-admin@zenex.local}"
 ZENEX_REPO_URL="${ZENEX_REPO_URL:-https://github.com/lufi4s/zenex-panel.git}"
 ZENEX_REF="${ZENEX_REF:-main}"
 
-log()  { printf '\n[zenex] %s\n' "$*"; }
-fail() { printf '\n[zenex] ERROR: %s\n' "$*" >&2; exit 1; }
+readonly STEP_TOTAL=14
+STEP_NO=0
+CURRENT_STEP="starting"
+PANEL_PORT=""
+PUBLIC_IP=""
+DB_PASSWORD=""
+PHP_VER=""
+ADMIN_PASSWORD_NEW=""
 
-require_root() {
-    [[ "$(id -u)" -eq 0 ]] || fail "run as root (use sudo)"
+# ---------------------------------------------------------------------------
+# Output helpers
+# ---------------------------------------------------------------------------
+
+step() {
+    STEP_NO=$((STEP_NO + 1))
+    CURRENT_STEP="$1"
+    printf '\n[%d/%d] %s\n' "$STEP_NO" "$STEP_TOTAL" "$1"
 }
 
-require_ubuntu_2404() {
-    [[ -r /etc/os-release ]] || fail "cannot read /etc/os-release"
+info() { printf '      %s\n' "$*"; }
+
+fail() {
+    printf '\n[zenex] STOPPED: %s\n' "$*"
+    printf '[zenex] Full log: %s\n' "$LOG_FILE"
+    exit 1
+}
+
+on_error() {
+    local code=$? line=$1
+    printf '\n============================================================\n'
+    printf ' The installer could not finish this step: %s\n' "$CURRENT_STEP"
+    printf ' Technical detail: failed at script line %s (exit code %s).\n' "$line" "$code"
+    printf ' Nothing you have set up is lost. Run the same command again.\n'
+    printf ' If it keeps failing, send this file to support:\n'
+    printf '     %s\n' "$LOG_FILE"
+    printf '============================================================\n'
+    exit "$code"
+}
+trap 'on_error $LINENO' ERR
+
+# retry <attempts> <delay-seconds> <command...>
+retry() {
+    local attempts=$1 delay=$2 n=1
+    shift 2
+    until "$@"; do
+        if (( n >= attempts )); then
+            return 1
+        fi
+        info "that did not work (try $n of $attempts). Trying again in ${delay}s..."
+        sleep "$delay"
+        n=$((n + 1))
+    done
+}
+
+# ---------------------------------------------------------------------------
+# Checks and self-repair
+# ---------------------------------------------------------------------------
+
+require_root() {
+    if [[ "$(id -u)" -ne 0 ]]; then
+        printf '[zenex] Please run this with sudo:\n'
+        printf '        curl -fsSL <link> | sudo bash\n'
+        exit 1
+    fi
+}
+
+check_os() {
+    [[ -r /etc/os-release ]] || fail "this does not look like Ubuntu (no /etc/os-release)."
     # shellcheck disable=SC1091
     . /etc/os-release
-    [[ "${ID:-}" == "ubuntu" && "${VERSION_ID:-}" == "24.04" ]] \
-        || fail "Ubuntu 24.04 LTS is required; found ${PRETTY_NAME:-unknown}"
+    if [[ "${ID:-}" != "ubuntu" || "${VERSION_ID:-}" != "24.04" ]]; then
+        fail "this installer needs Ubuntu 24.04. This server runs ${PRETTY_NAME:-an unknown system}."
+    fi
+    info "Ubuntu 24.04 detected"
+}
+
+check_disk() {
+    local free_gb
+    free_gb="$(df -BG --output=avail / | tail -n1 | tr -dc '0-9')"
+    if (( free_gb < 5 )); then
+        fail "not enough free disk space (${free_gb} GB free, 5 GB needed). Free up space or use a larger server."
+    fi
+    info "disk space OK (${free_gb} GB free)"
+}
+
+check_internet() {
+    if retry 3 5 curl -fsS --max-time 10 -o /dev/null https://github.com; then
+        info "internet connection OK"
+    else
+        fail "this server cannot reach the internet (github.com). Check the server's network and try again."
+    fi
+}
+
+package_manager_busy() {
+    local p
+    for p in apt apt-get dpkg unattended-upgr; do
+        if pgrep -x "$p" >/dev/null 2>&1; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+wait_for_package_manager() {
+    local i
+    for i in $(seq 1 60); do
+        if ! package_manager_busy; then
+            return 0
+        fi
+        info "Ubuntu is running its own update (normal on new servers). Waiting..."
+        sleep 10
+    done
+    info "the update is still running after 10 minutes; continuing anyway."
+}
+
+ensure_swap() {
+    local mem_mb swap_mb
+    mem_mb="$(awk '/MemTotal/ {print int($2 / 1024)}' /proc/meminfo)"
+    swap_mb="$(awk '/SwapTotal/ {print int($2 / 1024)}' /proc/meminfo)"
+    if (( mem_mb >= 2048 || swap_mb >= 1024 )); then
+        info "memory OK (${mem_mb} MB RAM, ${swap_mb} MB swap)"
+        return 0
+    fi
+    info "small server detected (${mem_mb} MB RAM). Adding 2 GB swap so the build does not run out of memory."
+    if [[ ! -f /swapfile ]]; then
+        fallocate -l 2G /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count=2048 status=none
+        chmod 600 /swapfile
+        mkswap /swapfile >/dev/null
+    fi
+    swapon /swapfile 2>/dev/null || true
+    grep -q '^/swapfile ' /etc/fstab || printf '/swapfile none swap sw 0 0\n' >> /etc/fstab
 }
 
 install_packages() {
-    log "installing system packages (this takes a few minutes)"
     export DEBIAN_FRONTEND=noninteractive
-    apt-get update -qq
-    apt-get install -y -qq --no-install-recommends \
+    wait_for_package_manager
+    if ! dpkg --configure -a >/dev/null 2>&1; then
+        info "repairing an interrupted package install"
+        dpkg --configure -a || true
+    fi
+    retry 3 15 apt-get update -qq
+    retry 3 20 apt-get install -y -qq --no-install-recommends \
+        -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold \
         ca-certificates curl git openssl \
         golang-go \
         postgresql \
         nginx \
-        php-fpm php-mysql php-curl php-gd php-mbstring php-xml php-zip php-intl php-redis \
+        php-cli php-fpm php-mysql php-curl php-gd php-mbstring php-xml php-zip php-intl php-redis \
         mariadb-server \
         redis-server \
         ufw \
         fail2ban \
         certbot python3-certbot-nginx
+    info "all system software installed"
 }
 
 create_service_user() {
@@ -81,119 +209,201 @@ create_service_user() {
     fi
 }
 
-create_dirs() {
-    log "creating Zenex directories"
+prepare_directories() {
     install -d -m 0750 -o root -g root "$CONF_DIR"
     install -d -m 0750 -o root -g "$ZENEX_USER" "$TLS_DIR"
     install -d -m 0750 -o "$ZENEX_USER" -g "$ZENEX_USER" "$STATE_DIR"
-    install -d -m 0750 -o "$ZENEX_USER" -g adm "$LOG_DIR"
-    install -d -m 0755 -o root -g root "$(dirname "$SRC_DIR")"
+    install -d -m 0755 -o root -g adm "$LOG_DIR"
+    install -d -m 0755 -o root -g root "$OPT_DIR"
+    fix_file_permissions
+    info "folders ready"
+}
+
+# Applied on every run and after every repair, so permissions always match.
+fix_file_permissions() {
+    if [[ -d "$TLS_DIR" ]]; then
+        chown root:"$ZENEX_USER" "$TLS_DIR"
+        chmod 0750 "$TLS_DIR"
+    fi
+    if [[ -f "$TLS_DIR/panel.key" ]]; then
+        chown root:"$ZENEX_USER" "$TLS_DIR/panel.key"
+        chmod 0640 "$TLS_DIR/panel.key"
+    fi
+    if [[ -f "$TLS_DIR/panel.crt" ]]; then
+        chown root:"$ZENEX_USER" "$TLS_DIR/panel.crt"
+        chmod 0644 "$TLS_DIR/panel.crt"
+    fi
+    if [[ -f "$ENV_FILE" ]]; then
+        chown root:"$ZENEX_USER" "$ENV_FILE"
+        chmod 0640 "$ENV_FILE"
+    fi
+    if [[ -d "$STATE_DIR" ]]; then
+        chown -R "$ZENEX_USER":"$ZENEX_USER" "$STATE_DIR"
+    fi
 }
 
 fetch_source() {
-    log "fetching source ($ZENEX_REPO_URL @ $ZENEX_REF)"
-    if [[ -d "$SRC_DIR/.git" ]]; then
-        git -C "$SRC_DIR" fetch --depth 1 origin "$ZENEX_REF"
-        git -C "$SRC_DIR" reset --hard FETCH_HEAD
-    else
-        rm -rf "$SRC_DIR"
-        git clone --depth 1 --branch "$ZENEX_REF" "$ZENEX_REPO_URL" "$SRC_DIR"
+    if [[ -d "$SRC_DIR/.git" ]] \
+        && git -C "$SRC_DIR" fetch -q --depth 1 origin "$ZENEX_REF" \
+        && git -C "$SRC_DIR" reset -q --hard FETCH_HEAD; then
+        info "updated to the latest version ($ZENEX_REF)"
+        return 0
     fi
+    info "downloading a fresh copy of the panel"
+    rm -rf "$SRC_DIR"
+    retry 3 10 git clone -q --depth 1 --branch "$ZENEX_REF" "$ZENEX_REPO_URL" "$SRC_DIR"
+    info "download complete"
 }
 
 build_api() {
-    log "building Zenex API"
-    (
-        cd "$SRC_DIR/apps/api"
-        GOFLAGS=-mod=readonly go build -buildvcs=false -trimpath -o "$BIN_PATH.new" ./cmd/api
-    )
-    install -m 0755 -o root -g root "$BIN_PATH.new" "$BIN_PATH"
-    rm -f "$BIN_PATH.new"
+    local attempt
+    for attempt in 1 2; do
+        if (cd "$SRC_DIR/apps/api" && go build -buildvcs=false -trimpath -o "$BIN_PATH.new" ./cmd/api); then
+            install -m 0755 -o root -g root "$BIN_PATH.new" "$BIN_PATH"
+            rm -f "$BIN_PATH.new"
+            info "panel program built"
+            return 0
+        fi
+        info "the build failed (attempt $attempt of 2). Clearing the build cache and trying again..."
+        go clean -cache -modcache >/dev/null 2>&1 || true
+        sleep 5
+    done
+    return 1
+}
+
+# ---------------------------------------------------------------------------
+# Network: IP and port
+# ---------------------------------------------------------------------------
+
+is_ipv4() {
+    [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]
 }
 
 detect_public_ip() {
+    local ip=""
     if [[ -n "${ZENEX_PUBLIC_IP:-}" ]]; then
-        printf '%s' "$ZENEX_PUBLIC_IP"
-        return
+        ip="$ZENEX_PUBLIC_IP"
+    else
+        ip="$(curl -4fsS --max-time 8 https://api.ipify.org 2>/dev/null || true)"
+        if ! is_ipv4 "$ip"; then
+            ip="$(ip -4 route get 1.1.1.1 2>/dev/null \
+                | awk '{for (i = 1; i <= NF; i++) if ($i == "src") { print $(i + 1); exit }}' || true)"
+        fi
     fi
-    ip -4 route get 1.1.1.1 | awk '{for (i = 1; i <= NF; i++) if ($i == "src") { print $(i + 1); exit }}'
+    is_ipv4 "$ip" || fail "could not detect this server's IP address. Re-run with your server IP: ZENEX_PUBLIC_IP=<ip> ... | sudo bash"
+    PUBLIC_IP="$ip"
+    info "server IP: $PUBLIC_IP"
 }
 
-# Loads an existing secret from panel.env, or generates a new one.
-env_value() {
-    local key="$1" fallback="$2"
-    if [[ -f "$ENV_FILE" ]] && grep -q "^${key}=" "$ENV_FILE"; then
-        grep "^${key}=" "$ENV_FILE" | head -n1 | cut -d= -f2-
-    else
-        printf '%s' "$fallback"
+port_listening() {
+    ss -tln 2>/dev/null | awk '{print $4}' | grep -q ":$1\$"
+}
+
+port_owned_by_zenex() {
+    ss -tlnp 2>/dev/null | grep ":$1 " | grep -q 'zenex-api'
+}
+
+choose_panel_port() {
+    local p
+    for p in $PORT_CANDIDATES; do
+        if port_listening "$p" && ! port_owned_by_zenex "$p"; then
+            continue
+        fi
+        PANEL_PORT="$p"
+        info "panel port: $PANEL_PORT"
+        return 0
+    done
+    fail "ports 8443 to 8450 are all in use by other programs. Stop one of them and re-run."
+}
+
+# ---------------------------------------------------------------------------
+# Database and configuration
+# ---------------------------------------------------------------------------
+
+existing_env_value() {
+    if [[ -f "$ENV_FILE" ]]; then
+        grep "^$1=" "$ENV_FILE" | head -n1 | cut -d= -f2- || true
     fi
+}
+
+wait_for_postgres() {
+    retry 30 2 sudo -u postgres pg_isready -q
 }
 
 setup_database() {
-    log "configuring PostgreSQL"
-    systemctl enable --now postgresql
+    systemctl enable --now postgresql >/dev/null 2>&1 || true
+    wait_for_postgres || fail "PostgreSQL did not start. Run: systemctl status postgresql"
 
-    local db_password
-    db_password="$(env_value ZENEX_DB_PASSWORD "$(openssl rand -hex 24)")"
+    if [[ -z "$DB_PASSWORD" ]]; then
+        DB_PASSWORD="$(existing_env_value ZENEX_DB_PASSWORD)"
+    fi
+    if [[ -z "$DB_PASSWORD" ]]; then
+        DB_PASSWORD="$(openssl rand -hex 24)"
+    fi
 
-    # Role and database are created once; re-runs only ensure they exist.
+    # Hex-only password: safe to embed in SQL without escaping.
     sudo -u postgres psql -v ON_ERROR_STOP=1 -q <<SQL
 DO \$\$
 BEGIN
   IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '${DB_ROLE}') THEN
-    CREATE ROLE ${DB_ROLE} LOGIN PASSWORD '${db_password}';
+    CREATE ROLE ${DB_ROLE} LOGIN PASSWORD '${DB_PASSWORD}';
   ELSE
-    ALTER ROLE ${DB_ROLE} LOGIN PASSWORD '${db_password}';
+    ALTER ROLE ${DB_ROLE} LOGIN PASSWORD '${DB_PASSWORD}';
   END IF;
 END
 \$\$;
 SELECT 'CREATE DATABASE ${DB_NAME} OWNER ${DB_ROLE}'
   WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '${DB_NAME}')\gexec
 SQL
-    DB_PASSWORD_RESULT="$db_password"
+    info "database ready"
 }
 
 write_env_file() {
-    log "writing service configuration"
-    local public_ip="$1" db_password="$2"
-
-    cat > "$ENV_FILE.tmp" <<EOF
+    local tmp="$ENV_FILE.tmp"
+    cat > "$tmp" <<EOF
 ZENEX_ENV=production
 ZENEX_API_ADDR=0.0.0.0:${PANEL_PORT}
-ZENEX_DATABASE_URL=postgres://${DB_ROLE}:${db_password}@127.0.0.1:5432/${DB_NAME}?sslmode=disable
+ZENEX_DATABASE_URL=postgres://${DB_ROLE}:${DB_PASSWORD}@127.0.0.1:5432/${DB_NAME}?sslmode=disable
 ZENEX_TLS_CERT=${TLS_DIR}/panel.crt
 ZENEX_TLS_KEY=${TLS_DIR}/panel.key
-ZENEX_DB_PASSWORD=${db_password}
-ZENEX_PUBLIC_IP=${public_ip}
+ZENEX_DB_PASSWORD=${DB_PASSWORD}
+ZENEX_PUBLIC_IP=${PUBLIC_IP}
 EOF
-    chown root:"$ZENEX_USER" "$ENV_FILE.tmp"
-    chmod 0640 "$ENV_FILE.tmp"
-    mv -f "$ENV_FILE.tmp" "$ENV_FILE"
+    mv -f "$tmp" "$ENV_FILE"
+    fix_file_permissions
+    info "settings saved"
+}
+
+cert_is_valid() {
+    [[ -f "$TLS_DIR/panel.crt" && -f "$TLS_DIR/panel.key" ]] || return 1
+    openssl x509 -in "$TLS_DIR/panel.crt" -noout -checkend 604800 >/dev/null 2>&1 || return 1
+    openssl x509 -in "$TLS_DIR/panel.crt" -noout -ext subjectAltName 2>/dev/null \
+        | grep -q "IP Address:${PUBLIC_IP}" || return 1
+    [[ "$(openssl x509 -in "$TLS_DIR/panel.crt" -noout -pubkey | openssl sha256)" \
+        == "$(openssl pkey -in "$TLS_DIR/panel.key" -pubout | openssl sha256)" ]]
 }
 
 create_tls_cert() {
-    local public_ip="$1"
-    if [[ -f "$TLS_DIR/panel.crt" && -f "$TLS_DIR/panel.key" ]]; then
-        log "keeping existing TLS certificate"
+    if cert_is_valid; then
+        info "existing certificate is valid; keeping it"
     else
-        log "creating self-signed TLS certificate for $public_ip"
+        info "creating a secure certificate for $PUBLIC_IP"
+        rm -f "$TLS_DIR/panel.crt" "$TLS_DIR/panel.key"
         openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes \
             -days 3650 -subj "/CN=zenex-panel" \
-            -addext "subjectAltName=IP:${public_ip},IP:127.0.0.1" \
-            -keyout "$TLS_DIR/panel.key" -out "$TLS_DIR/panel.crt" 2>/dev/null
+            -addext "subjectAltName=IP:${PUBLIC_IP},IP:127.0.0.1" \
+            -keyout "$TLS_DIR/panel.key" -out "$TLS_DIR/panel.crt" >/dev/null 2>&1
     fi
-    chown root:"$ZENEX_USER" "$TLS_DIR/panel.key" "$TLS_DIR/panel.crt"
-    chmod 0640 "$TLS_DIR/panel.key"
-    chmod 0644 "$TLS_DIR/panel.crt"
+    fix_file_permissions
 }
 
 install_unit() {
-    log "installing systemd service"
     cat > "$UNIT_PATH" <<EOF
 [Unit]
 Description=Zenex Panel API
 After=network-online.target postgresql.service
 Wants=network-online.target postgresql.service
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -202,7 +412,7 @@ Group=${ZENEX_USER}
 EnvironmentFile=${ENV_FILE}
 ExecStart=${BIN_PATH} serve
 WorkingDirectory=${STATE_DIR}
-Restart=on-failure
+Restart=always
 RestartSec=3
 NoNewPrivileges=true
 PrivateTmp=true
@@ -225,127 +435,252 @@ EOF
     systemctl daemon-reload
 }
 
-create_admin_once() {
-    if [[ -f "$CREDS_FILE" ]]; then
-        log "administrator already exists; keeping existing account"
-        return
-    fi
-    log "creating administrator account"
-    local admin_password
-    admin_password="$(openssl rand -hex 12)"
-    (
-        set -a
-        # shellcheck disable=SC1090
-        . "$ENV_FILE"
-        set +a
-        printf '%s\n%s\n' "$ZENEX_ADMIN_EMAIL" "$admin_password" \
-            | "$BIN_PATH" create-admin >/dev/null
-    )
-    umask 077
-    cat > "$CREDS_FILE" <<EOF
-Zenex panel administrator
-URL:      https://$(detect_public_ip_cached):${PANEL_PORT}
-Email:    ${ZENEX_ADMIN_EMAIL}
-Password: ${admin_password}
-
-Change this password after first sign-in. This file is readable only by root.
-EOF
-    chmod 0600 "$CREDS_FILE"
-    ADMIN_PASSWORD_NEW="$admin_password"
-}
-
 configure_firewall() {
-    log "configuring firewall (default deny; allow 22, 80, 443, ${PANEL_PORT})"
-    ufw --force default deny incoming
-    ufw --force default allow outgoing
-    ufw allow 22/tcp comment 'ssh'
-    ufw allow 80/tcp comment 'http'
-    ufw allow 443/tcp comment 'https'
-    ufw allow "${PANEL_PORT}/tcp" comment 'zenex panel'
-    ufw --force enable
+    local ssh_port
+    ssh_port="$(sshd -T 2>/dev/null | awk '/^port /{print $2; exit}' || true)"
+    ssh_port="${ssh_port:-22}"
+
+    ufw --force default deny incoming >/dev/null
+    ufw --force default allow outgoing >/dev/null
+    ufw allow 22/tcp comment 'ssh' >/dev/null
+    ufw allow "${ssh_port}/tcp" comment 'ssh' >/dev/null
+    ufw allow 80/tcp comment 'http' >/dev/null
+    ufw allow 443/tcp comment 'https' >/dev/null
+    ufw allow "${PANEL_PORT}/tcp" comment 'zenex panel' >/dev/null
+    ufw --force enable >/dev/null
+    info "firewall on (SSH ${ssh_port}, web 80/443, panel ${PANEL_PORT})"
 }
 
-enable_services() {
-    log "starting services"
-    systemctl enable --now nginx
-    systemctl enable --now mariadb
-    systemctl enable --now redis-server
-    systemctl enable --now fail2ban
-    systemctl enable --now "php$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')-fpm"
-    systemctl enable --now zenex-api
-    systemctl restart zenex-api
+start_base_services() {
+    local svc
+    PHP_VER="$(php -r 'echo PHP_MAJOR_VERSION, ".", PHP_MINOR_VERSION;')"
+    for svc in postgresql nginx mariadb redis-server fail2ban "php${PHP_VER}-fpm"; do
+        if ! retry 3 5 systemctl enable --now "$svc"; then
+            fail "could not start $svc. Run: systemctl status $svc"
+        fi
+    done
+    info "web, database and cache services running"
+}
+
+# ---------------------------------------------------------------------------
+# Start the panel, with automatic repair
+# ---------------------------------------------------------------------------
+
+panel_healthy() {
+    local body
+    body="$(curl -ksf --max-time 4 "https://127.0.0.1:${PANEL_PORT}/api/v1/health" 2>/dev/null || true)"
+    [[ "$body" == *'"database":"ok"'* ]]
 }
 
 wait_for_panel() {
-    log "waiting for the panel to answer"
     local i
-    for i in $(seq 1 30); do
-        if curl -fsk --max-time 3 "https://127.0.0.1:${PANEL_PORT}/api/v1/health" >/dev/null 2>&1; then
+    for i in $(seq 1 20); do
+        if panel_healthy; then
             return 0
         fi
         sleep 2
     done
-    systemctl --no-pager status zenex-api || true
-    journalctl -u zenex-api --no-pager -n 40 || true
-    fail "panel did not start; see the logs above"
+    return 1
 }
 
-detect_public_ip_cached() {
-    if [[ -z "${PUBLIC_IP_CACHE:-}" ]]; then
-        PUBLIC_IP_CACHE="$(detect_public_ip)"
+repair_panel_from_logs() {
+    local logs
+    logs="$(journalctl -u zenex-api -n 100 --no-pager 2>/dev/null || true)"
+
+    if grep -qi "permission denied" <<<"$logs"; then
+        info "fixing file permissions"
+        fix_file_permissions
+    elif grep -qiE "panel\.(crt|key)" <<<"$logs"; then
+        info "the certificate is missing or unreadable; creating a new one"
+        create_tls_cert
+    elif grep -qiE "password authentication failed|connection refused|does not exist|no pg_hba|connect: " <<<"$logs"; then
+        info "repairing database access"
+        setup_database
+        write_env_file
+    elif grep -qi "address already in use" <<<"$logs"; then
+        info "the port is taken by another program; choosing a free port"
+        PANEL_PORT=""
+        choose_panel_port
+        write_env_file
+        configure_firewall
+    elif grep -qiE "no such file or directory|exec format error" <<<"$logs"; then
+        info "rebuilding the panel program"
+        build_api
+    else
+        info "no known fix matched; restarting"
     fi
-    printf '%s' "$PUBLIC_IP_CACHE"
+}
+
+start_panel() {
+    local attempt
+    for attempt in 1 2 3; do
+        systemctl enable zenex-api >/dev/null 2>&1 || true
+        systemctl restart zenex-api || true
+        if wait_for_panel; then
+            info "panel is running"
+            return 0
+        fi
+        info "the panel is not ready yet (try $attempt of 3). Looking for the cause..."
+        repair_panel_from_logs
+        sleep 3
+    done
+    fail "the panel did not start after automatic repairs. Run: journalctl -u zenex-api -n 100"
+}
+
+# ---------------------------------------------------------------------------
+# Administrator account and final checks
+# ---------------------------------------------------------------------------
+
+ensure_admin() {
+    if [[ -f "$CREDS_FILE" ]]; then
+        info "administrator already set up. Login details are in $CREDS_FILE"
+        return 0
+    fi
+    ADMIN_PASSWORD_NEW="$(openssl rand -hex 12)"
+    printf '%s\n%s\n' "$ZENEX_ADMIN_EMAIL" "$ADMIN_PASSWORD_NEW" | (
+        set -a
+        # shellcheck disable=SC1090
+        . "$ENV_FILE"
+        set +a
+        "$BIN_PATH" create-admin
+    ) >/dev/null
+
+    (
+        umask 077
+        cat > "$CREDS_FILE" <<EOF
+Zenex panel administrator
+Address:  https://${PUBLIC_IP}:${PANEL_PORT}
+Email:    ${ZENEX_ADMIN_EMAIL}
+Password: ${ADMIN_PASSWORD_NEW}
+
+Change this password after your first sign-in.
+This file is readable only by root.
+EOF
+    )
+    info "administrator account created"
+}
+
+check_item() {
+    local label=$1
+    shift
+    if "$@" >/dev/null 2>&1; then
+        printf '      [OK]   %s\n' "$label"
+    else
+        printf '      [FAIL] %s\n' "$label"
+        return 1
+    fi
+}
+
+final_checks() {
+    local failed=0
+    check_item "panel program is running" systemctl is-active --quiet zenex-api || failed=1
+    check_item "panel answers and database is connected" panel_healthy || failed=1
+    check_item "database server (PostgreSQL) is running" systemctl is-active --quiet postgresql || failed=1
+    check_item "web server (nginx) is running" systemctl is-active --quiet nginx || failed=1
+    check_item "web server configuration is valid" nginx -t || failed=1
+    check_item "database for sites (MariaDB) is running" systemctl is-active --quiet mariadb || failed=1
+    check_item "cache (Redis) is running" systemctl is-active --quiet redis-server || failed=1
+    check_item "firewall is on" bash -c 'ufw status | grep -q "Status: active"' || failed=1
+
+    if (( failed )); then
+        fail "some checks did not pass (see [FAIL] above). Re-run the same command; it repairs most issues automatically."
+    fi
 }
 
 print_summary() {
-    local ip
-    ip="$(detect_public_ip_cached)"
+    local login_line
+    if [[ -n "$ADMIN_PASSWORD_NEW" ]]; then
+        login_line="Password: ${ADMIN_PASSWORD_NEW}"
+    else
+        login_line="Password: (unchanged; shown in $CREDS_FILE)"
+    fi
+
     cat <<EOF
 
 ============================================================
- Zenex panel is installed and running.
+ DONE. The Zenex panel is installed and running.
 
- Open this in your browser:
-     https://${ip}:${PANEL_PORT}
+ Open this address in your browser:
 
- Your browser will warn about the certificate because it is
- self-signed. This is expected; accept it to continue.
+     https://${PUBLIC_IP}:${PANEL_PORT}
+
+ Your browser will show a security warning because the
+ certificate is created on this server. This is expected.
+ Click "Advanced" and then "Continue" to open the panel.
 
  Sign in with:
      Email:    ${ZENEX_ADMIN_EMAIL}
-     Password: ${ADMIN_PASSWORD_NEW:-(unchanged; see ${CREDS_FILE})}
+     ${login_line}
 
- Credentials are saved in ${CREDS_FILE} (root only).
- Re-running this script keeps your existing data.
+ Login details are also saved in: ${CREDS_FILE}
+ Install log: ${LOG_FILE}
 
- Not yet available: the VPS Agent, site creation, and WordPress
- provisioning. The dashboard shows live server metrics only.
+ Re-running this command is safe. It keeps your data.
+
+ Available now: sign-in, live server dashboard.
+ Coming next: connecting servers, creating WordPress sites.
 ============================================================
 EOF
 }
 
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
 main() {
     require_root
-    require_ubuntu_2404
+    mkdir -p "$LOG_DIR"
+    exec > >(tee -a "$LOG_FILE") 2>&1
+    printf '\n===== Zenex install started %s =====\n' "$(date '+%Y-%m-%d %H:%M:%S %Z')"
+
+    step "Checking this server"
+    check_os
+    check_disk
+    check_internet
+
+    step "Preparing memory (swap if needed)"
+    ensure_swap
+
+    step "Installing system software (this takes a few minutes)"
     install_packages
+
+    step "Preparing the service account and folders"
     create_service_user
-    create_dirs
+    prepare_directories
+
+    step "Downloading the Zenex panel"
     fetch_source
-    build_api
 
-    local public_ip
-    public_ip="$(detect_public_ip_cached)"
-    [[ -n "$public_ip" ]] || fail "could not detect the server IP; set ZENEX_PUBLIC_IP and re-run"
+    step "Building the Zenex panel"
+    build_api || fail "the panel could not be built. Check your internet connection and run the command again."
 
+    step "Finding your server IP and a free port"
+    detect_public_ip
+    choose_panel_port
+
+    step "Setting up the panel database"
     setup_database
-    write_env_file "$public_ip" "$DB_PASSWORD_RESULT"
-    create_tls_cert "$public_ip"
-    install_unit
+    write_env_file
+
+    step "Creating the secure certificate"
+    create_tls_cert
+
+    step "Configuring the firewall"
     configure_firewall
-    enable_services
-    wait_for_panel
-    create_admin_once
-    nginx -t
+
+    step "Starting web, database and cache services"
+    start_base_services
+
+    step "Starting the Zenex panel"
+    install_unit
+    start_panel
+
+    step "Creating your administrator account"
+    ensure_admin
+
+    step "Running final checks"
+    final_checks
+
     print_summary
 }
 

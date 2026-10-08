@@ -2,6 +2,7 @@
 package httpapi
 
 import (
+	"context"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -32,7 +33,7 @@ func NewRouter(d Deps) http.Handler {
 	}
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("GET /api/v1/health", handleHealth)
+	mux.Handle("GET /api/v1/health", http.HandlerFunc(d.handleHealth))
 	mux.Handle("POST /api/v1/auth/login", requireCSRF(http.HandlerFunc(d.handleLogin)))
 	mux.Handle("POST /api/v1/auth/logout", requireCSRF(d.requireSession(d.handleLogout)))
 	mux.Handle("GET /api/v1/auth/me", d.requireSession(d.handleMe))
@@ -67,10 +68,26 @@ func serveIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 type healthResponse struct {
-	Status  string `json:"status"`
-	Version string `json:"version"`
+	Status   string `json:"status"`
+	Database string `json:"database"`
+	Version  string `json:"version"`
 }
 
-func handleHealth(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, healthResponse{Status: "ok", Version: Version})
+// handleHealth reports whether the API and its database are working.
+// It returns 503 when the database cannot be reached so monitors and the
+// installer can detect the problem.
+func (d Deps) handleHealth(w http.ResponseWriter, r *http.Request) {
+	resp := healthResponse{Status: "ok", Database: "not_configured", Version: Version}
+	code := http.StatusOK
+	if d.Users != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		defer cancel()
+		if err := d.Users.Ping(ctx); err != nil {
+			resp.Status, resp.Database = "degraded", "unreachable"
+			code = http.StatusServiceUnavailable
+		} else {
+			resp.Database = "ok"
+		}
+	}
+	writeJSON(w, code, resp)
 }
