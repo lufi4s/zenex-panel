@@ -150,3 +150,17 @@ func TestWriteFileAtomicReplaces(t *testing.T) {
 		t.Fatalf("temp files left behind: %d entries", len(entries))
 	}
 }
+
+// PHP-FPM only loads *.conf files from its pool directory. A pool written with
+// any other extension is silently ignored, so this is checked explicitly.
+func TestPoolFileUsesConfExtension(t *testing.T) {
+	root := t.TempDir()
+	f := &fakeExec{}
+	o := &Ops{Exec: f, Paths: Paths{PHPPoolDir: filepath.Join(root, "%s")}}
+	if err := o.poolWrite(context.Background(), map[string]string{"user": "zx_shop", "php": "8.3"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "8.3", "zx-zx_shop.conf")); err != nil {
+		t.Fatalf("pool file not written with .conf extension: %v", err)
+	}
+}

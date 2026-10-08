@@ -75,7 +75,7 @@ func (o *Ops) phpSwitch(ctx context.Context, args map[string]string) error {
 
 	// Write the new pool first and prove it is valid before touching the old one.
 	newDir := fmt.Sprintf(o.Paths.PHPPoolDir, to)
-	newPath := filepath.Join(newDir, "zx-"+name+".caddy")
+	newPath := filepath.Join(newDir, "zx-"+name+".conf")
 	if err := os.MkdirAll(newDir, 0o755); err != nil {
 		return err
 	}
@@ -92,7 +92,7 @@ func (o *Ops) phpSwitch(ctx context.Context, args map[string]string) error {
 		return fmt.Errorf("reload PHP %s failed: %s", to, trim(stderrOr(res, err)))
 	}
 
-	oldPath := filepath.Join(fmt.Sprintf(o.Paths.PHPPoolDir, from), "zx-"+name+".caddy")
+	oldPath := filepath.Join(fmt.Sprintf(o.Paths.PHPPoolDir, from), "zx-"+name+".conf")
 	if err := os.Remove(oldPath); err == nil {
 		_, _ = o.Exec.Run(ctx, binSystemctl, []string{"reload", "php" + from + "-fpm"}, time.Minute)
 	}
@@ -199,7 +199,7 @@ func (o *Ops) sitePurge(ctx context.Context, args map[string]string) error {
 
 	// 2. Remove PHP-FPM pools from every version and reload what changed.
 	for _, ver := range o.phpVersions() {
-		path := filepath.Join(fmt.Sprintf(o.Paths.PHPPoolDir, ver), "zx-"+name+".caddy")
+		path := filepath.Join(fmt.Sprintf(o.Paths.PHPPoolDir, ver), "zx-"+name+".conf")
 		if err := os.Remove(path); err == nil {
 			res, err := o.Exec.Run(ctx, binSystemctl, []string{"reload", "php" + ver + "-fpm"}, time.Minute)
 			note("php "+ver, execErr(res, err))

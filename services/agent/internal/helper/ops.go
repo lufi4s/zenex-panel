@@ -273,7 +273,7 @@ func (o *Ops) poolWrite(ctx context.Context, args map[string]string) error {
 		return err
 	}
 	dir := fmt.Sprintf(o.Paths.PHPPoolDir, ver)
-	path := filepath.Join(dir, "zx-"+name+".caddy")
+	path := filepath.Join(dir, "zx-"+name+".conf")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
