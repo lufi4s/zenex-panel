@@ -204,10 +204,14 @@ func (o *Ops) fsPrepare(args map[string]string) error {
 	if err := os.MkdirAll(o.docRoot(name), 0o750); err != nil {
 		return fmt.Errorf("create document root: %w", err)
 	}
-	if err := os.Chown(o.homeDir(name), 0, gid); err != nil {
+	// The home directory only has to be traversable: the site account needs to
+	// pass through it to reach htdocs, and Nginx needs the same. It holds no
+	// files itself, and htdocs is readable only by the site account and Nginx,
+	// so other sites cannot read it.
+	if err := os.Chown(o.homeDir(name), 0, 0); err != nil {
 		return err
 	}
-	if err := os.Chmod(o.homeDir(name), 0o750); err != nil {
+	if err := os.Chmod(o.homeDir(name), 0o751); err != nil {
 		return err
 	}
 	if err := os.Chown(o.docRoot(name), uid, gid); err != nil {
