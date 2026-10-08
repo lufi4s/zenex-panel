@@ -180,3 +180,15 @@ Not built (the "full manage" gap):
 
 Operational notes:
 - raw.githubusercontent.com caches briefly and different edges can serve different versions. If the VPS runs an old installer, run it from the git checkout: `git -C /opt/zenex/src fetch --depth 1 origin main && git -C /opt/zenex/src reset --hard FETCH_HEAD && bash /opt/zenex/src/infrastructure/deployment/install.sh`.
+
+## 10. Session 6: Caddy replaces nginx (automatic HTTPS)
+
+- Web server is now Caddy 2.6 (Ubuntu package). nginx is purged by the installer.
+- Helper writes `/etc/caddy/zenex-available/zx-<user>.caddy`, enables it via symlink in `/etc/caddy/zenex`, and runs `caddy validate` before every reload (`services/agent/internal/caddy`). A failed validation removes the change.
+- Site template: `root`, `php_fastcgi unix//run/php/zx-<user>.sock`, uploads PHP blocked (403), dotfiles blocked (403), per-site log `/var/log/caddy/zx-<user>.log`.
+- Caddy obtains and renews Let's Encrypt certificates itself. Verified: `yokohama.ozima.cloud` and `caddytest.ozima.cloud` serve valid HTTPS (Let's Encrypt, ssl_verify=0). HTTP redirects to HTTPS (308).
+- Unknown hosts: `:80 { respond 404 }` catch-all in `/etc/caddy/Caddyfile`.
+- Bug fixed: PHP pool files must end in `.conf` (PHP-FPM ignores other names). Regression test added.
+- Suspend 404 / resume restored verified on the server.
+- Existing site `yokohama.ozima.cloud` was re-written to the Caddy config via helper `vhost.write`.
+- Operations: the VPS has a real domain `ozima.cloud` with wildcard DNS; use it for SSL tests (nip.io shares a Let's Encrypt rate limit).
