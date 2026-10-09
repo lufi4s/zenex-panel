@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { createMemo, createSignal, Show } from "solid-js";
 import { ArrowUpCircle, CheckCircle2, RefreshCw, XCircle } from "@/components/icons";
 import { useStartUpdate, useSystemUpdate } from "@/api/queries";
 import { describeError } from "@/api/client";
@@ -23,13 +23,10 @@ import { toast } from "@/lib/toast";
 export function UpdateCard() {
   const status = useSystemUpdate(true);
   const start = useStartUpdate();
-  const [confirming, setConfirming] = useState(false);
+  const [confirming, setConfirming] = createSignal(false);
 
-  if (status.isPending) return <CardSkeleton height="h-56" />;
-
-  const data = status.data;
-  const running = data?.state === "running" || start.isPending;
-  const canUpdate = Boolean(data?.update_available) && !running;
+  const running = () => status.data?.state === "running" || start.isPending;
+  const canUpdate = () => Boolean(status.data?.update_available) && !running();
 
   const begin = () => {
     start.mutate(undefined, {
@@ -40,100 +37,114 @@ export function UpdateCard() {
     });
   };
 
-  const logLines = (data?.log ?? "")
-    .split("\n")
-    .filter((line) => line.length > 0)
-    .map((text, i) => ({ id: i, text, level: levelFromText(text) }));
+  const logLines = createMemo(() =>
+    (status.data?.log ?? "")
+      .split("\n")
+      .filter((line) => line.length > 0)
+      .map((text, i) => ({ id: i, text, level: levelFromText(text) })),
+  );
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Panel updates</CardTitle>
-        <CardDescription>Install the newest version of the panel on this server.</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm">
-          <dt className="text-muted-foreground">Installed</dt>
-          <dd className="font-mono">{data?.current || "unknown"}</dd>
-          <dt className="text-muted-foreground">Latest</dt>
-          <dd className="flex items-center gap-2 font-mono">
-            {data?.latest || "unknown"}
-            {data?.update_available && (
-              <Badge variant="outline" className="font-sans">
-                New version
-              </Badge>
+    <Show when={!status.isPending} fallback={<CardSkeleton height="h-56" />}>
+      <Card>
+        <CardHeader>
+          <CardTitle>Panel updates</CardTitle>
+          <CardDescription>Install the newest version of the panel on this server.</CardDescription>
+        </CardHeader>
+        <CardContent class="space-y-4">
+          <dl class="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm">
+            <dt class="text-muted-foreground">Installed</dt>
+            <dd class="font-mono">{status.data?.current || "unknown"}</dd>
+            <dt class="text-muted-foreground">Latest</dt>
+            <dd class="flex items-center gap-2 font-mono">
+              {status.data?.latest || "unknown"}
+              <Show when={status.data?.update_available}>
+                <Badge variant="outline" class="font-sans">
+                  New version
+                </Badge>
+              </Show>
+            </dd>
+          </dl>
+
+          <Show when={status.data?.error}>
+            {(message) => (
+              <Alert variant="destructive">
+                <AlertDescription>{message()}</AlertDescription>
+              </Alert>
             )}
-          </dd>
-        </dl>
+          </Show>
+          <Show when={status.isError}>
+            <Alert variant="destructive">
+              <AlertDescription>{describeError(status.error)}</AlertDescription>
+            </Alert>
+          </Show>
 
-        {data?.error && (
-          <Alert variant="destructive">
-            <AlertDescription>{data.error}</AlertDescription>
-          </Alert>
-        )}
-        {status.isError && (
-          <Alert variant="destructive">
-            <AlertDescription>{describeError(status.error)}</AlertDescription>
-          </Alert>
-        )}
+          <Show when={running()}>
+            <p class="flex items-center gap-2 text-sm text-muted-foreground">
+              <RefreshCw class="size-4 animate-spin" aria-hidden="true" />
+              Updating. This takes a few minutes; the panel may disconnect briefly.
+            </p>
+          </Show>
+          <Show when={!running() && status.data?.state === "succeeded"}>
+            <p class="flex items-center gap-2 text-sm text-success">
+              <CheckCircle2 class="size-4" aria-hidden="true" /> The last update finished
+              successfully.
+            </p>
+          </Show>
+          <Show when={!running() && status.data?.state === "failed"}>
+            <p class="flex items-center gap-2 text-sm text-destructive">
+              <XCircle class="size-4" aria-hidden="true" /> The last update failed. See the log
+              below.
+            </p>
+          </Show>
+          <Show when={start.isError}>
+            <Alert variant="destructive">
+              <AlertDescription>{describeError(start.error)}</AlertDescription>
+            </Alert>
+          </Show>
 
-        {running && (
-          <p className="flex items-center gap-2 text-sm text-muted-foreground">
-            <RefreshCw className="size-4 animate-spin" aria-hidden />
-            Updating. This takes a few minutes; the panel may disconnect briefly.
-          </p>
-        )}
-        {!running && data?.state === "succeeded" && (
-          <p className="flex items-center gap-2 text-sm text-success">
-            <CheckCircle2 className="size-4" aria-hidden /> The last update finished successfully.
-          </p>
-        )}
-        {!running && data?.state === "failed" && (
-          <p className="flex items-center gap-2 text-sm text-destructive">
-            <XCircle className="size-4" aria-hidden /> The last update failed. See the log below.
-          </p>
-        )}
-        {start.isError && (
-          <Alert variant="destructive">
-            <AlertDescription>{describeError(start.error)}</AlertDescription>
-          </Alert>
-        )}
-
-        <Dialog open={confirming} onOpenChange={setConfirming}>
-          <DialogTrigger asChild>
-            <Button disabled={!canUpdate}>
-              <ArrowUpCircle aria-hidden /> Update now
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Update the panel?</DialogTitle>
-              <DialogDescription>
-                The newest version is installed and the panel restarts. Websites keep running. You
-                may be signed out for a minute.
-              </DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setConfirming(false)}>
-                Cancel
+          <Dialog open={confirming()} onOpenChange={setConfirming}>
+            <DialogTrigger>
+              <Button disabled={!canUpdate()}>
+                <ArrowUpCircle aria-hidden="true" /> Update now
               </Button>
-              <Button disabled={start.isPending} onClick={begin}>
-                {start.isPending ? "Starting…" : "Update panel"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Update the panel?</DialogTitle>
+                <DialogDescription>
+                  The newest version is installed and the panel restarts. Websites keep running. You
+                  may be signed out for a minute.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setConfirming(false)}>
+                  Cancel
+                </Button>
+                <Button disabled={start.isPending} onClick={begin}>
+                  {start.isPending ? "Starting…" : "Update panel"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
 
-        {(running || data?.state === "failed" || data?.state === "succeeded") &&
-          logLines.length > 0 && (
+          <Show
+            when={
+              (running() ||
+                status.data?.state === "failed" ||
+                status.data?.state === "succeeded") &&
+              logLines().length > 0
+            }
+          >
             <Terminal
               title="update log"
               emptyText="No output yet."
               maxHeight="18rem"
-              lines={logLines}
+              lines={logLines()}
             />
-          )}
-      </CardContent>
-    </Card>
+          </Show>
+        </CardContent>
+      </Card>
+    </Show>
   );
 }

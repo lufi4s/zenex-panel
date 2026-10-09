@@ -1,13 +1,13 @@
-// A small client-side router built on the browser history API.
+// A small client-side router on the browser history API, built on Solid signals.
 import {
   createContext,
-  useCallback,
+  createMemo,
+  createSignal,
+  onMount,
+  Show,
   useContext,
-  useEffect,
-  useSyncExternalStore,
-  type AnchorHTMLAttributes,
-  type ReactNode,
-} from "react";
+  type JSX,
+} from "solid-js";
 
 export type Params = Record<string, string>;
 export interface NavigateOptions {
@@ -15,39 +15,27 @@ export interface NavigateOptions {
   state?: unknown;
 }
 
-const listeners = new Set<() => void>();
+const [pathSignal, setPathSignal] = createSignal(window.location.pathname);
 
-function notify() {
-  listeners.forEach((listener) => listener());
-}
-
-function subscribe(listener: () => void) {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
-}
-
-function currentPath() {
-  return window.location.pathname;
-}
-
-window.addEventListener("popstate", notify);
+window.addEventListener("popstate", () => setPathSignal(window.location.pathname));
 
 /** Moves to another page inside the panel without reloading. */
 export function navigate(to: string, options: NavigateOptions = {}) {
   if (options.replace) window.history.replaceState(options.state ?? null, "", to);
   else window.history.pushState(options.state ?? null, "", to);
-  notify();
+  setPathSignal(window.location.pathname);
 }
 
 export function useLocation() {
-  const pathname = useSyncExternalStore(subscribe, currentPath, currentPath);
-  return { pathname };
+  return {
+    get pathname() {
+      return pathSignal();
+    },
+  };
 }
 
 export function useNavigate() {
-  return useCallback((to: string, options?: NavigateOptions) => navigate(to, options), []);
+  return (to: string, options?: NavigateOptions) => navigate(to, options);
 }
 
 const ParamsContext = createContext<Params>({});
@@ -56,69 +44,49 @@ export function useParams(): Params {
   return useContext(ParamsContext);
 }
 
-type AnchorProps = AnchorHTMLAttributes<HTMLAnchorElement>;
+type AnchorProps = JSX.AnchorHTMLAttributes<HTMLAnchorElement>;
 
 /** A link that stays inside the panel for normal clicks. */
-export function Link({ to, onClick, ...rest }: AnchorProps & { to: string }) {
-  return (
-    <a
-      href={to}
-      {...rest}
-      onClick={(event) => {
-        onClick?.(event);
-        const plain =
-          event.button === 0 &&
-          !event.metaKey &&
-          !event.ctrlKey &&
-          !event.shiftKey &&
-          !event.altKey;
-        if (event.defaultPrevented || !plain) return;
-        event.preventDefault();
-        navigate(to);
-      }}
-    />
-  );
+export function Link(props: AnchorProps & { to: string }) {
+  const onClick = (event: MouseEvent) => {
+    const anchorClick = props.onClick as ((e: MouseEvent) => void) | undefined;
+    anchorClick?.(event);
+    const plain =
+      event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
+    if (event.defaultPrevented || !plain) return;
+    event.preventDefault();
+    navigate(props.to);
+  };
+  return <a {...props} href={props.to} onClick={onClick} />;
 }
 
 /** A link that marks itself active when its page is open. */
-export function NavLink({
-  to,
-  end = false,
-  className,
-  children,
-  ...rest
-}: AnchorProps & { to: string; end?: boolean }) {
+export function NavLink(props: AnchorProps & { to: string; end?: boolean }) {
   const { pathname } = useLocation();
-  const active = end ? pathname === to : pathname === to || pathname.startsWith(`${to}/`);
+  const active = () =>
+    props.end
+      ? pathname === props.to
+      : pathname === props.to || pathname.startsWith(`${props.to}/`);
   return (
     <Link
-      to={to}
-      aria-current={active ? "page" : undefined}
-      data-active={active || undefined}
-      className={className}
-      {...rest}
+      to={props.to}
+      class={props.class}
+      onClick={props.onClick}
+      aria-current={active() ? "page" : undefined}
+      data-active={active() ? "" : undefined}
     >
-      {children}
+      {props.children}
     </Link>
   );
 }
 
-/** Sends the visitor somewhere else as soon as it renders. */
-export function Navigate({
-  to,
-  replace = false,
-}: {
-  to: string;
-  replace?: boolean;
-  state?: unknown;
-}) {
-  useEffect(() => {
-    navigate(to, { replace });
-  }, [to, replace]);
+/** Sends the visitor somewhere else as soon as the page is shown. */
+export function Navigate(props: { to: string; replace?: boolean }) {
+  onMount(() => navigate(props.to, { replace: props.replace ?? false }));
   return null;
 }
 
-/** Matches "/websites/:id" against a path. Returns the values of the named parts, or null. */
+/** Matches "/websites/:id" against a path. Returns the named values, or null. */
 export function matchPath(pattern: string, pathname: string): Params | null {
   const want = pattern.split("/").filter(Boolean);
   const got = pathname.split("/").filter(Boolean);
@@ -136,17 +104,25 @@ export function matchPath(pattern: string, pathname: string): Params | null {
 
 export interface RouteDef {
   path: string;
-  element: ReactNode;
+  /** Builds the page. A function, so each page is created only when it is shown. */
+  component: () => JSX.Element;
 }
 
 /** Renders the first route that matches the current address, or the fallback. */
-export function Routes({ routes, fallback }: { routes: RouteDef[]; fallback: ReactNode }) {
-  const { pathname } = useLocation();
-  for (const route of routes) {
-    const params = matchPath(route.path, pathname);
-    if (params) {
-      return <ParamsContext.Provider value={params}>{route.element}</ParamsContext.Provider>;
+export function Routes(props: { routes: RouteDef[]; fallback: () => JSX.Element }) {
+  const match = createMemo(() => {
+    const pathname = pathSignal();
+    for (const route of props.routes) {
+      const params = matchPath(route.path, pathname);
+      if (params) return { route, params };
     }
-  }
-  return <>{fallback}</>;
+    return null;
+  });
+  return (
+    <Show when={match()} fallback={props.fallback()}>
+      {(m) => (
+        <ParamsContext.Provider value={m().params}>{m().route.component()}</ParamsContext.Provider>
+      )}
+    </Show>
+  );
 }

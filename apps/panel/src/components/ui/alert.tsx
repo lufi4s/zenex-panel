@@ -1,4 +1,4 @@
-import type { HTMLAttributes } from "react";
+import { splitProps, type JSX } from "solid-js";
 import { cn } from "@/lib/utils";
 
 const VARIANTS = {
@@ -6,24 +6,31 @@ const VARIANTS = {
   destructive: "border-destructive/40 bg-destructive/5 text-destructive",
 } as const;
 
-export function Alert({
-  variant = "default",
-  className,
-  ...props
-}: HTMLAttributes<HTMLDivElement> & { variant?: keyof typeof VARIANTS }) {
+export function Alert(
+  props: JSX.HTMLAttributes<HTMLDivElement> & { variant?: keyof typeof VARIANTS },
+) {
+  const [own, rest] = splitProps(props, ["variant", "class", "children"]);
+  const variant = own.variant ?? "default";
   return (
     <div
       role={variant === "destructive" ? "alert" : undefined}
-      className={cn(
+      class={cn(
         "relative w-full rounded-lg border px-4 py-3 text-sm",
         VARIANTS[variant],
-        className,
+        own.class,
       )}
-      {...props}
-    />
+      {...rest}
+    >
+      {own.children}
+    </div>
   );
 }
 
-export function AlertDescription({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("text-sm leading-relaxed", className)} {...props} />;
+export function AlertDescription(props: JSX.HTMLAttributes<HTMLDivElement>) {
+  const [own, rest] = splitProps(props, ["class", "children"]);
+  return (
+    <div class={cn("text-sm leading-relaxed", own.class)} {...rest}>
+      {own.children}
+    </div>
+  );
 }

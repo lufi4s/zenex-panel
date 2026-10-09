@@ -1,5 +1,4 @@
-import { StrictMode } from "react";
-import { createRoot } from "react-dom/client";
+import { render } from "solid-js/web";
 import { App } from "./App";
 import { Toaster } from "./components/Toaster";
 import "./index.css";
@@ -7,9 +6,12 @@ import "./index.css";
 const root = document.getElementById("root");
 if (!root) throw new Error("Missing #root element");
 
-createRoot(root).render(
-  <StrictMode>
-    <App />
-    <Toaster />
-  </StrictMode>,
+render(
+  () => (
+    <>
+      <App />
+      <Toaster />
+    </>
+  ),
+  root,
 );

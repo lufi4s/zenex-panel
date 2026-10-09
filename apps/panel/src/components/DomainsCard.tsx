@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { createSignal, For, Show } from "solid-js";
 import { AlertTriangle, CheckCircle2, RefreshCw, Trash2 } from "@/components/icons";
 import { useAddDomain, useCheckDomain, useDeleteDomain, useDomains } from "@/api/queries";
 import { ApiError, describeError } from "@/api/client";
@@ -20,15 +20,15 @@ import { Label } from "@/components/ui/label";
 
 const APEX_PATTERN = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 
-function DeleteDomainDialog({ domain }: { domain: Domain }) {
+function DeleteDomainDialog(props: { domain: Domain }) {
   const remove = useDeleteDomain();
-  const [open, setOpen] = useState(false);
-  const [typed, setTyped] = useState("");
-  const matches = typed.trim().toLowerCase() === domain.apex;
+  const [open, setOpen] = createSignal(false);
+  const [typed, setTyped] = createSignal("");
+  const matches = () => typed().trim().toLowerCase() === props.domain.apex;
 
   const confirm = () => {
-    if (!matches) return;
-    remove.mutate(domain.id, {
+    if (!matches()) return;
+    remove.mutate(props.domain.id, {
       onSuccess: () => {
         setOpen(false);
         setTyped("");
@@ -38,7 +38,7 @@ function DeleteDomainDialog({ domain }: { domain: Domain }) {
 
   return (
     <Dialog
-      open={open}
+      open={open()}
       onOpenChange={(next) => {
         setOpen(next);
         if (!next) {
@@ -47,41 +47,41 @@ function DeleteDomainDialog({ domain }: { domain: Domain }) {
         }
       }}
     >
-      <DialogTrigger asChild>
-        <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive">
-          <Trash2 aria-hidden />
+      <DialogTrigger>
+        <Button variant="ghost" size="sm" class="text-destructive hover:text-destructive">
+          <Trash2 aria-hidden="true" />
           Remove
         </Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Remove {domain.apex}?</DialogTitle>
+          <DialogTitle>Remove {props.domain.apex}?</DialogTitle>
           <DialogDescription>
             The domain is removed from your account. Websites that still use it must be deleted
             first.
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-1.5">
-          <Label htmlFor={`remove-${domain.id}`}>
-            Type <span className="font-mono">{domain.apex}</span> to confirm
+        <div class="space-y-1.5">
+          <Label for={`remove-${props.domain.id}`}>
+            Type <span class="font-mono">{props.domain.apex}</span> to confirm
           </Label>
           <Input
-            id={`remove-${domain.id}`}
-            autoComplete="off"
-            value={typed}
-            onChange={(e) => setTyped(e.target.value)}
+            id={`remove-${props.domain.id}`}
+            autocomplete="off"
+            value={typed()}
+            onInput={(e) => setTyped(e.currentTarget.value)}
           />
         </div>
-        {remove.isError && (
+        <Show when={remove.isError}>
           <Alert variant="destructive">
             <AlertDescription>{describeError(remove.error)}</AlertDescription>
           </Alert>
-        )}
-        <div className="flex justify-end gap-2">
+        </Show>
+        <div class="flex justify-end gap-2">
           <Button variant="outline" onClick={() => setOpen(false)}>
             Cancel
           </Button>
-          <Button variant="destructive" disabled={!matches || remove.isPending} onClick={confirm}>
+          <Button variant="destructive" disabled={!matches() || remove.isPending} onClick={confirm}>
             {remove.isPending ? "Removing…" : "Remove domain"}
           </Button>
         </div>
@@ -90,44 +90,47 @@ function DeleteDomainDialog({ domain }: { domain: Domain }) {
   );
 }
 
-function DomainItem({ domain }: { domain: Domain }) {
+function DomainItem(props: { domain: Domain }) {
   const check = useCheckDomain();
   return (
-    <li className="flex flex-col gap-2 py-3 first:pt-0 last:pb-0">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="font-medium">{domain.apex}</span>
-        {domain.verified ? (
-          <Badge variant="outline" className="border-success/40 bg-success/10 text-success">
-            <CheckCircle2 className="size-3" aria-hidden /> DNS ready
+    <li class="flex flex-col gap-2 py-3 first:pt-0 last:pb-0">
+      <div class="flex flex-wrap items-center gap-2">
+        <span class="font-medium">{props.domain.apex}</span>
+        <Show
+          when={props.domain.verified}
+          fallback={
+            <Badge variant="outline" class="border-warning/40 bg-warning/10 text-warning">
+              <AlertTriangle class="size-3" aria-hidden="true" /> DNS not set
+            </Badge>
+          }
+        >
+          <Badge variant="outline" class="border-success/40 bg-success/10 text-success">
+            <CheckCircle2 class="size-3" aria-hidden="true" /> DNS ready
           </Badge>
-        ) : (
-          <Badge variant="outline" className="border-warning/40 bg-warning/10 text-warning">
-            <AlertTriangle className="size-3" aria-hidden /> DNS not set
-          </Badge>
-        )}
-        <div className="ml-auto flex items-center gap-1">
+        </Show>
+        <div class="ml-auto flex items-center gap-1">
           <Button
             variant="ghost"
             size="sm"
             disabled={check.isPending}
-            onClick={() => check.mutate(domain.id)}
+            onClick={() => check.mutate(props.domain.id)}
           >
-            <RefreshCw className={check.isPending ? "animate-spin" : undefined} aria-hidden />
+            <RefreshCw class={check.isPending ? "animate-spin" : undefined} aria-hidden="true" />
             Check DNS
           </Button>
-          <DeleteDomainDialog domain={domain} />
+          <DeleteDomainDialog domain={props.domain} />
         </div>
       </div>
-      {domain.message && (
-        <p className={domain.verified ? "text-xs text-muted-foreground" : "text-xs text-warning"}>
-          {domain.message}
+      <Show when={props.domain.message}>
+        <p class={props.domain.verified ? "text-xs text-muted-foreground" : "text-xs text-warning"}>
+          {props.domain.message}
         </p>
-      )}
-      {check.isError && (
+      </Show>
+      <Show when={check.isError}>
         <Alert variant="destructive">
           <AlertDescription>{describeError(check.error)}</AlertDescription>
         </Alert>
-      )}
+      </Show>
     </li>
   );
 }
@@ -135,12 +138,12 @@ function DomainItem({ domain }: { domain: Domain }) {
 export function DomainsCard() {
   const domains = useDomains();
   const add = useAddDomain();
-  const [apex, setApex] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [apex, setApex] = createSignal("");
+  const [error, setError] = createSignal<string | null>(null);
 
-  const submit = (event: FormEvent<HTMLFormElement>) => {
+  const submit = (event: SubmitEvent) => {
     event.preventDefault();
-    const value = apex.trim().toLowerCase();
+    const value = apex().trim().toLowerCase();
     if (!APEX_PATTERN.test(value)) {
       setError("Enter a domain such as yourdomain.com. Do not include http:// or a slash.");
       return;
@@ -161,46 +164,50 @@ export function DomainsCard() {
           to this server. The panel checks it for you.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
-        {domains.isPending && <p className="text-sm text-muted-foreground">Loading…</p>}
-        {domains.isError && (
+      <CardContent class="space-y-4">
+        <Show when={domains.isPending}>
+          <p class="text-sm text-muted-foreground">Loading…</p>
+        </Show>
+        <Show when={domains.isError}>
           <Alert variant="destructive">
             <AlertDescription>{describeError(domains.error)}</AlertDescription>
           </Alert>
-        )}
-        {domains.data && domains.data.length === 0 && (
-          <p className="text-sm text-muted-foreground">No domain added yet.</p>
-        )}
-        {domains.data && domains.data.length > 0 && (
-          <ul className="divide-y divide-border">
-            {domains.data.map((d) => (
-              <DomainItem key={d.id} domain={d} />
-            ))}
-          </ul>
-        )}
+        </Show>
+        <Show when={domains.data && domains.data.length === 0}>
+          <p class="text-sm text-muted-foreground">No domain added yet.</p>
+        </Show>
+        <Show when={domains.data && domains.data.length > 0 ? domains.data : undefined}>
+          {(list) => (
+            <ul class="divide-y divide-border">
+              <For each={list()}>{(d) => <DomainItem domain={d} />}</For>
+            </ul>
+          )}
+        </Show>
 
-        <form onSubmit={submit} className="flex flex-col gap-2 sm:flex-row sm:items-end" noValidate>
-          <div className="flex-1 space-y-1.5">
-            <Label htmlFor="apex">Domain</Label>
+        <form onSubmit={submit} class="flex flex-col gap-2 sm:flex-row sm:items-end" noValidate>
+          <div class="flex-1 space-y-1.5">
+            <Label for="apex">Domain</Label>
             <Input
               id="apex"
               placeholder="yourdomain.com"
-              autoComplete="off"
-              value={apex}
-              onChange={(e) => setApex(e.target.value)}
-              aria-invalid={error ? true : undefined}
-              aria-describedby={error ? "apex-error" : undefined}
+              autocomplete="off"
+              value={apex()}
+              onInput={(e) => setApex(e.currentTarget.value)}
+              aria-invalid={error() ? true : undefined}
+              aria-describedby={error() ? "apex-error" : undefined}
             />
           </div>
-          <Button type="submit" disabled={add.isPending || apex.trim() === ""}>
+          <Button type="submit" disabled={add.isPending || apex().trim() === ""}>
             {add.isPending ? "Adding…" : "Add domain"}
           </Button>
         </form>
-        {error && (
-          <p id="apex-error" role="alert" className="text-sm text-destructive">
-            {error}
-          </p>
-        )}
+        <Show when={error()}>
+          {(message) => (
+            <p id="apex-error" role="alert" class="text-sm text-destructive">
+              {message()}
+            </p>
+          )}
+        </Show>
       </CardContent>
     </Card>
   );

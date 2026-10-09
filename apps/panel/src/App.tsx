@@ -1,8 +1,8 @@
-import { useEffect, type ReactNode } from "react";
+import { createEffect, Show, type JSX } from "solid-js";
 import { useBranding, useMe } from "@/api/queries";
 import { ApiError, describeError } from "@/api/client";
 import { applyBranding } from "@/lib/brand";
-import { Navigate, Routes, type RouteDef } from "@/lib/router";
+import { Navigate, Routes, useLocation, type RouteDef } from "@/lib/router";
 import { AppLayout } from "@/layouts/AppLayout";
 import { ActivityPage } from "@/pages/ActivityPage";
 import { DomainsPage } from "@/pages/DomainsPage";
@@ -15,20 +15,20 @@ import { WebsitesPage } from "@/pages/WebsitesPage";
 
 function Loading() {
   return (
-    <main className="flex min-h-dvh items-center justify-center text-sm text-muted-foreground">
+    <main class="flex min-h-dvh items-center justify-center text-sm text-muted-foreground">
       Loading…
     </main>
   );
 }
 
-function ConnectionError({ message, onRetry }: { message: string; onRetry: () => void }) {
+function ConnectionError(props: { message: string; onRetry: () => void }) {
   return (
-    <main className="flex min-h-dvh flex-col items-center justify-center gap-3 p-6 text-center">
-      <p className="text-sm text-destructive">{message}</p>
+    <main class="flex min-h-dvh flex-col items-center justify-center gap-3 p-6 text-center">
+      <p class="text-sm text-destructive">{props.message}</p>
       <button
         type="button"
-        className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted"
-        onClick={onRetry}
+        class="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted"
+        onClick={props.onRetry}
       >
         Try again
       </button>
@@ -39,47 +39,71 @@ function ConnectionError({ message, onRetry }: { message: string; onRetry: () =>
 /** Sign-in for visitors; the panel for everyone else. */
 function LoginRoute() {
   const me = useMe();
-  if (me.isPending) return <Loading />;
-  if (me.data) return <Navigate to="/" replace />;
-  if (me.error instanceof ApiError && me.error.status !== 401) {
-    return <ConnectionError message={describeError(me.error)} onRetry={() => me.refetch()} />;
-  }
-  return <LoginPage />;
+  return (
+    <Show when={!me.isPending} fallback={<Loading />}>
+      <Show when={!me.data} fallback={<Navigate to="/" replace />}>
+        <Show
+          when={!(me.error instanceof ApiError && me.error.status !== 401)}
+          fallback={
+            <ConnectionError message={describeError(me.error)} onRetry={() => me.refetch()} />
+          }
+        >
+          <LoginPage />
+        </Show>
+      </Show>
+    </Show>
+  );
 }
 
 /** Protects every page: visitors without a session are sent to sign-in. */
-function Protected({ children }: { children: ReactNode }) {
+function Protected(props: { children: JSX.Element }) {
   const me = useMe();
-  if (me.isPending) return <Loading />;
-  if (me.error instanceof ApiError && me.error.status === 401) {
-    return <Navigate to="/login" replace />;
-  }
-  if (!me.data)
-    return <ConnectionError message={describeError(me.error)} onRetry={() => me.refetch()} />;
-  return <AppLayout>{children}</AppLayout>;
+  return (
+    <Show when={!me.isPending} fallback={<Loading />}>
+      <Show
+        when={!(me.error instanceof ApiError && me.error.status === 401)}
+        fallback={<Navigate to="/login" replace />}
+      >
+        <Show
+          when={me.data}
+          fallback={
+            <ConnectionError message={describeError(me.error)} onRetry={() => me.refetch()} />
+          }
+        >
+          <AppLayout>{props.children}</AppLayout>
+        </Show>
+      </Show>
+    </Show>
+  );
 }
 
 /** Settings are for administrators only. */
-function AdminOnly({ children }: { children: ReactNode }) {
+function AdminOnly(props: { children: JSX.Element }) {
   const me = useMe();
-  if (me.data && !me.data.roles.includes("administrator")) return <Navigate to="/" replace />;
-  return <>{children}</>;
+  return (
+    <Show
+      when={!me.data || me.data.roles.includes("administrator")}
+      fallback={<Navigate to="/" replace />}
+    >
+      {props.children}
+    </Show>
+  );
 }
 
 function NotFound() {
   return (
-    <div className="flex flex-col items-start gap-2 py-16">
-      <p className="font-heading text-2xl font-semibold">Page not found</p>
-      <p className="text-sm text-muted-foreground">The page you are looking for does not exist.</p>
+    <div class="flex flex-col items-start gap-2 py-16">
+      <p class="font-heading text-2xl font-semibold">Page not found</p>
+      <p class="text-sm text-muted-foreground">The page you are looking for does not exist.</p>
     </div>
   );
 }
 
 const ROUTES: RouteDef[] = [
-  { path: "/login", element: <LoginRoute /> },
+  { path: "/login", component: () => <LoginRoute /> },
   {
     path: "/",
-    element: (
+    component: () => (
       <Protected>
         <OverviewPage />
       </Protected>
@@ -87,7 +111,7 @@ const ROUTES: RouteDef[] = [
   },
   {
     path: "/websites",
-    element: (
+    component: () => (
       <Protected>
         <WebsitesPage />
       </Protected>
@@ -95,7 +119,7 @@ const ROUTES: RouteDef[] = [
   },
   {
     path: "/websites/:id",
-    element: (
+    component: () => (
       <Protected>
         <SitePage />
       </Protected>
@@ -103,7 +127,7 @@ const ROUTES: RouteDef[] = [
   },
   {
     path: "/domains",
-    element: (
+    component: () => (
       <Protected>
         <DomainsPage />
       </Protected>
@@ -111,7 +135,7 @@ const ROUTES: RouteDef[] = [
   },
   {
     path: "/server",
-    element: (
+    component: () => (
       <Protected>
         <ServerPage />
       </Protected>
@@ -119,7 +143,7 @@ const ROUTES: RouteDef[] = [
   },
   {
     path: "/activity",
-    element: (
+    component: () => (
       <Protected>
         <ActivityPage />
       </Protected>
@@ -127,7 +151,7 @@ const ROUTES: RouteDef[] = [
   },
   {
     path: "/settings",
-    element: (
+    component: () => (
       <Protected>
         <AdminOnly>
           <SettingsPage />
@@ -140,19 +164,25 @@ const ROUTES: RouteDef[] = [
 /** The application: routes, the saved branding, and the signed-in frame. */
 export function App() {
   const branding = useBranding();
+  const location = useLocation();
 
-  useEffect(() => {
+  createEffect(() => {
     if (branding.data) applyBranding(branding.data);
-  }, [branding.data]);
+  });
 
   return (
-    <Routes
-      routes={ROUTES}
-      fallback={
-        <Protected>
-          <NotFound />
-        </Protected>
-      }
-    />
+    // Routes keeps the params of the route it first matched, so it is rebuilt for each address.
+    <Show when={location.pathname} keyed>
+      {(_pathname) => (
+        <Routes
+          routes={ROUTES}
+          fallback={() => (
+            <Protected>
+              <NotFound />
+            </Protected>
+          )}
+        />
+      )}
+    </Show>
   );
 }

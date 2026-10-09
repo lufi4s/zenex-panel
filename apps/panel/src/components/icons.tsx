@@ -1,19 +1,20 @@
 // Inline SVG icons (24×24 grid, stroked with currentColor). Replaces an icon package.
-import type { ReactNode, SVGProps } from "react";
+import { splitProps, type JSX } from "solid-js";
 
-type IconProps = SVGProps<SVGSVGElement>;
+type IconProps = JSX.SvgSVGAttributes<SVGSVGElement> & { class?: string };
 
-function icon(name: string, body: ReactNode) {
-  function Icon({ className, ...rest }: IconProps) {
+function icon(name: string, body: JSX.Element) {
+  return function Icon(props: IconProps) {
+    const [own, rest] = splitProps(props, ["class"]);
     return (
       <svg
         viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"
-        strokeWidth={2}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        className={className ?? "size-4"}
+        stroke-width={2}
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        class={own.class ?? "size-4"}
         aria-hidden="true"
         data-icon={name}
         {...rest}
@@ -21,9 +22,7 @@ function icon(name: string, body: ReactNode) {
         {body}
       </svg>
     );
-  }
-  Icon.displayName = name;
-  return Icon;
+  };
 }
 
 export const Activity = icon("Activity", <path d="M22 12h-4l-3 9L9 3l-3 9H2" />);
@@ -62,7 +61,7 @@ export const ChevronRight = icon("ChevronRight", <path d="m9 18 6-6-6-6" />);
 export const ChevronsUpDown = icon("ChevronsUpDown", <path d="m7 15 5 5 5-5M7 9l5-5 5 5" />);
 export const CircleDashed = icon(
   "CircleDashed",
-  <circle cx="12" cy="12" r="10" strokeDasharray="3 4" />,
+  <circle cx="12" cy="12" r="10" stroke-dasharray="3 4" />,
 );
 export const Copy = icon(
   "Copy",

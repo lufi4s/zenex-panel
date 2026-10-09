@@ -1,3 +1,4 @@
+import { For, Show } from "solid-js";
 import { useServices } from "@/api/queries";
 import type { ServiceState } from "@/api/types";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -28,13 +29,13 @@ function tone(state: string): { dot: string; text: string } {
   return { dot: "bg-warning", text: state };
 }
 
-function ServiceRow({ service }: { service: ServiceState }) {
-  const t = tone(service.state);
+function ServiceRow(props: { service: ServiceState }) {
+  const t = () => tone(props.service.state);
   return (
-    <li className="flex items-center gap-3 py-2.5">
-      <span className={cn("size-2 shrink-0 rounded-full", t.dot)} aria-hidden />
-      <span className="min-w-0 flex-1 text-sm font-medium">{label(service.name)}</span>
-      <span className="shrink-0 text-xs text-muted-foreground">{t.text}</span>
+    <li class="flex items-center gap-3 py-2.5">
+      <span class={cn("size-2 shrink-0 rounded-full", t().dot)} aria-hidden="true" />
+      <span class="min-w-0 flex-1 text-sm font-medium">{label(props.service.name)}</span>
+      <span class="shrink-0 text-xs text-muted-foreground">{t().text}</span>
     </li>
   );
 }
@@ -42,7 +43,7 @@ function ServiceRow({ service }: { service: ServiceState }) {
 /** Live state of every service the panel depends on. */
 export function ServicesCard() {
   const services = useServices();
-  const problems = services.data?.filter((s) => s.state !== "active").length ?? 0;
+  const problems = () => services.data?.filter((s) => s.state !== "active").length ?? 0;
 
   return (
     <Card>
@@ -50,25 +51,25 @@ export function ServicesCard() {
         <CardTitle>Services</CardTitle>
         <CardDescription>
           {services.data
-            ? problems === 0
+            ? problems() === 0
               ? "Everything is running."
-              : `${problems} service${problems === 1 ? "" : "s"} need attention.`
+              : `${problems()} service${problems() === 1 ? "" : "s"} need attention.`
             : "Checking services…"}
         </CardDescription>
       </CardHeader>
       <CardContent>
-        {services.isError && (
+        <Show when={services.isError}>
           <Alert variant="destructive">
             <AlertDescription>Could not check services right now.</AlertDescription>
           </Alert>
-        )}
-        {services.data && (
-          <ul className="divide-y divide-border">
-            {services.data.map((s) => (
-              <ServiceRow key={s.name} service={s} />
-            ))}
-          </ul>
-        )}
+        </Show>
+        <Show when={services.data}>
+          {(list) => (
+            <ul class="divide-y divide-border">
+              <For each={list()}>{(s) => <ServiceRow service={s} />}</For>
+            </ul>
+          )}
+        </Show>
       </CardContent>
     </Card>
   );

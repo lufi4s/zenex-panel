@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { createEffect, For, Show } from "solid-js";
 import { useQueryClient } from "@/api/query";
 import { useJob, useRetryJob } from "@/api/queries";
 import { errorMessageFrom } from "@/api/client";
@@ -9,34 +9,44 @@ import { Button } from "@/components/ui/button";
 import { stepLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-interface JobProgressProps {
-  jobId: string;
-  title: string;
-  onDismiss: () => void;
-}
-
 /** The icon for one build step: a tick, a spinner, a cross, or an empty circle. */
-function StepIcon({ status }: { status: StepStatus }) {
-  if (status === "succeeded") return <CheckCircle2 className="size-4 text-success" />;
-  if (status === "running") return <Loader2 className="size-4 animate-spin text-primary" />;
-  if (status === "failed") return <XCircle className="size-4 text-destructive" />;
-  return <CircleDashed className="size-4 text-muted-foreground/60" />;
+function StepIcon(props: { status: StepStatus }) {
+  return (
+    <>
+      <Show when={props.status === "succeeded"}>
+        <CheckCircle2 class="size-4 text-success" />
+      </Show>
+      <Show when={props.status === "running"}>
+        <Loader2 class="size-4 animate-spin text-primary" />
+      </Show>
+      <Show when={props.status === "failed"}>
+        <XCircle class="size-4 text-destructive" />
+      </Show>
+      <Show
+        when={
+          props.status !== "succeeded" && props.status !== "running" && props.status !== "failed"
+        }
+      >
+        <CircleDashed class="size-4 text-muted-foreground/60" />
+      </Show>
+    </>
+  );
 }
 
-function StepRow({ step }: { step: JobStep }) {
-  const pending = step.status === "pending" || step.status === "skipped";
+function StepRow(props: { step: JobStep }) {
+  const pending = () => props.step.status === "pending" || props.step.status === "skipped";
   return (
-    <li className="flex items-start gap-3 py-2">
-      <span className="mt-0.5 shrink-0">
-        <StepIcon status={step.status} />
+    <li class="flex items-start gap-3 py-2">
+      <span class="mt-0.5 shrink-0">
+        <StepIcon status={props.step.status} />
       </span>
-      <div className="min-w-0 flex-1">
-        <p className={cn("text-sm", pending ? "text-muted-foreground" : "text-foreground")}>
-          {stepLabel(step.name)}
+      <div class="min-w-0 flex-1">
+        <p class={cn("text-sm", pending() ? "text-muted-foreground" : "text-foreground")}>
+          {stepLabel(props.step.name)}
         </p>
-        {step.status === "failed" && step.error && (
-          <p className="mt-0.5 break-words text-xs text-destructive">{step.error}</p>
-        )}
+        <Show when={props.step.status === "failed" && props.step.error}>
+          <p class="mt-0.5 break-words text-xs text-destructive">{props.step.error}</p>
+        </Show>
       </div>
     </li>
   );
@@ -46,84 +56,87 @@ function StepRow({ step }: { step: JobStep }) {
  * Progress of one background job (building or deleting a website): the steps,
  * a retry when a step fails, and a dismiss once it has finished.
  */
-export function JobProgress({ jobId, title, onDismiss }: JobProgressProps) {
+export function JobProgress(props: { jobId: string; title: string; onDismiss: () => void }) {
   const qc = useQueryClient();
-  const job = useJob(jobId);
+  // The job query is keyed by the id at mount time, so give a new job its own instance (for example with a keyed Show).
+  const job = useJob(props.jobId);
   const retry = useRetryJob();
-  const status = job.data?.job.status;
-  const finished =
-    status === "succeeded" || status === "failed" || status === "cancelled" || status === "dead";
+  const status = () => job.data?.job.status;
+  const finished = () => {
+    const s = status();
+    return s === "succeeded" || s === "failed" || s === "cancelled" || s === "dead";
+  };
 
-  useEffect(() => {
-    if (finished) qc.invalidateQueries({ queryKey: ["sites"] });
-  }, [finished, qc]);
+  createEffect(() => {
+    if (finished()) void qc.invalidateQueries({ queryKey: ["sites"] });
+  });
 
-  const steps = job.data?.steps ?? [];
-  const done = steps.filter((s) => s.status === "succeeded").length;
-  const subtitle =
-    status === "succeeded"
+  const steps = () => job.data?.steps ?? [];
+  const done = () => steps().filter((s) => s.status === "succeeded").length;
+  const subtitle = () =>
+    status() === "succeeded"
       ? "Your website is ready."
-      : status === "failed"
+      : status() === "failed"
         ? "The build stopped. Retry to continue from where it failed."
-        : steps.length > 0
-          ? `${done} of ${steps.length} steps complete`
+        : steps().length > 0
+          ? `${done()} of ${steps().length} steps complete`
           : "Starting…";
 
   return (
-    <div className="space-y-4">
-      <div className="space-y-1">
-        <p className="font-heading text-base font-semibold">
-          {status === "succeeded" ? "Done" : title}
+    <div class="space-y-4">
+      <div class="space-y-1">
+        <p class="font-heading text-base font-semibold">
+          {status() === "succeeded" ? "Done" : props.title}
         </p>
-        <p className="text-sm text-muted-foreground">{subtitle}</p>
+        <p class="text-sm text-muted-foreground">{subtitle()}</p>
       </div>
 
-      {job.isError && (
+      <Show when={job.isError}>
         <Alert variant="destructive">
           <AlertDescription>
             {errorMessageFrom(null, "Could not load progress. Refresh the page.")}
           </AlertDescription>
         </Alert>
-      )}
+      </Show>
 
-      {steps.length > 0 && (
-        <ol className="divide-y divide-border">
-          {steps.map((step) => (
-            <StepRow key={step.name} step={step} />
-          ))}
+      <Show when={steps().length > 0}>
+        <ol class="divide-y divide-border">
+          <For each={steps()}>{(step) => <StepRow step={step} />}</For>
         </ol>
-      )}
+      </Show>
 
-      {status === "failed" && job.data?.job.error && (
-        <Alert variant="destructive">
-          <AlertDescription>{job.data.job.error}</AlertDescription>
-        </Alert>
-      )}
-      {retry.isError && (
+      <Show when={status() === "failed" && job.data?.job.error}>
+        {(message) => (
+          <Alert variant="destructive">
+            <AlertDescription>{message()}</AlertDescription>
+          </Alert>
+        )}
+      </Show>
+      <Show when={retry.isError}>
         <Alert variant="destructive">
           <AlertDescription>{errorMessageFrom(null, "Could not retry.")}</AlertDescription>
         </Alert>
-      )}
+      </Show>
 
-      {(status === "failed" || finished) && (
-        <div className="flex flex-wrap justify-end gap-2 border-t border-border pt-4">
-          {status === "failed" && (
+      <Show when={status() === "failed" || finished()}>
+        <div class="flex flex-wrap justify-end gap-2 border-t border-border pt-4">
+          <Show when={status() === "failed"}>
             <Button
               variant="outline"
               size="sm"
               disabled={retry.isPending}
-              onClick={() => retry.mutate(jobId)}
+              onClick={() => retry.mutate(props.jobId)}
             >
               {retry.isPending ? "Retrying…" : "Retry"}
             </Button>
-          )}
-          {finished && (
-            <Button variant="ghost" size="sm" onClick={onDismiss}>
+          </Show>
+          <Show when={finished()}>
+            <Button variant="ghost" size="sm" onClick={() => props.onDismiss()}>
               Close
             </Button>
-          )}
+          </Show>
         </div>
-      )}
+      </Show>
     </div>
   );
 }

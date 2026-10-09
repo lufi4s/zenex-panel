@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@solidjs/testing-library";
+import { render as renderSolid } from "solid-js/web";
 import { App } from "./App";
 import { resetQueryCache } from "./api/query";
 
@@ -187,7 +188,32 @@ function mockApi(options: { signedIn: boolean }) {
 /** Opens the panel at a path, the way the browser would. */
 function renderAt(path: string) {
   window.history.pushState({}, "", path);
-  return render(<App />);
+  // The router reads the address from its own signal, so tell it the address changed.
+  window.dispatchEvent(new PopStateEvent("popstate"));
+  return mount(() => <App />);
+}
+
+// Mounts the app with Solid's own renderer and remembers how to take it down again.
+let disposeApp: (() => void) | null = null;
+let host: HTMLElement | null = null;
+
+function mount(view: () => unknown) {
+  host = document.createElement("div");
+  document.body.appendChild(host);
+  disposeApp = renderSolid(view as () => import("solid-js").JSX.Element, host);
+}
+
+function unmount() {
+  disposeApp?.();
+  disposeApp = null;
+  host?.remove();
+  host = null;
+}
+
+/** Types into a field. The panel reacts to input events as you type, and change on commit. */
+function changeValue(field: HTMLElement, init: { target: { value: string } }) {
+  fireEvent.input(field, init);
+  fireEvent.change(field, init);
 }
 
 /** Tabs switch on mouse-down in the panel, so the test presses the same way a person does. */
@@ -202,7 +228,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  cleanup();
+  unmount();
   vi.unstubAllGlobals();
   window.history.pushState({}, "", "/");
 });
@@ -218,10 +244,10 @@ describe("sign-in", () => {
     vi.stubGlobal("fetch", mockApi({ signedIn: false }));
     renderAt("/login");
 
-    fireEvent.change(await screen.findByLabelText("Email"), {
+    changeValue(await screen.findByLabelText("Email"), {
       target: { value: "admin@example.com" },
     });
-    fireEvent.change(screen.getByLabelText("Password"), {
+    changeValue(screen.getByLabelText("Password"), {
       target: { value: "correct horse battery" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
@@ -237,10 +263,10 @@ describe("sign-in", () => {
     vi.stubGlobal("fetch", fetchMock);
     renderAt("/login");
 
-    fireEvent.change(await screen.findByLabelText("Email"), {
+    changeValue(await screen.findByLabelText("Email"), {
       target: { value: "admin@example.com" },
     });
-    fireEvent.change(screen.getByLabelText("Password"), {
+    changeValue(screen.getByLabelText("Password"), {
       target: { value: "correct horse battery" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
@@ -294,9 +320,11 @@ describe("navigation", () => {
     vi.stubGlobal("fetch", mockApi({ signedIn: true }));
     renderAt("/websites");
     fireEvent.click(await screen.findByRole("button", { name: /New website/ }));
-    fireEvent.change(await screen.findByLabelText("Subdomain name"), {
+    changeValue(await screen.findByLabelText("Subdomain name"), {
       target: { value: "blog" },
     });
+    // The button stays disabled until the domain list has loaded.
+    await screen.findByText("Address: http://blog.ozima.cloud");
     fireEvent.click(screen.getByRole("button", { name: "Create website" }));
 
     expect(await screen.findByRole("heading", { name: "Building website" })).toBeTruthy();
@@ -312,7 +340,7 @@ describe("navigation", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Remove/ }));
     const confirm = await screen.findByRole("button", { name: "Remove domain" });
     expect((confirm as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.change(screen.getByLabelText(/Type/), { target: { value: "ozima.cloud" } });
+    changeValue(screen.getByLabelText(/Type/), { target: { value: "ozima.cloud" } });
     expect(
       (screen.getByRole("button", { name: "Remove domain" }) as HTMLButtonElement).disabled,
     ).toBe(false);

@@ -1,12 +1,14 @@
-// A small query cache: keyed reads with polling, mutations with callbacks, and prefix invalidation.
-// It covers what the panel needs without a data-fetching library.
-import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+// A small query cache built on Solid signals: keyed reads with polling, mutations with
+// callbacks, prefix invalidation, and an infinite list. Hooks return objects whose
+// fields are getters, so reading `query.data` inside JSX stays reactive.
+import { createEffect, createSignal, onCleanup, type Accessor } from "solid-js";
 import { ApiError, describeError } from "./client";
 import { toast } from "../lib/toast";
 
 type Key = readonly unknown[];
 type Kind = "data" | "refetch";
 type Listener = (kind: Kind) => void;
+type Retry = boolean | ((failures: number, error: unknown) => boolean);
 
 interface Entry {
   key: Key;
@@ -16,6 +18,8 @@ interface Entry {
   fetchedAt: number;
   inflight: Promise<void> | null;
   listeners: Set<Listener>;
+  version: Accessor<number>;
+  bump: () => void;
 }
 
 const cache = new Map<string, Entry>();
@@ -27,6 +31,7 @@ function entryFor(key: Key): Entry {
   const hash = hashOf(key);
   let entry = cache.get(hash);
   if (!entry) {
+    const [version, setVersion] = createSignal(0);
     entry = {
       key,
       data: undefined,
@@ -35,6 +40,8 @@ function entryFor(key: Key): Entry {
       fetchedAt: 0,
       inflight: null,
       listeners: new Set(),
+      version,
+      bump: () => setVersion((n) => n + 1),
     };
     cache.set(hash, entry);
   }
@@ -42,6 +49,7 @@ function entryFor(key: Key): Entry {
 }
 
 function emit(entry: Entry, kind: Kind) {
+  entry.bump();
   entry.listeners.forEach((listener) => listener(kind));
 }
 
@@ -51,7 +59,7 @@ function startsWith(key: Key, prefix: Key): boolean {
   );
 }
 
-/** Retry rule: never retry a refused request or an expired session; retry server faults once. */
+/** Never retry a refused request or an expired session; retry server faults once. */
 function defaultRetry(failures: number, error: unknown): boolean {
   if (error instanceof ApiError && error.status < 500) return false;
   return failures <= 1;
@@ -60,7 +68,7 @@ function defaultRetry(failures: number, error: unknown): boolean {
 function runQuery(
   entry: Entry,
   queryFn: () => Promise<unknown>,
-  retry: boolean | ((failures: number, error: unknown) => boolean) | undefined,
+  retry: Retry | undefined,
 ): Promise<void> {
   if (entry.inflight) return entry.inflight;
   entry.inflight = (async () => {
@@ -95,7 +103,7 @@ function runQuery(
 }
 
 // ---------------------------------------------------------------------------
-// Client: the shared cache operations (used outside hooks as well)
+// Shared cache operations (also usable outside components)
 // ---------------------------------------------------------------------------
 
 export const queryClient = {
@@ -132,7 +140,7 @@ export function useQueryClient() {
   return queryClient;
 }
 
-/** Test helper: drops every cached answer without notifying screens. */
+/** Test helper: drops every cached answer. */
 export function resetQueryCache() {
   cache.clear();
 }
@@ -144,9 +152,9 @@ export function resetQueryCache() {
 export interface QueryOptions<T> {
   queryKey: Key;
   queryFn: () => Promise<T>;
-  enabled?: boolean;
+  enabled?: boolean | (() => boolean);
   staleTime?: number;
-  retry?: boolean | ((failures: number, error: unknown) => boolean);
+  retry?: Retry;
   refetchInterval?:
     | number
     | false
@@ -155,68 +163,63 @@ export interface QueryOptions<T> {
 
 export function useQuery<T>(opts: QueryOptions<T>) {
   const entry = entryFor(opts.queryKey);
-  const [, rerender] = useReducer((n: number) => n + 1, 0);
-  const latest = useRef(opts);
-  latest.current = opts;
-
-  const enabled = opts.enabled ?? true;
+  const enabled = () =>
+    typeof opts.enabled === "function" ? opts.enabled() : (opts.enabled ?? true);
   const staleTime = opts.staleTime ?? DEFAULT_STALE_MS;
-  const hash = hashOf(opts.queryKey);
+  const refetch = () => runQuery(entry, opts.queryFn as () => Promise<unknown>, opts.retry);
 
-  const refetch = useCallback(
-    () => runQuery(entry, latest.current.queryFn as () => Promise<unknown>, latest.current.retry),
-    [entry],
-  );
+  const listener: Listener = (kind) => {
+    if (kind === "refetch" && enabled()) void refetch();
+    entry.bump();
+  };
+  entry.listeners.add(listener);
+  onCleanup(() => entry.listeners.delete(listener));
 
-  // Re-render on every change to this entry; refetch when invalidated.
-  useEffect(() => {
-    const listener: Listener = (kind) => {
-      if (kind === "refetch" && (latest.current.enabled ?? true)) void refetch();
-      rerender();
-    };
-    entry.listeners.add(listener);
-    return () => {
-      entry.listeners.delete(listener);
-    };
-  }, [entry, refetch]);
-
-  // Fetch when the key changes or the cached answer is old.
-  useEffect(() => {
-    if (!enabled) return;
+  if (enabled()) {
     const fresh = entry.fetchedAt > 0 && Date.now() - entry.fetchedAt < staleTime;
     if (!fresh) void refetch();
-    // The key hash identifies the entry; the other values are read through `entry`.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hash, enabled]);
+  }
 
-  const interval =
-    typeof opts.refetchInterval === "function"
-      ? opts.refetchInterval({ state: { data: entry.data as T | undefined } })
-      : opts.refetchInterval;
+  if (opts.refetchInterval !== undefined && opts.refetchInterval !== false) {
+    createEffect(() => {
+      entry.version();
+      const interval =
+        typeof opts.refetchInterval === "function"
+          ? opts.refetchInterval({ state: { data: entry.data as T | undefined } })
+          : opts.refetchInterval;
+      if (!enabled() || !interval) return;
+      const id = window.setInterval(() => void refetch(), interval);
+      onCleanup(() => window.clearInterval(id));
+    });
+  }
 
-  useEffect(() => {
-    if (!enabled || !interval) return;
-    const id = window.setInterval(() => void refetch(), interval);
-    return () => window.clearInterval(id);
-  }, [enabled, interval, refetch]);
+  const onFocus = () => {
+    if (enabled() && Date.now() - entry.fetchedAt >= staleTime) void refetch();
+  };
+  window.addEventListener("focus", onFocus);
+  onCleanup(() => window.removeEventListener("focus", onFocus));
 
-  // Refresh when the browser tab comes back into view, if the answer is old.
-  useEffect(() => {
-    if (!enabled) return;
-    const onFocus = () => {
-      if (Date.now() - entry.fetchedAt >= staleTime) void refetch();
-    };
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
-  }, [enabled, entry, refetch, staleTime]);
-
-  const data = entry.data as T | undefined;
   return {
-    data,
-    error: entry.error,
-    isPending: data === undefined && entry.status === "pending",
-    isError: entry.status === "error",
-    isSuccess: entry.status === "success",
+    get data(): T | undefined {
+      entry.version();
+      return entry.data as T | undefined;
+    },
+    get error(): unknown {
+      entry.version();
+      return entry.error;
+    },
+    get isPending(): boolean {
+      entry.version();
+      return entry.data === undefined && entry.status === "pending";
+    },
+    get isError(): boolean {
+      entry.version();
+      return entry.status === "error";
+    },
+    get isSuccess(): boolean {
+      entry.version();
+      return entry.status === "success";
+    },
     refetch: () => {
       void refetch();
     },
@@ -224,7 +227,7 @@ export function useQuery<T>(opts: QueryOptions<T>) {
 }
 
 // ---------------------------------------------------------------------------
-// Infinite lists (pages loaded on demand, first page refreshed by polling)
+// Infinite lists (pages loaded on demand; the first page is refreshed by polling)
 // ---------------------------------------------------------------------------
 
 export interface InfiniteOptions<T, P> {
@@ -244,56 +247,46 @@ interface InfiniteState<T, P> {
 }
 
 export function useInfiniteQuery<T, P>(opts: InfiniteOptions<T, P>) {
-  const latest = useRef(opts);
-  latest.current = opts;
-  const hash = hashOf(opts.queryKey);
-  const initial: InfiniteState<T, P> = {
+  const [state, setState] = createSignal<InfiniteState<T, P>>({
     pages: [],
     params: [],
     error: null,
     status: "pending",
     fetchingNext: false,
-  };
-  const [state, setState] = useState<InfiniteState<T, P>>(initial);
-  const stateRef = useRef(state);
-  stateRef.current = state;
-  const mounted = useRef(true);
-  const requestSeq = useRef(0);
+  });
+  let requestSeq = 0;
 
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
-
-  const loadFirst = useCallback(async () => {
-    const seq = ++requestSeq.current;
-    const { queryFn, initialPageParam } = latest.current;
+  const loadFirst = async () => {
+    const seq = ++requestSeq;
     try {
-      const page = await queryFn({ pageParam: initialPageParam });
-      if (!mounted.current || seq !== requestSeq.current) return;
+      const page = await opts.queryFn({ pageParam: opts.initialPageParam });
+      if (seq !== requestSeq) return;
       setState((s) =>
         s.pages.length > 0
           ? { ...s, pages: [page, ...s.pages.slice(1)], status: "success", error: null }
-          : { ...s, pages: [page], params: [initialPageParam], status: "success", error: null },
+          : {
+              ...s,
+              pages: [page],
+              params: [opts.initialPageParam],
+              status: "success",
+              error: null,
+            },
       );
     } catch (error) {
-      if (!mounted.current || seq !== requestSeq.current) return;
+      if (seq !== requestSeq) return;
       setState((s) => ({ ...s, error, status: "error" }));
     }
-  }, []);
+  };
 
-  const fetchNextPage = useCallback(async () => {
-    const current = stateRef.current;
+  const fetchNextPage = async () => {
+    const current = state();
     const last = current.pages[current.pages.length - 1];
     if (last === undefined || current.fetchingNext) return;
-    const next = latest.current.getNextPageParam(last);
+    const next = opts.getNextPageParam(last);
     if (next === undefined) return;
     setState((s) => ({ ...s, fetchingNext: true }));
     try {
-      const page = await latest.current.queryFn({ pageParam: next });
-      if (!mounted.current) return;
+      const page = await opts.queryFn({ pageParam: next });
       setState((s) => ({
         ...s,
         pages: [...s.pages, page],
@@ -301,35 +294,40 @@ export function useInfiniteQuery<T, P>(opts: InfiniteOptions<T, P>) {
         fetchingNext: false,
       }));
     } catch (error) {
-      if (!mounted.current) return;
       setState((s) => ({ ...s, error, fetchingNext: false }));
     }
-  }, []);
+  };
 
-  // A new key starts from an empty list.
-  useEffect(() => {
-    setState(initial);
-    void loadFirst();
-    // `initial` is rebuilt each render; the key hash is the real dependency.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hash, loadFirst]);
+  void loadFirst();
 
-  useEffect(() => {
-    if (!opts.refetchInterval) return;
+  if (opts.refetchInterval) {
     const id = window.setInterval(() => void loadFirst(), opts.refetchInterval);
-    return () => window.clearInterval(id);
-  }, [opts.refetchInterval, loadFirst]);
-
-  const last = state.pages[state.pages.length - 1];
-  const hasNextPage = last !== undefined && opts.getNextPageParam(last) !== undefined;
+    onCleanup(() => window.clearInterval(id));
+  }
 
   return {
-    data: state.pages.length > 0 ? { pages: state.pages } : undefined,
-    error: state.error,
-    isPending: state.status === "pending" && state.pages.length === 0,
-    isError: state.status === "error",
-    hasNextPage,
-    isFetchingNextPage: state.fetchingNext,
+    get data(): { pages: T[] } | undefined {
+      const s = state();
+      return s.pages.length > 0 ? { pages: s.pages } : undefined;
+    },
+    get error(): unknown {
+      return state().error;
+    },
+    get isPending(): boolean {
+      const s = state();
+      return s.status === "pending" && s.pages.length === 0;
+    },
+    get isError(): boolean {
+      return state().status === "error";
+    },
+    get hasNextPage(): boolean {
+      const s = state();
+      const last = s.pages[s.pages.length - 1];
+      return last !== undefined && opts.getNextPageParam(last) !== undefined;
+    },
+    get isFetchingNextPage(): boolean {
+      return state().fetchingNext;
+    },
     fetchNextPage,
   };
 }
@@ -353,67 +351,61 @@ export interface MutationOptions<TVars, TData> {
 }
 
 export function useMutation<TVars = void, TData = unknown>(opts: MutationOptions<TVars, TData>) {
-  const latest = useRef(opts);
-  latest.current = opts;
-  const mounted = useRef(true);
-  const [state, setState] = useState<{
+  const [state, setState] = createSignal<{
     status: "idle" | "pending" | "success" | "error";
     data?: TData;
     error?: unknown;
   }>({ status: "idle" });
 
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
-
-  const run = useCallback(async (vars: TVars): Promise<TData> => {
-    const o = latest.current;
+  const run = async (vars: TVars): Promise<TData> => {
     setState({ status: "pending" });
     try {
-      const data = await o.mutationFn(vars);
-      await o.onSuccess?.(data, vars);
-      if (mounted.current) setState({ status: "success", data });
-      await o.onSettled?.(data, null, vars);
+      const data = await opts.mutationFn(vars);
+      await opts.onSuccess?.(data, vars);
+      setState({ status: "success", data });
+      await opts.onSettled?.(data, null, vars);
       return data;
     } catch (error) {
-      if (mounted.current) setState({ status: "error", error });
-      if (!o.meta?.silent) toast.error(describeError(error));
-      await o.onError?.(error, vars);
-      await o.onSettled?.(undefined, error, vars);
+      setState({ status: "error", error });
+      if (!opts.meta?.silent) toast.error(describeError(error));
+      await opts.onError?.(error, vars);
+      await opts.onSettled?.(undefined, error, vars);
       throw error;
     }
-  }, []);
+  };
 
-  const mutateAsync = run;
-
-  const mutate = useCallback(
-    (vars: TVars, callbacks?: MutationCallbacks<TData, TVars>) => {
-      // Errors are shown by the toast and the callbacks, so the promise is not left unhandled.
-      run(vars).then(
-        (data) => {
-          callbacks?.onSuccess?.(data, vars);
-          callbacks?.onSettled?.(data, null, vars);
-        },
-        (error: unknown) => {
-          callbacks?.onError?.(error, vars);
-          callbacks?.onSettled?.(undefined, error, vars);
-        },
-      );
-    },
-    [run],
-  );
+  const mutate = (vars: TVars, callbacks?: MutationCallbacks<TData, TVars>) => {
+    // Errors are shown by the toast and the callbacks, so the promise is never left unhandled.
+    run(vars).then(
+      (data) => {
+        callbacks?.onSuccess?.(data, vars);
+        callbacks?.onSettled?.(data, null, vars);
+      },
+      (error: unknown) => {
+        callbacks?.onError?.(error, vars);
+        callbacks?.onSettled?.(undefined, error, vars);
+      },
+    );
+  };
 
   return {
     mutate,
-    mutateAsync,
-    isPending: state.status === "pending",
-    isError: state.status === "error",
-    isSuccess: state.status === "success",
-    error: state.error,
-    data: state.data,
+    mutateAsync: run,
+    get isPending() {
+      return state().status === "pending";
+    },
+    get isError() {
+      return state().status === "error";
+    },
+    get isSuccess() {
+      return state().status === "success";
+    },
+    get error() {
+      return state().error;
+    },
+    get data() {
+      return state().data;
+    },
     reset: () => setState({ status: "idle" }),
   };
 }

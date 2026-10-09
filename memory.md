@@ -286,3 +286,22 @@ Removed every UI/animation/data/routing library from apps/panel. Only React, Rea
 - The transient unit runs with a bare environment, so the Go build could not find its module cache. Fixed in `infrastructure/deployment/update.sh` (commit e85a45f): HOME, GOPATH, GOMODCACHE, GOCACHE and PATH are set before the installer runs.
 - Verified on the VPS: the update unit finished with "== update finished OK"; zenex-api, zenex-helper and caddy are active; /login returns 200.
 - Not verified through the panel button itself: the admin session had expired, so the unit was started directly with the same command.
+
+## 7. Session 3: Frontend port React -> SolidJS (apps/panel)
+
+- Ported in place (Solid conventions, same names): `src/App.tsx`, `src/main.tsx`, `src/layouts/AppLayout.tsx`, `src/components/app-sidebar.tsx`, `src/pages/{LoginPage,OverviewPage,WebsitesPage,SitePage}.tsx`, `src/app.test.tsx` (harness). ActivityPage/DomainsPage/ServerPage/SettingsPage needed no change.
+- `App.tsx` wraps `<Routes>` in a keyed `<Show when={useLocation().pathname}>`: router `Routes` keeps the params of the first matched route (verified with a probe: plain Routes gave `id:none` after in-place navigation). Remove only if router.tsx is fixed.
+- Hook args are not reactive (useJob, useActivity, useSiteLogs, useSystemUpdate...). Pages key JobProgress by job id. LogsTab mounts only when its tab is open, so it calls `useSiteLogs(id, true)`.
+- Tests: `app.test.tsx` uses `@solidjs/testing-library`, `renderAt` dispatches popstate, typing uses `changeValue` (input + change). NOT YET PASSING: (a) component files still import react (FileManager.tsx etc.); (b) `@solidjs/testing-library` render loads a second Solid instance under Vitest, so Show/effects do not update. `solid-js/web` render works. Fix: add `/@solidjs\/testing-library/` to `test.server.deps.inline` in `apps/panel/vite.config.ts` (owner file).
+- Pending: run `npx vitest run src/app.test.tsx` once the component port is done and (b) is fixed.
+
+## 21. SolidJS frontend (latest)
+
+- apps/panel is now SolidJS + Vite + Kobalte (headless primitives) + Tailwind. React, react-dom, @vitejs/plugin-react and the React testing library are removed.
+- Data: src/api/query.ts uses Solid signals; hooks in src/api/queries.ts return getter objects (`q.data`, `q.isPending`); mutations via `m.mutate(vars, cbs)`.
+- Router: src/lib/router.tsx (signal based); routes are `component: () => JSX` functions.
+- UI: src/components/ui/* are plain Tailwind; dialog and tabs wrap Kobalte. Dialog children are resolved once (DialogBody) and DialogTrigger has no ARIA role.
+- Pitfall found: a JSX prop passed as a getter (e.g. `actions={newWebsite()}`) is rebuilt each time it is read. Resolve such props with `children()` (see PageHeader).
+- Tests: src/app.test.tsx mounts through solid-js/web directly. Vite config dedupes solid-js and inlines dependencies. 35/35 pass.
+- Checks: vp check clean (0 warnings), tsc clean, vite build OK (JS about 189 kB).
+- Not deployed to the VPS yet.

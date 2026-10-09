@@ -1,4 +1,4 @@
-import { cloneElement, isValidElement, type ButtonHTMLAttributes, type ReactElement } from "react";
+import { splitProps, type JSX } from "solid-js";
 import { cn } from "@/lib/utils";
 
 export type ButtonVariant = "default" | "outline" | "ghost" | "destructive" | "secondary" | "link";
@@ -23,33 +23,21 @@ const SIZES: Record<ButtonSize, string> = {
   icon: "size-9",
 };
 
+/** Classes for a button look. Use them on a link that should look like a button. */
 export function buttonClasses(variant: ButtonVariant = "default", size: ButtonSize = "default") {
   return cn(BASE, VARIANTS[variant], SIZES[size]);
 }
 
-interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: ButtonVariant;
-  size?: ButtonSize;
-  asChild?: boolean;
-}
-
-/** A button. With asChild, the styles are applied to its single child (for example a link). */
-export function Button({
-  variant,
-  size,
-  asChild = false,
-  className,
-  children,
-  ...props
-}: ButtonProps) {
-  const classes = buttonClasses(variant, size);
-  if (asChild && isValidElement(children)) {
-    const child = children as ReactElement<{ className?: string }>;
-    return cloneElement(child, { className: cn(classes, className, child.props.className) });
-  }
+export function Button(
+  props: JSX.ButtonHTMLAttributes<HTMLButtonElement> & {
+    variant?: ButtonVariant;
+    size?: ButtonSize;
+  },
+) {
+  const [own, rest] = splitProps(props, ["variant", "size", "class", "children"]);
   return (
-    <button type="button" className={cn(classes, className)} {...props}>
-      {children}
+    <button type="button" class={cn(buttonClasses(own.variant, own.size), own.class)} {...rest}>
+      {own.children}
     </button>
   );
 }
