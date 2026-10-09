@@ -111,7 +111,6 @@ export function WebsitesPage() {
             <JobProgress
               jobId={build.jobId}
               title="Building your website"
-              defaultShowLog
               onDismiss={() => closeDialog(false)}
             />
             <div className="flex justify-end">

@@ -1,13 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useQueryClient } from "@/api/query";
-import { useJob, useJobLogs, useRetryJob } from "@/api/queries";
+import { useJob, useRetryJob } from "@/api/queries";
 import { errorMessageFrom } from "@/api/client";
 import type { JobStep, StepStatus } from "@/api/types";
 import { CheckCircle2, CircleDashed, Loader2, XCircle } from "@/components/icons";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Terminal, type TerminalLine } from "@/components/Terminal";
 import { stepLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -15,7 +13,6 @@ interface JobProgressProps {
   jobId: string;
   title: string;
   onDismiss: () => void;
-  defaultShowLog?: boolean;
 }
 
 /** The icon for one build step: a tick, a spinner, a cross, or an empty circle. */
@@ -23,19 +20,20 @@ function StepIcon({ status }: { status: StepStatus }) {
   if (status === "succeeded") return <CheckCircle2 className="size-4 text-success" />;
   if (status === "running") return <Loader2 className="size-4 animate-spin text-primary" />;
   if (status === "failed") return <XCircle className="size-4 text-destructive" />;
-  return <CircleDashed className="size-4 text-muted-foreground" />;
+  return <CircleDashed className="size-4 text-muted-foreground/60" />;
 }
 
 function StepRow({ step }: { step: JobStep }) {
+  const pending = step.status === "pending" || step.status === "skipped";
   return (
-    <li className="flex items-start gap-3 py-1.5">
-      <span className="mt-0.5">
+    <li className="flex items-start gap-3 py-2">
+      <span className="mt-0.5 shrink-0">
         <StepIcon status={step.status} />
       </span>
       <div className="min-w-0 flex-1">
-        <span className={cn("text-sm", step.status === "pending" && "text-muted-foreground")}>
+        <p className={cn("text-sm", pending ? "text-muted-foreground" : "text-foreground")}>
           {stepLabel(step.name)}
-        </span>
+        </p>
         {step.status === "failed" && step.error && (
           <p className="mt-0.5 break-words text-xs text-destructive">{step.error}</p>
         )}
@@ -44,41 +42,14 @@ function StepRow({ step }: { step: JobStep }) {
   );
 }
 
-function LogLines({ jobId }: { jobId: string }) {
-  const logs = useJobLogs(jobId, true);
-  if (logs.isPending) return <p className="text-xs text-muted-foreground">Loading log…</p>;
-  if (logs.isError)
-    return (
-      <Alert variant="destructive">
-        <AlertDescription>Could not load the log.</AlertDescription>
-      </Alert>
-    );
-  const lines: TerminalLine[] = (logs.data ?? []).map((line) => ({
-    id: line.id,
-    time: new Date(line.time).toLocaleTimeString(),
-    level: line.level === "info" ? undefined : line.level,
-    text: line.message,
-  }));
-  return (
-    <Terminal
-      lines={lines}
-      title={`build log · ${jobId.slice(0, 8)}`}
-      emptyText="No log lines yet."
-      maxHeight="16rem"
-    />
-  );
-}
-
 /**
- * Live progress of one background job (building or deleting a website).
- * Polls while the job runs, refreshes the website list when it finishes, offers
- * a retry when a step fails, and can show the full step-by-step log.
+ * Progress of one background job (building or deleting a website): the steps,
+ * a retry when a step fails, and a dismiss once it has finished.
  */
-export function JobProgress({ jobId, title, onDismiss, defaultShowLog = false }: JobProgressProps) {
+export function JobProgress({ jobId, title, onDismiss }: JobProgressProps) {
   const qc = useQueryClient();
   const job = useJob(jobId);
   const retry = useRetryJob();
-  const [showLog, setShowLog] = useState(defaultShowLog);
   const status = job.data?.job.status;
   const finished =
     status === "succeeded" || status === "failed" || status === "cancelled" || status === "dead";
@@ -87,53 +58,56 @@ export function JobProgress({ jobId, title, onDismiss, defaultShowLog = false }:
     if (finished) qc.invalidateQueries({ queryKey: ["sites"] });
   }, [finished, qc]);
 
-  const heading = status === "succeeded" ? "Done" : status === "failed" ? "Stopped" : title;
+  const steps = job.data?.steps ?? [];
+  const done = steps.filter((s) => s.status === "succeeded").length;
+  const subtitle =
+    status === "succeeded"
+      ? "Your website is ready."
+      : status === "failed"
+        ? "The build stopped. Retry to continue from where it failed."
+        : steps.length > 0
+          ? `${done} of ${steps.length} steps complete`
+          : "Starting…";
 
   return (
-    <Card>
-      <CardHeader className="gap-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <CardTitle>{heading}</CardTitle>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              aria-expanded={showLog}
-              onClick={() => setShowLog((v) => !v)}
-            >
-              {showLog ? "Hide log" : "Show log"}
-            </Button>
-            {finished && (
-              <Button variant="ghost" size="sm" onClick={onDismiss}>
-                Dismiss
-              </Button>
-            )}
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {job.isPending && <p className="text-sm text-muted-foreground">Starting…</p>}
-        {job.isError && (
-          <Alert variant="destructive">
-            <AlertDescription>
-              {errorMessageFrom(null, "Could not load progress. Refresh the page.")}
-            </AlertDescription>
-          </Alert>
-        )}
-        {job.data && (
-          <ol className="divide-y divide-border">
-            {job.data.steps.map((step) => (
-              <StepRow key={step.name} step={step} />
-            ))}
-          </ol>
-        )}
-        {status === "failed" && (
-          <div className="space-y-2">
-            {job.data?.job.error && (
-              <Alert variant="destructive">
-                <AlertDescription>{job.data.job.error}</AlertDescription>
-              </Alert>
-            )}
+    <div className="space-y-4">
+      <div className="space-y-1">
+        <p className="font-heading text-base font-semibold">
+          {status === "succeeded" ? "Done" : title}
+        </p>
+        <p className="text-sm text-muted-foreground">{subtitle}</p>
+      </div>
+
+      {job.isError && (
+        <Alert variant="destructive">
+          <AlertDescription>
+            {errorMessageFrom(null, "Could not load progress. Refresh the page.")}
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {steps.length > 0 && (
+        <ol className="divide-y divide-border">
+          {steps.map((step) => (
+            <StepRow key={step.name} step={step} />
+          ))}
+        </ol>
+      )}
+
+      {status === "failed" && job.data?.job.error && (
+        <Alert variant="destructive">
+          <AlertDescription>{job.data.job.error}</AlertDescription>
+        </Alert>
+      )}
+      {retry.isError && (
+        <Alert variant="destructive">
+          <AlertDescription>{errorMessageFrom(null, "Could not retry.")}</AlertDescription>
+        </Alert>
+      )}
+
+      {(status === "failed" || finished) && (
+        <div className="flex flex-wrap justify-end gap-2 border-t border-border pt-4">
+          {status === "failed" && (
             <Button
               variant="outline"
               size="sm"
@@ -142,20 +116,14 @@ export function JobProgress({ jobId, title, onDismiss, defaultShowLog = false }:
             >
               {retry.isPending ? "Retrying…" : "Retry"}
             </Button>
-            {retry.isError && (
-              <Alert variant="destructive">
-                <AlertDescription>{errorMessageFrom(null, "Could not retry.")}</AlertDescription>
-              </Alert>
-            )}
-          </div>
-        )}
-        {status === "succeeded" && (
-          <Alert className="border-success/40 bg-success/5 text-success">
-            <AlertDescription>Finished successfully.</AlertDescription>
-          </Alert>
-        )}
-        {showLog && <LogLines jobId={jobId} />}
-      </CardContent>
-    </Card>
+          )}
+          {finished && (
+            <Button variant="ghost" size="sm" onClick={onDismiss}>
+              Close
+            </Button>
+          )}
+        </div>
+      )}
+    </div>
   );
 }

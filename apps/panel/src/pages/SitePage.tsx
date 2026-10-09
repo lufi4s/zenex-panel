@@ -429,11 +429,13 @@ export function SitePage() {
       />
 
       {showJob && (
-        <JobProgress
-          jobId={job.id}
-          title={job.status === "failed" ? "Build stopped" : "Building your website"}
-          onDismiss={() => setDismissedJob(job.id)}
-        />
+        <Card className="p-5">
+          <JobProgress
+            jobId={job.id}
+            title={job.status === "failed" ? "Build stopped" : "Building your website"}
+            onDismiss={() => setDismissedJob(job.id)}
+          />
+        </Card>
       )}
 
       <Tabs value={tab} onValueChange={setTab}>

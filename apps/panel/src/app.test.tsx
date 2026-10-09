@@ -290,7 +290,7 @@ describe("navigation", () => {
     expect(await screen.findByText(/wp-login\.php/)).toBeTruthy();
   });
 
-  it("shows the build status and log in the popup after creating a website", async () => {
+  it("shows the build steps in the popup after creating a website, without the log", async () => {
     vi.stubGlobal("fetch", mockApi({ signedIn: true }));
     renderAt("/websites");
     fireEvent.click(await screen.findByRole("button", { name: /New website/ }));
@@ -300,7 +300,9 @@ describe("navigation", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create website" }));
 
     expect(await screen.findByRole("heading", { name: "Building website" })).toBeTruthy();
-    expect(await screen.findByText("Creating site account")).toBeTruthy();
+    expect(await screen.findByText("0 of 2 steps complete")).toBeTruthy();
+    expect(screen.queryByText("Creating site account")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Show log" })).toBeNull();
     expect(screen.getByRole("button", { name: "Open website" })).toBeTruthy();
   });
 
