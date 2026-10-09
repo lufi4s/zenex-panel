@@ -332,3 +332,5 @@ Removed every UI/animation/data/routing library from apps/panel. Only React, Rea
 - PHP version: the five newest releases (8.5 to 8.1). Versions the server does not have show "(not installed on this server)" and cannot be picked.
 - Server page: new "Capacity and load" card (load 1/5/15 min, CPU cores, memory and disk totals, uptime) from existing metrics.
 - Needs backend work (not done, backend is off-limits for now): file upload in the Files tab, installing the extra PHP versions, server details such as OS and IP.
+
+- Open admin is a plain link to https://<domain>/wp-admin/, with the username and password shown on the card. Auto sign-in does NOT work from the browser: the panel and the site are different sites, so the browser drops WordPress's login cookie after the redirect (the server-side login itself works: 302 to wp-admin). A password-free sign-in needs a backend change (for example, a one-time login link served from the site's domain). Not done; needs approval.
