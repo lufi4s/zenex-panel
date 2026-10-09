@@ -1,17 +1,31 @@
-import { createEffect, Show, type JSX } from "solid-js";
+import { createEffect, lazy, Show, Suspense, type JSX } from "solid-js";
 import { useBranding, useMe } from "@/api/queries";
 import { ApiError, describeError } from "@/api/client";
 import { applyBranding } from "@/lib/brand";
 import { Navigate, Routes, useLocation, type RouteDef } from "@/lib/router";
 import { AppLayout } from "@/layouts/AppLayout";
-import { ActivityPage } from "@/pages/ActivityPage";
-import { DomainsPage } from "@/pages/DomainsPage";
-import { LoginPage } from "@/pages/LoginPage";
-import { OverviewPage } from "@/pages/OverviewPage";
-import { ServerPage } from "@/pages/ServerPage";
-import { SettingsPage } from "@/pages/SettingsPage";
-import { SitePage } from "@/pages/SitePage";
-import { WebsitesPage } from "@/pages/WebsitesPage";
+
+// Each page is its own download, fetched the first time it is opened.
+const ActivityPage = lazy(() =>
+  import("@/pages/ActivityPage").then((m) => ({ default: m.ActivityPage })),
+);
+const DomainsPage = lazy(() =>
+  import("@/pages/DomainsPage").then((m) => ({ default: m.DomainsPage })),
+);
+const LoginPage = lazy(() => import("@/pages/LoginPage").then((m) => ({ default: m.LoginPage })));
+const OverviewPage = lazy(() =>
+  import("@/pages/OverviewPage").then((m) => ({ default: m.OverviewPage })),
+);
+const ServerPage = lazy(() =>
+  import("@/pages/ServerPage").then((m) => ({ default: m.ServerPage })),
+);
+const SettingsPage = lazy(() =>
+  import("@/pages/SettingsPage").then((m) => ({ default: m.SettingsPage })),
+);
+const SitePage = lazy(() => import("@/pages/SitePage").then((m) => ({ default: m.SitePage })));
+const WebsitesPage = lazy(() =>
+  import("@/pages/WebsitesPage").then((m) => ({ default: m.WebsitesPage })),
+);
 
 function Loading() {
   return (
@@ -48,7 +62,9 @@ function LoginRoute() {
             <ConnectionError message={describeError(me.error)} onRetry={() => me.refetch()} />
           }
         >
-          <LoginPage />
+          <Suspense fallback={<Loading />}>
+            <LoginPage />
+          </Suspense>
         </Show>
       </Show>
     </Show>
@@ -70,7 +86,9 @@ function Protected(props: { children: JSX.Element }) {
             <ConnectionError message={describeError(me.error)} onRetry={() => me.refetch()} />
           }
         >
-          <AppLayout>{props.children}</AppLayout>
+          <AppLayout>
+            <Suspense fallback={<Loading />}>{props.children}</Suspense>
+          </AppLayout>
         </Show>
       </Show>
     </Show>

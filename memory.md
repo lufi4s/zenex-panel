@@ -305,3 +305,8 @@ Removed every UI/animation/data/routing library from apps/panel. Only React, Rea
 - Tests: src/app.test.tsx mounts through solid-js/web directly. Vite config dedupes solid-js and inlines dependencies. 35/35 pass.
 - Checks: vp check clean (0 warnings), tsc clean, vite build OK (JS about 189 kB).
 - Not deployed to the VPS yet.
+
+## 22. Frontend optimisation
+
+- Every page is a lazy route chunk (Solid `lazy` + `Suspense`). First-load JS: 64 kB (23 kB gzip), down from 189 kB (59 kB gzip). Pages load on first visit.
+- Checks: vp check clean, tsc clean, vitest 35/35, build OK.
