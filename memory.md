@@ -276,3 +276,13 @@ Removed every UI/animation/data/routing library from apps/panel. Only React, Rea
 - `components.json` and `src/hooks/use-mobile.ts` removed.
 - Checks: tsc clean, vitest 35/35, vp check clean, vite build OK (JS 321 kB).
 - Not committed or deployed yet at the time of writing.
+
+## 19. Scope rule (from the user)
+
+- Work only on the frontend UI (apps/panel/src). Do not change backend or system code (apps/api, services/agent, infrastructure/, install.sh, systemd units, helper ops, DB migrations) unless the user explicitly asks.
+
+## 20. In-panel update fix
+
+- The transient unit runs with a bare environment, so the Go build could not find its module cache. Fixed in `infrastructure/deployment/update.sh` (commit e85a45f): HOME, GOPATH, GOMODCACHE, GOCACHE and PATH are set before the installer runs.
+- Verified on the VPS: the update unit finished with "== update finished OK"; zenex-api, zenex-helper and caddy are active; /login returns 200.
+- Not verified through the panel button itself: the admin session had expired, so the unit was started directly with the same command.
