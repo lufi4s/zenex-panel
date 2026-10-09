@@ -21,6 +21,8 @@ type SiteManager interface {
 	Delete(ctx context.Context, site store.Site, actorID string) (string, error)
 	Services(ctx context.Context) ([]manage.ServiceState, error)
 	Files(ctx context.Context, site store.Site, op, path, content string) (string, error)
+	SetMaintenance(ctx context.Context, site store.Site, enabled bool) error
+	StartBackup(ctx context.Context, site store.Site, actorID string) (string, error)
 }
 
 // manageError maps an operation failure to a response. Refusals carry a message

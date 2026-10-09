@@ -27,7 +27,7 @@ const (
 	defaultSocket = "/run/zenex/helper.sock"
 	defaultGroup  = "zenex"
 	maxRequest    = 2 << 20 // large enough for a 1 MB file save
-	opTimeout     = 15 * time.Minute
+	opTimeout     = 45 * time.Minute
 )
 
 type request struct {

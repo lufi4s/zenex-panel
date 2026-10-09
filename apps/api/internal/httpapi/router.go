@@ -23,6 +23,7 @@ type Deps struct {
 	Manage        SiteManager
 	Monitor       MonitorStore
 	Updates       UpdateService
+	Alerts        AlertManager
 	Site          SiteSettings
 	SecureCookies bool // true when served over TLS
 	LoginLimiter  *fixedWindowLimiter
@@ -78,6 +79,16 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("PUT /api/v1/sites/{id}/file", requireCSRF(d.requireSession(d.handleWriteFile)))
 	mux.Handle("POST /api/v1/sites/{id}/folders", requireCSRF(d.requireSession(d.handleCreateFolder)))
 	mux.Handle("DELETE /api/v1/sites/{id}/files", requireCSRF(d.requireSession(d.handleDeleteFile)))
+	mux.Handle("GET /api/v1/settings/defaults", d.requireSession(d.handleGetSiteDefaults))
+	mux.Handle("PUT /api/v1/settings/defaults", requireCSRF(d.requireSession(d.handlePutSiteDefaults)))
+	mux.Handle("GET /api/v1/settings/backups", d.requireSession(d.handleGetBackupSettings))
+	mux.Handle("PUT /api/v1/settings/backups", requireCSRF(d.requireSession(d.handlePutBackupSettings)))
+	mux.Handle("GET /api/v1/settings/alerts", d.requireSession(d.handleGetAlerts))
+	mux.Handle("PUT /api/v1/settings/alerts", requireCSRF(d.requireSession(d.handlePutAlerts)))
+	mux.Handle("PUT /api/v1/sites/{id}/auto-update", requireCSRF(d.requireSession(d.handleSetAutoUpdate)))
+	mux.Handle("PUT /api/v1/sites/{id}/maintenance", requireCSRF(d.requireSession(d.handleSetMaintenance)))
+	mux.Handle("GET /api/v1/sites/{id}/backups", d.requireSession(d.handleListBackups))
+	mux.Handle("POST /api/v1/sites/{id}/backup", requireCSRF(d.requireSession(d.handleStartBackup)))
 
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, requestIDFrom(r), ErrNotFound)

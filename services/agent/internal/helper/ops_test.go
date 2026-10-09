@@ -113,7 +113,7 @@ func TestPoolConfigIsolatesSite(t *testing.T) {
 }
 
 func TestVhostBlocksPHPInUploadsAndDotfiles(t *testing.T) {
-	cfg := vhostConfig("zx_shop", "shop.example.com", "/var/www/zx_shop/htdocs", "/var/log/caddy")
+	cfg := vhostConfig("zx_shop", "shop.example.com", "/var/www/zx_shop/htdocs", "/var/log/caddy", false)
 	for _, want := range []string{
 		"shop.example.com {",
 		"root * /var/www/zx_shop/htdocs",

@@ -24,15 +24,27 @@ import (
 
 // Binary locations. Each one must be on the executor allowlist.
 const (
-	binUseradd   = "/usr/sbin/useradd"
-	binRunuser   = "/usr/sbin/runuser"
-	binEnv       = "/usr/bin/env"
-	binMariadb   = "/usr/bin/mariadb"
-	binSystemctl = "/usr/bin/systemctl"
-	binWP        = "/usr/local/bin/wp"
-	binGit        = "/usr/bin/git"
-	binSystemdRun = "/usr/bin/systemd-run"
-	binBash       = "/usr/bin/bash"
+	binUseradd     = "/usr/sbin/useradd"
+	binRunuser     = "/usr/sbin/runuser"
+	binEnv         = "/usr/bin/env"
+	binMariadb     = "/usr/bin/mariadb"
+	binSystemctl   = "/usr/bin/systemctl"
+	binWP          = "/usr/local/bin/wp"
+	binGit         = "/usr/bin/git"
+	binSystemdRun  = "/usr/bin/systemd-run"
+	binBash        = "/usr/bin/bash"
+	binMariadbDump = "/usr/bin/mariadb-dump"
+	binTar         = "/usr/bin/tar"
+)
+
+// Exit codes of env(1) when it cannot start the program (127) or the program is
+// not executable (126). Any other code from a WP-CLI update is not a failure.
+const (
+	exitNotFound   = 127
+	exitNotExec    = 126
+	wpUpdateTime   = 15 * time.Minute
+	backupDumpTime = 15 * time.Minute
+	backupTarTime  = 15 * time.Minute
 )
 
 var (
@@ -51,6 +63,7 @@ type Paths struct {
 	CaddyEnabled   string // /etc/caddy/zenex
 	LogDir         string // /var/log/caddy
 	PHPFPMGlob     string // PHP-FPM binaries installed on the server
+	BackupDir      string // /var/backups/zenex
 }
 
 func DefaultPaths() Paths {
@@ -61,6 +74,7 @@ func DefaultPaths() Paths {
 		CaddyEnabled:   "/etc/caddy/zenex",
 		LogDir:         "/var/log/caddy",
 		PHPFPMGlob:     "/usr/sbin/php-fpm[0-9]*.[0-9]*",
+		BackupDir:      "/var/backups/zenex",
 	}
 }
 
@@ -128,6 +142,12 @@ func (o *Ops) Do(ctx context.Context, op string, args map[string]string) (Result
 		return o.logsTail(args)
 	case "wp.harden":
 		return Result{}, o.wpHarden(ctx, args)
+	case "wp.update":
+		return Result{}, o.wpUpdate(ctx, args)
+	case "backup.create":
+		return o.backupCreate(ctx, args)
+	case "backup.delete":
+		return Result{}, o.backupDelete(args)
 	case "panel.version":
 		return o.panelVersion(ctx)
 	case "panel.latest":
@@ -317,10 +337,14 @@ func (o *Ops) vhostWrite(ctx context.Context, args map[string]string) error {
 	if err := validation.DomainName(domain); err != nil {
 		return errors.New("invalid domain")
 	}
+	maintenance, err := maintenanceFlag(args)
+	if err != nil {
+		return err
+	}
 	avail := filepath.Join(o.Paths.CaddyAvailable, "zx-"+name+".caddy")
 	enabled := filepath.Join(o.Paths.CaddyEnabled, "zx-"+name+".caddy")
 
-	if err := writeFileAtomic(avail, []byte(vhostConfig(name, domain, o.docRoot(name), o.Paths.LogDir)), 0o644); err != nil {
+	if err := writeFileAtomic(avail, []byte(vhostConfig(name, domain, o.docRoot(name), o.Paths.LogDir, maintenance)), 0o644); err != nil {
 		return fmt.Errorf("write site config: %w", err)
 	}
 	_ = os.Remove(enabled)
@@ -335,6 +359,17 @@ func (o *Ops) vhostWrite(ctx context.Context, args map[string]string) error {
 		return fmt.Errorf("web server rejected the site configuration; site not enabled: %w", err)
 	}
 	return nil
+}
+
+// maintenanceFlag reads the optional "maintenance" argument. Missing means off.
+func maintenanceFlag(args map[string]string) (bool, error) {
+	switch args["maintenance"] {
+	case "", "0":
+		return false, nil
+	case "1":
+		return true, nil
+	}
+	return false, errors.New("invalid maintenance flag")
 }
 
 func (o *Ops) wpRun(ctx context.Context, linuxUser string, wpArgs ...string) error {
@@ -451,6 +486,45 @@ func (o *Ops) wpHarden(ctx context.Context, args map[string]string) error {
 	return os.Chmod(cfg, 0o640)
 }
 
+// wpUpdate runs the WordPress core, plugin and theme updates as the site account.
+// Each step may exit non-zero when there is nothing to update, so only a WP-CLI
+// that cannot start is reported as a failure.
+func (o *Ops) wpUpdate(ctx context.Context, args map[string]string) error {
+	name, err := requireLinuxUser(args)
+	if err != nil {
+		return err
+	}
+	if args["path"] != o.docRoot(name) {
+		return errors.New("invalid website folder")
+	}
+	steps := [][]string{
+		{"core", "update", "--quiet"},
+		{"plugin", "update", "--all", "--quiet"},
+		{"theme", "update", "--all", "--quiet"},
+	}
+	for _, step := range steps {
+		if err := o.wpRunUpdate(ctx, name, step...); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// wpRunUpdate is wpRun with the update timeout, which ignores the WP-CLI exit code.
+func (o *Ops) wpRunUpdate(ctx context.Context, linuxUser string, wpArgs ...string) error {
+	home := o.homeDir(linuxUser)
+	argv := []string{"-u", linuxUser, "--", binEnv, "HOME=" + home, binWP, "--path=" + o.docRoot(linuxUser)}
+	argv = append(argv, wpArgs...)
+	res, err := o.Exec.Run(ctx, binRunuser, argv, wpUpdateTime)
+	if err != nil {
+		return fmt.Errorf("wp-cli: %w", err)
+	}
+	if res.ExitCode == exitNotFound || res.ExitCode == exitNotExec {
+		return fmt.Errorf("wp-cli cannot run: %s", trim(stderrOr(res, nil)))
+	}
+	return nil
+}
+
 // ---------------------------------------------------------------------------
 // Templates
 // ---------------------------------------------------------------------------
@@ -477,7 +551,20 @@ php_admin_value[session.save_path] = /tmp
 `, name, home)
 }
 
-func vhostConfig(name, domain, docRoot, logDir string) string {
+// vhostConfig builds the site file. In maintenance mode the final handler answers
+// every request with 503 instead of running PHP; the blocks above it still apply.
+func vhostConfig(name, domain, docRoot, logDir string, maintenance bool) string {
+	handler := fmt.Sprintf(`handle {
+        php_fastcgi unix//run/php/zx-%s.sock
+        file_server
+    }`, name)
+	if maintenance {
+		handler = `handle {
+        header Retry-After 3600
+        header Content-Type "text/html; charset=utf-8"
+        respond ` + "`" + `<!doctype html><html><head><meta charset=utf-8><title>Maintenance</title></head><body><h1>Under maintenance - back soon</h1></body></html>` + "`" + ` 503
+    }`
+	}
 	return fmt.Sprintf(`# Managed by Zenex. Do not edit by hand.
 %[2]s {
     root * %[3]s
@@ -503,12 +590,9 @@ func vhostConfig(name, domain, docRoot, logDir string) string {
         respond 403
     }
 
-    handle {
-        php_fastcgi unix//run/php/zx-%[1]s.sock
-        file_server
-    }
+    %[5]s
 }
-`, name, domain, docRoot, logDir)
+`, name, domain, docRoot, logDir, handler)
 }
 
 // ---------------------------------------------------------------------------
@@ -558,7 +642,7 @@ func trim(s string) string {
 // AllowedBinaries lists every program the helper may execute. phpFPM is the
 // set of PHP-FPM binaries installed on the server, discovered at startup.
 func AllowedBinaries(phpFPM []string) []string {
-	base := []string{binUseradd, binUserdel, binRunuser, binEnv, binMariadb, binSystemctl, binWP, binGit, binSystemdRun, binBash}
+	base := []string{binUseradd, binUserdel, binRunuser, binEnv, binMariadb, binMariadbDump, binTar, binSystemctl, binWP, binGit, binSystemdRun, binBash}
 	base = append(base, caddy.AllowedBinaries...)
 	return append(base, phpFPM...)
 }

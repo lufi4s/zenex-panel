@@ -46,6 +46,12 @@ type SiteStore interface {
 	GetDomainOwned(ctx context.Context, ownerID, id string) (store.Domain, error)
 	SetDomainCheck(ctx context.Context, id string, verified bool, message string) error
 	FindSiteByIdempotencyKey(ctx context.Context, actorID, key string) (string, string, error)
+	GetSiteDefaults(ctx context.Context) (store.SiteDefaults, error)
+	SetSiteDefaults(ctx context.Context, userID string, v store.SiteDefaults) error
+	GetBackupSettings(ctx context.Context) (store.BackupSettings, error)
+	SetBackupSettings(ctx context.Context, userID string, v store.BackupSettings) error
+	SetSiteAutoUpdate(ctx context.Context, siteID string, enabled bool) error
+	ListBackups(ctx context.Context, siteID string) ([]store.Backup, error)
 }
 
 // SiteSettings are the server-level values the site handlers need.
@@ -266,6 +272,12 @@ func (d Deps) handleCreateSite(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	phpVersion, err := d.defaultPHPVersion(r.Context())
+	if err != nil {
+		d.internal(w, r, "sites.create", err)
+		return
+	}
+
 	// Account, database and database user share one name: zx_<label>.
 	name := "zx_" + strings.ReplaceAll(label, "-", "_")
 	siteID, jobID, existed, err := d.Sites.CreateSiteWithJob(r.Context(), store.NewSite{
@@ -277,7 +289,7 @@ func (d Deps) handleCreateSite(w http.ResponseWriter, r *http.Request) {
 		LinuxUser:      name,
 		DBName:         name,
 		DBUser:         name,
-		PHPVersion:     d.Site.PHPVersion,
+		PHPVersion:     phpVersion,
 		IdempotencyKey: key,
 		JobType:        provision.JobType,
 	})

@@ -2,12 +2,16 @@ import { createSignal, For, onMount, Show } from "solid-js";
 import { Check, Copy, Eye, EyeOff, ExternalLink } from "@/components/icons";
 import { Link, useNavigate, useParams } from "@/lib/router";
 import {
+  useBackupNow,
   useChangePHP,
   useCredentials,
   useDeleteSite,
   usePHPVersions,
+  useSetAutoUpdate,
+  useSetMaintenance,
   useSite,
   useSiteAction,
+  useSiteBackups,
   useSiteHealth,
   useSiteLogs,
 } from "@/api/queries";
@@ -34,6 +38,7 @@ import { JobProgress } from "@/components/JobProgress";
 import { PageHeader } from "@/components/PageHeader";
 import { Terminal, levelFromText } from "@/components/Terminal";
 import { badgeTone } from "@/lib/badge";
+import { cn } from "@/lib/utils";
 import { siteUrl } from "@/lib/format";
 import { STATE_LABEL, STATE_TONE } from "@/lib/site-status";
 
@@ -127,6 +132,100 @@ function WordPressAccess(props: { site: Site }) {
   );
 }
 
+/** Turns maintenance mode on or off. Visitors see a maintenance page while it is on. */
+function MaintenanceCard(props: { site: Site }) {
+  const toggle = useSetMaintenance(props.site.id);
+  const on = () => props.site.maintenance;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Maintenance mode</CardTitle>
+        <CardDescription>Pause public access while you make changes.</CardDescription>
+      </CardHeader>
+      <CardContent class="space-y-4">
+        <div class="flex items-center justify-between gap-3">
+          <span class="text-sm font-medium">{on() ? "On" : "Off"}</span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={on()}
+            aria-label="Maintenance mode"
+            disabled={toggle.isPending}
+            onClick={() => toggle.mutate(!on())}
+            class={cn(
+              "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:opacity-50",
+              on() ? "bg-primary" : "bg-muted",
+            )}
+          >
+            <span
+              class={cn(
+                "inline-block size-5 rounded-full bg-background shadow transition-transform",
+                on() ? "translate-x-5" : "translate-x-0.5",
+              )}
+            />
+          </button>
+        </div>
+        <Show when={on()}>
+          <Alert>
+            <AlertDescription>
+              Maintenance mode is on. Visitors see a maintenance page instead of your website.
+            </AlertDescription>
+          </Alert>
+        </Show>
+        <Show when={toggle.isError}>
+          <Alert variant="destructive">
+            <AlertDescription>
+              {errorOf(toggle.error, "Could not change maintenance mode.")}
+            </AlertDescription>
+          </Alert>
+        </Show>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Lets WordPress core update this website automatically once a day. */
+function AutoUpdateCard(props: { site: Site }) {
+  const toggle = useSetAutoUpdate(props.site.id);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>WordPress updates</CardTitle>
+        <CardDescription>Keep WordPress up to date without manual work.</CardDescription>
+      </CardHeader>
+      <CardContent class="space-y-4">
+        <label class="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            class="size-4 accent-primary"
+            checked={props.site.auto_update}
+            disabled={toggle.isPending}
+            onChange={(e) => {
+              const input = e.currentTarget;
+              toggle.mutate(input.checked, {
+                // Put the box back to the saved value if the change was refused.
+                onError: () => {
+                  input.checked = props.site.auto_update;
+                },
+              });
+            }}
+          />
+          Update automatically every day
+        </label>
+        <Show when={toggle.isError}>
+          <Alert variant="destructive">
+            <AlertDescription>
+              {errorOf(toggle.error, "Could not change automatic updates.")}
+            </AlertDescription>
+          </Alert>
+        </Show>
+      </CardContent>
+    </Card>
+  );
+}
+
 function OverviewTab(props: { site: Site }) {
   const health = useSiteHealth("24h");
   const action = useSiteAction();
@@ -211,6 +310,11 @@ function OverviewTab(props: { site: Site }) {
           </Show>
         </CardContent>
       </Card>
+
+      <Show when={ready()}>
+        <MaintenanceCard site={props.site} />
+        <AutoUpdateCard site={props.site} />
+      </Show>
 
       <Show when={ready()}>
         <div class="lg:col-span-3">
@@ -383,9 +487,94 @@ function DeleteWebsite(props: { site: Site; onDeleting: () => void }) {
   );
 }
 
+/** Lists the website's backups, newest first, and starts a backup on demand. */
+function BackupsCard(props: { site: Site }) {
+  const backups = useSiteBackups(props.site.id);
+  const backupNow = useBackupNow(props.site.id);
+  const rows = () =>
+    [...(backups.data ?? [])].sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+    );
+
+  return (
+    <Card class="lg:col-span-2">
+      <CardHeader>
+        <CardTitle>Backups</CardTitle>
+        <CardDescription>Copies of this website&apos;s files and database.</CardDescription>
+      </CardHeader>
+      <CardContent class="space-y-4">
+        <div>
+          <Button
+            variant="outline"
+            disabled={backupNow.isPending || props.site.state !== "ready"}
+            onClick={() => backupNow.mutate()}
+          >
+            {backupNow.isPending ? "Starting…" : "Back up now"}
+          </Button>
+        </div>
+        <Show when={backupNow.isError}>
+          <Alert variant="destructive">
+            <AlertDescription>
+              {errorOf(backupNow.error, "Could not start a backup.")}
+            </AlertDescription>
+          </Alert>
+        </Show>
+        <Show when={backups.isError}>
+          <Alert variant="destructive">
+            <AlertDescription>{errorOf(backups.error, "Could not load backups.")}</AlertDescription>
+          </Alert>
+        </Show>
+        <Show
+          when={!backups.isPending}
+          fallback={<p class="text-sm text-muted-foreground">Loading backups…</p>}
+        >
+          <Show
+            when={rows().length > 0}
+            fallback={
+              <p class="text-sm text-muted-foreground">
+                No backups yet. Back up now to make the first copy.
+              </p>
+            }
+          >
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead>
+                  <tr class="border-b border-border text-left text-muted-foreground">
+                    <th scope="col" class="py-2 pr-4 font-medium">
+                      Date
+                    </th>
+                    <th scope="col" class="py-2 text-right font-medium">
+                      Size
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <For each={rows()}>
+                    {(backup) => (
+                      <tr class="border-b border-border last:border-0">
+                        <td class="py-2 pr-4 tabular-nums">
+                          {new Date(backup.created_at).toLocaleString()}
+                        </td>
+                        <td class="py-2 text-right tabular-nums">
+                          {(backup.size_bytes / 1024 / 1024).toFixed(1)} MB
+                        </td>
+                      </tr>
+                    )}
+                  </For>
+                </tbody>
+              </table>
+            </div>
+          </Show>
+        </Show>
+      </CardContent>
+    </Card>
+  );
+}
+
 function SettingsTab(props: { site: Site; onDeleting: () => void }) {
   return (
     <div class="grid gap-4 lg:grid-cols-2">
+      <BackupsCard site={props.site} />
       <Card class="border-destructive/40">
         <CardHeader>
           <CardTitle class="text-destructive">Danger zone</CardTitle>

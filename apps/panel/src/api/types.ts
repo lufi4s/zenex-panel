@@ -38,6 +38,8 @@ export interface Site {
   php_version: string;
   state: SiteState;
   health: string;
+  auto_update: boolean;
+  maintenance: boolean;
   created_at: string;
 }
 
@@ -181,4 +183,61 @@ export interface Branding {
   name: string;
   tagline: string;
   primary_color: string;
+}
+
+// ---------------------------------------------------------------------------
+// Settings (administrators)
+// ---------------------------------------------------------------------------
+
+export interface SiteDefaults {
+  php_version: string;
+}
+
+export interface BackupSettings {
+  schedule_hour: number;
+  retention_days: number;
+}
+
+export interface EmailAlertSettings {
+  enabled: boolean;
+  host: string;
+  port: number;
+  username: string;
+  from: string;
+  to: string;
+}
+
+export interface TelegramAlertSettings {
+  enabled: boolean;
+  chat_id: string;
+}
+
+export interface AlertThresholds {
+  cpu: number;
+  memory: number;
+  disk: number;
+}
+
+/** What the API returns. Secrets are never sent back, only whether they are stored. */
+export interface AlertSettings {
+  email: EmailAlertSettings & { password_set: boolean };
+  telegram: TelegramAlertSettings & { token_set: boolean };
+  thresholds: AlertThresholds;
+}
+
+/** What the API accepts. An empty secret keeps the stored one. */
+export interface AlertSettingsInput {
+  email: EmailAlertSettings & { password: string };
+  telegram: TelegramAlertSettings & { bot_token: string };
+  thresholds: AlertThresholds;
+}
+
+// ---------------------------------------------------------------------------
+// Website backups
+// ---------------------------------------------------------------------------
+
+export interface SiteBackup {
+  id: number;
+  created_at: string;
+  size_bytes: number;
 }

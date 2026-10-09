@@ -35,11 +35,19 @@ type Store interface {
 	PruneMonitoring(ctx context.Context, keep time.Duration) error
 }
 
+// AlertChecker is told about every host sample so it can raise threshold alerts.
+// Implemented by alerts.Service.
+type AlertChecker interface {
+	Check(ctx context.Context, m sysinfo.Metrics)
+}
+
 // Collector samples host metrics and probes every live website.
 type Collector struct {
-	Store        Store
-	Log          *slog.Logger
-	Sample       func() (sysinfo.Metrics, error)
+	Store  Store
+	Log    *slog.Logger
+	Sample func() (sysinfo.Metrics, error)
+	// Alerts is optional. When set, it sees every successful host sample.
+	Alerts       AlertChecker
 	MetricsEvery time.Duration
 	ProbeEvery   time.Duration
 	Retention    time.Duration
@@ -117,6 +125,10 @@ func (c *Collector) sampleOnce(ctx context.Context) {
 	})
 	if err != nil && ctx.Err() == nil {
 		c.Log.Warn("saving metric sample failed", "error", err)
+	}
+	// Alerts run after the sample is stored, so slow mail delivery never delays history.
+	if c.Alerts != nil {
+		c.Alerts.Check(ctx, m)
 	}
 }
 

@@ -3,8 +3,13 @@ import { apiRequest, newIdempotencyKey } from "./client";
 import { toast } from "../lib/toast";
 import type {
   ActivityPage,
+  AlertSettings,
+  AlertSettingsInput,
+  BackupSettings,
   Branding,
   ActivityResult,
+  SiteBackup,
+  SiteDefaults,
   Domain,
   Job,
   JobStep,
@@ -473,5 +478,133 @@ export function useStartUpdate() {
     meta: { silent: true },
     mutationFn: () => apiRequest<{ state: string }>("/api/v1/system/update", { method: "POST" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["system-update"] }),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Settings: site defaults, backup schedule, alerts (administrators)
+// ---------------------------------------------------------------------------
+
+export function useSettingsDefaults() {
+  return useQuery({
+    queryKey: ["settings", "defaults"],
+    queryFn: () => apiRequest<SiteDefaults>("/api/v1/settings/defaults"),
+    retry: false,
+  });
+}
+
+export function useSaveDefaults() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: SiteDefaults) =>
+      apiRequest<SiteDefaults | void>("/api/v1/settings/defaults", { method: "PUT", body: input }),
+    meta: { silent: true },
+    onSuccess: (saved, input) => {
+      qc.setQueryData(["settings", "defaults"], saved ?? input);
+      toast.success("Site defaults saved");
+    },
+  });
+}
+
+export function useSettingsBackups() {
+  return useQuery({
+    queryKey: ["settings", "backups"],
+    queryFn: () => apiRequest<BackupSettings>("/api/v1/settings/backups"),
+    retry: false,
+  });
+}
+
+export function useSaveBackups() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: BackupSettings) =>
+      apiRequest<BackupSettings | void>("/api/v1/settings/backups", {
+        method: "PUT",
+        body: input,
+      }),
+    meta: { silent: true },
+    onSuccess: (saved, input) => {
+      qc.setQueryData(["settings", "backups"], saved ?? input);
+      toast.success("Backup settings saved");
+    },
+  });
+}
+
+export function useSettingsAlerts() {
+  return useQuery({
+    queryKey: ["settings", "alerts"],
+    queryFn: () => apiRequest<AlertSettings>("/api/v1/settings/alerts"),
+    retry: false,
+  });
+}
+
+export function useSaveAlerts() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: AlertSettingsInput) =>
+      apiRequest<AlertSettings | void>("/api/v1/settings/alerts", { method: "PUT", body: input }),
+    meta: { silent: true },
+    onSuccess: (saved) => {
+      // The saved copy never includes secrets, so refetch unless the API returned it.
+      if (saved) qc.setQueryData(["settings", "alerts"], saved);
+      else void qc.invalidateQueries({ queryKey: ["settings", "alerts"] });
+      toast.success("Alert settings saved");
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Website settings: auto-updates, maintenance mode, backups
+// ---------------------------------------------------------------------------
+
+/** Both toggles change the site record, so the list and the site page refresh. */
+function invalidateSite(qc: ReturnType<typeof useQueryClient>, siteId: string) {
+  void qc.invalidateQueries({ queryKey: keys.sites });
+  void qc.invalidateQueries({ queryKey: ["site", siteId] });
+}
+
+export function useSetAutoUpdate(siteId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (enabled: boolean) =>
+      apiRequest<void>(`/api/v1/sites/${siteId}/auto-update`, {
+        method: "PUT",
+        body: { enabled },
+      }),
+    meta: { silent: true },
+    onSuccess: () => invalidateSite(qc, siteId),
+  });
+}
+
+export function useSetMaintenance(siteId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (enabled: boolean) =>
+      apiRequest<void>(`/api/v1/sites/${siteId}/maintenance`, {
+        method: "PUT",
+        body: { enabled },
+      }),
+    meta: { silent: true },
+    onSuccess: () => invalidateSite(qc, siteId),
+  });
+}
+
+export function useSiteBackups(siteId: string) {
+  return useQuery({
+    queryKey: ["backups", siteId],
+    queryFn: () => apiRequest<SiteBackup[]>(`/api/v1/sites/${siteId}/backups`),
+  });
+}
+
+export function useBackupNow(siteId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiRequest<{ job_id: string }>(`/api/v1/sites/${siteId}/backup`, { method: "POST" }),
+    meta: { silent: true },
+    onSuccess: () => {
+      toast.success("Backup started");
+      void qc.invalidateQueries({ queryKey: ["backups", siteId] });
+    },
   });
 }

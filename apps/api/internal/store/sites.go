@@ -30,18 +30,20 @@ type Domain struct {
 
 // Site is a WordPress site hosted on a node.
 type Site struct {
-	ID         string    `json:"id"`
-	OwnerID    string    `json:"owner_user_id"`
-	NodeID     string    `json:"node_id"`
-	Slug       string    `json:"slug"`
-	Domain     string    `json:"domain"`
-	LinuxUser  string    `json:"-"`
-	DBName     string    `json:"-"`
-	DBUser     string    `json:"-"`
-	PHPVersion string    `json:"php_version"`
-	State      string    `json:"state"`
-	Health     string    `json:"health"`
-	CreatedAt  time.Time `json:"created_at"`
+	ID          string    `json:"id"`
+	OwnerID     string    `json:"owner_user_id"`
+	NodeID      string    `json:"node_id"`
+	Slug        string    `json:"slug"`
+	Domain      string    `json:"domain"`
+	LinuxUser   string    `json:"-"`
+	DBName      string    `json:"-"`
+	DBUser      string    `json:"-"`
+	PHPVersion  string    `json:"php_version"`
+	State       string    `json:"state"`
+	Health      string    `json:"health"`
+	AutoUpdate  bool      `json:"auto_update"`
+	Maintenance bool      `json:"maintenance"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 // Job is a long-running operation tracked in the jobs table.
@@ -227,12 +229,14 @@ func (s *Store) CreateSiteWithJob(ctx context.Context, in NewSite) (siteID, jobI
 
 const siteColumns = `
 	s.id::text, s.owner_user_id::text, s.node_id::text, s.slug, s.primary_domain::text,
-	s.linux_user, s.db_name, s.db_user, s.php_version, s.state, s.health, s.created_at`
+	s.linux_user, s.db_name, s.db_user, s.php_version, s.state, s.health,
+	s.auto_update, s.maintenance, s.created_at`
 
 func scanSite(row pgx.Row) (Site, error) {
 	var st Site
 	err := row.Scan(&st.ID, &st.OwnerID, &st.NodeID, &st.Slug, &st.Domain,
-		&st.LinuxUser, &st.DBName, &st.DBUser, &st.PHPVersion, &st.State, &st.Health, &st.CreatedAt)
+		&st.LinuxUser, &st.DBName, &st.DBUser, &st.PHPVersion, &st.State, &st.Health,
+		&st.AutoUpdate, &st.Maintenance, &st.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Site{}, ErrNotFound
 	}
@@ -246,10 +250,28 @@ func (s *Store) GetSite(ctx context.Context, id string) (Site, error) {
 
 // ListSites returns the owner's sites, or every site when ownerID is empty (administrators).
 func (s *Store) ListSites(ctx context.Context, ownerID string) ([]Site, error) {
-	rows, err := s.pool.Query(ctx, `
+	return s.querySites(ctx, `
 		SELECT `+siteColumns+` FROM sites s
 		WHERE s.deleted_at IS NULL AND ($1 = '' OR s.owner_user_id = NULLIF($1, '')::uuid)
 		ORDER BY s.created_at DESC`, ownerID)
+}
+
+// ListReadySites returns every live website (used by scheduled backups).
+func (s *Store) ListReadySites(ctx context.Context) ([]Site, error) {
+	return s.querySites(ctx, `
+		SELECT `+siteColumns+` FROM sites s
+		WHERE s.state = 'ready' AND s.deleted_at IS NULL ORDER BY s.created_at`)
+}
+
+// ListAutoUpdateSites returns live websites that have WordPress auto-updates on.
+func (s *Store) ListAutoUpdateSites(ctx context.Context) ([]Site, error) {
+	return s.querySites(ctx, `
+		SELECT `+siteColumns+` FROM sites s
+		WHERE s.state = 'ready' AND s.auto_update AND s.deleted_at IS NULL ORDER BY s.created_at`)
+}
+
+func (s *Store) querySites(ctx context.Context, query string, args ...any) ([]Site, error) {
+	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -263,6 +285,20 @@ func (s *Store) ListSites(ctx context.Context, ownerID string) ([]Site, error) {
 		out = append(out, st)
 	}
 	return out, rows.Err()
+}
+
+// SetSiteAutoUpdate turns WordPress auto-updates on or off for a site.
+func (s *Store) SetSiteAutoUpdate(ctx context.Context, siteID string, enabled bool) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE sites SET auto_update = $2, updated_at = now() WHERE id = $1::uuid`, siteID, enabled)
+	return err
+}
+
+// SetSiteMaintenance records whether a site shows the maintenance page.
+func (s *Store) SetSiteMaintenance(ctx context.Context, siteID string, enabled bool) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE sites SET maintenance = $2, updated_at = now() WHERE id = $1::uuid`, siteID, enabled)
+	return err
 }
 
 func (s *Store) SetSiteState(ctx context.Context, siteID, state string) error {

@@ -334,3 +334,11 @@ Removed every UI/animation/data/routing library from apps/panel. Only React, Rea
 - Needs backend work (not done, backend is off-limits for now): file upload in the Files tab, installing the extra PHP versions, server details such as OS and IP.
 
 - Open admin is a plain link to https://<domain>/wp-admin/, with the username and password shown on the card. Auto sign-in does NOT work from the browser: the panel and the site are different sites, so the browser drops WordPress's login cookie after the redirect (the server-side login itself works: 302 to wp-admin). A password-free sign-in needs a backend change (for example, a one-time login link served from the site's domain). Not done; needs approval.
+
+## 27. Settings features (default PHP, WP auto-updates, backups, alerts, maintenance)
+
+- API (apps/api): migration 0006 (sites.auto_update, sites.maintenance; the unused 0001 backups table is renamed to backups_legacy_0001; new backups table). Settings in system_settings: site_defaults, backup_settings, alert_settings (SMTP and Telegram secrets AES-GCM encrypted with a key from ZENEX_SECRET_KEY). Scheduler: WP updates 04:00, backups at schedule_hour (default 03:00), retention 7 days. Alerts from the monitor with threshold tracking, 30 min cooldown and recovery messages.
+- Helper (services/agent): vhost.write maintenance flag (503 page); wp.update; backup.create and backup.delete (archives in /var/backups/zenex/<user>/). Operation timeout raised to 45 minutes; API helper client timeout to 50 minutes.
+- Frontend (apps/panel): Settings cards for site defaults, backups and alerts; Overview toggles for maintenance mode and daily WordPress updates; Settings tab backup list with Back up now.
+- Verified: go vet and tests (API and helper, helper also for Linux), frontend 40/40, lint, build. Migrations 0001-0006 applied to a fresh PostgreSQL 16 database.
+- Not verified on the VPS yet. Alert delivery (SMTP and Telegram) needs real credentials to test.

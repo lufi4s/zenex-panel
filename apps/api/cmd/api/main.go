@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/zenexcloud/zenex-panel/apps/api/internal/alerts"
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/auth"
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/config"
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/dnscheck"
@@ -27,6 +28,7 @@ import (
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/manage"
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/monitor"
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/provision"
+	"github.com/zenexcloud/zenex-panel/apps/api/internal/schedule"
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/store"
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/update"
 	"github.com/zenexcloud/zenex-panel/apps/api/migrations"
@@ -118,8 +120,13 @@ func serve(cfg config.Config, log *slog.Logger) error {
 	if err := s.ResetRunningJobs(ctx); err != nil {
 		return fmt.Errorf("reset jobs: %w", err)
 	}
-	// Host metrics and website uptime are recorded in the background.
-	go monitor.New(s, log).Run(ctx)
+	// Host metrics and website uptime are recorded in the background. Each host
+	// sample is also checked against the alert thresholds.
+	alertSvc := alerts.New(s, cfg.SecretKey, cfg.NodeName, log)
+	mon := monitor.New(s, log)
+	mon.Alerts = alertSvc
+	go mon.Run(ctx)
+	startDailyTasks(ctx, s, manager, log)
 
 	pending, err := s.UnfinishedProvisionJobs(ctx)
 	if err != nil {
@@ -138,6 +145,7 @@ func serve(cfg config.Config, log *slog.Logger) error {
 			Manage:  manager,
 			Monitor: s,
 			Updates: update.New(helpers),
+			Alerts:  alertSvc,
 			Site: httpapi.SiteSettings{
 				NodeID:     nodeID,
 				PHPVersion: cfg.PHPVersion,
@@ -177,6 +185,30 @@ func serve(cfg config.Config, log *slog.Logger) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdownCtx)
+}
+
+// startDailyTasks runs WordPress auto-updates at 04:00 and backups at the hour
+// set in the backup settings, both in server time.
+func startDailyTasks(ctx context.Context, s *store.Store, manager *manage.Manager, log *slog.Logger) {
+	sched := schedule.New(log)
+	sched.Add(schedule.Task{
+		Name: "wordpress-updates",
+		Hour: func(context.Context) int { return 4 },
+		Run:  manager.RunAutoUpdates,
+	})
+	sched.Add(schedule.Task{
+		Name: "backups",
+		Hour: func(ctx context.Context) int {
+			cfg, err := s.GetBackupSettings(ctx)
+			if err != nil {
+				log.Warn("backup schedule unavailable; skipping today", "error", err)
+				return -1
+			}
+			return cfg.ScheduleHour
+		},
+		Run: manager.RunScheduledBackups,
+	})
+	go sched.Run(ctx)
 }
 
 // createAdmin reads the email on the first line and the password on the second,

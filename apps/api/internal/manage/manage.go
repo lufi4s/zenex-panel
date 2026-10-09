@@ -39,6 +39,7 @@ type Store interface {
 	FinishJob(ctx context.Context, jobID, status, errMsg string) error
 	AppendJobLog(ctx context.Context, jobID, level, msg string) error
 	Notify(ctx context.Context, userID, level, title, body string) error
+	FeatureStore
 }
 
 // Helper runs privileged operations.
@@ -54,10 +55,19 @@ type Manager struct {
 	Log    *slog.Logger
 	// DeleteTimeout bounds the background deletion.
 	DeleteTimeout time.Duration
+	// BackupTimeout bounds one website backup.
+	BackupTimeout time.Duration
+	// UpdateTimeout bounds one WordPress update.
+	UpdateTimeout time.Duration
 }
 
 func New(s Store, h Helper, log *slog.Logger) *Manager {
-	return &Manager{Store: s, Helper: h, Log: log, DeleteTimeout: 10 * time.Minute}
+	return &Manager{
+		Store: s, Helper: h, Log: log,
+		DeleteTimeout: 10 * time.Minute,
+		BackupTimeout: defaultBackupTimeout,
+		UpdateTimeout: defaultUpdateTimeout,
+	}
 }
 
 func dbNames(site store.Site) map[string]string {

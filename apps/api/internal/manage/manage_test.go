@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/store"
 )
@@ -95,3 +96,14 @@ func TestSwitchPHPRejectsSameVersion(t *testing.T) {
 }
 
 func (f *fakeStore) Notify(context.Context, string, string, string, string) error { return nil }
+func (f *fakeStore) SetSiteMaintenance(context.Context, string, bool) error       { return nil }
+func (f *fakeStore) ListReadySites(context.Context) ([]store.Site, error)         { return nil, nil }
+func (f *fakeStore) ListAutoUpdateSites(context.Context) ([]store.Site, error)    { return nil, nil }
+func (f *fakeStore) InsertBackup(context.Context, string, int64, string) error    { return nil }
+func (f *fakeStore) BackupsBefore(context.Context, time.Time) ([]store.Backup, error) {
+	return nil, nil
+}
+func (f *fakeStore) DeleteBackup(context.Context, int64) error { return nil }
+func (f *fakeStore) GetBackupSettings(context.Context) (store.BackupSettings, error) {
+	return store.DefaultBackupSettings(), nil
+}

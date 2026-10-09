@@ -35,6 +35,8 @@ function mockApi(options: { signedIn: boolean }) {
       php_version: "8.3",
       state: "ready",
       health: "healthy",
+      auto_update: false,
+      maintenance: false,
       created_at: "2026-01-02T00:00:00Z",
     },
   ];
@@ -181,6 +183,28 @@ function mockApi(options: { signedIn: boolean }) {
       });
     }
     if (url.endsWith("/api/v1/php-versions")) return json({ versions: ["8.3"] });
+    if (url.endsWith("/api/v1/settings/defaults")) return json({ php_version: "8.3" });
+    if (url.endsWith("/api/v1/settings/backups")) {
+      return json({ schedule_hour: 3, retention_days: 7 });
+    }
+    if (url.endsWith("/api/v1/settings/alerts")) {
+      return json({
+        email: {
+          enabled: false,
+          host: "",
+          port: 587,
+          username: "",
+          from: "",
+          to: "",
+          password_set: false,
+        },
+        telegram: { enabled: false, chat_id: "", token_set: false },
+        thresholds: { cpu: 85, memory: 90, disk: 90 },
+      });
+    }
+    if (url.endsWith("/api/v1/sites/s1/backups")) {
+      return json([{ id: 1, created_at: "2026-10-09T03:00:00Z", size_bytes: 123456 }]);
+    }
     return json({ error: { code: "not_found", message: "not found" } }, 404);
   });
 }
@@ -308,6 +332,24 @@ describe("navigation", () => {
     expect(await screen.findByText("index.php")).toBeTruthy();
   });
 
+  it("shows maintenance mode and WordPress updates on the overview", async () => {
+    vi.stubGlobal("fetch", mockApi({ signedIn: true }));
+    renderAt("/websites/s1");
+    await screen.findByRole("heading", { name: "shop.ozima.cloud" });
+    const toggle = await screen.findByRole("switch", { name: "Maintenance mode" });
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    expect(screen.getByText("Update automatically every day")).toBeTruthy();
+  });
+
+  it("lists the site backups on its Settings tab", async () => {
+    vi.stubGlobal("fetch", mockApi({ signedIn: true }));
+    renderAt("/websites/s1");
+    await screen.findByRole("heading", { name: "shop.ozima.cloud" });
+    chooseTab("Settings");
+    expect(await screen.findByText("0.1 MB")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Back up now" })).toBeTruthy();
+  });
+
   it("shows the site log on its Logs tab", async () => {
     vi.stubGlobal("fetch", mockApi({ signedIn: true }));
     renderAt("/websites/s1");
@@ -351,6 +393,28 @@ describe("navigation", () => {
     renderAt("/settings");
     expect(await screen.findByText("Panel updates")).toBeTruthy();
     expect(await screen.findByRole("button", { name: /Update now/ })).toBeTruthy();
+  });
+
+  it("shows the site defaults, backup and alert settings", async () => {
+    vi.stubGlobal("fetch", mockApi({ signedIn: true }));
+    renderAt("/settings");
+    expect(await screen.findByText("Site defaults")).toBeTruthy();
+    expect(screen.getByText("Backups")).toBeTruthy();
+    expect(screen.getByText("Alerts")).toBeTruthy();
+    expect(await screen.findByLabelText("Daily backup hour (0 to 23)")).toBeTruthy();
+    expect(screen.getByText("03:00")).toBeTruthy();
+    expect(screen.getByText("Send alerts by email")).toBeTruthy();
+  });
+
+  it("disables PHP versions that are not installed in the site defaults", async () => {
+    vi.stubGlobal("fetch", mockApi({ signedIn: true }));
+    renderAt("/settings");
+    const select = (await screen.findByLabelText("PHP version")) as HTMLSelectElement;
+    await waitFor(() => {
+      const option = select.querySelector('option[value="8.5"]') as HTMLOptionElement;
+      expect(option.disabled).toBe(true);
+    });
+    expect((select.querySelector('option[value="8.3"]') as HTMLOptionElement).disabled).toBe(false);
   });
 
   it("shows a not-found page for unknown addresses", async () => {

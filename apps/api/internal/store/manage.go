@@ -34,11 +34,12 @@ func (s *Store) MarkSiteDeleted(ctx context.Context, siteID string) error {
 }
 
 // CreateManagementJob records a site operation (for example deletion) as a running job.
+// An empty actorID means the scheduler started it.
 func (s *Store) CreateManagementJob(ctx context.Context, actorID, siteID, nodeID, jobType string) (string, error) {
 	var id string
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO jobs (type, status, actor_user_id, node_id, site_id, started_at, attempts)
-		VALUES ($1, 'running', $2::uuid, NULLIF($3, '')::uuid, $4::uuid, now(), 1)
+		VALUES ($1, 'running', NULLIF($2, '')::uuid, NULLIF($3, '')::uuid, $4::uuid, now(), 1)
 		RETURNING id::text`, jobType, actorID, nodeID, siteID).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrNotFound
