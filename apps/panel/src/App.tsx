@@ -1,4 +1,4 @@
-import { createEffect, lazy, on, Show, Suspense, type JSX } from "solid-js";
+import { createEffect, ErrorBoundary, lazy, on, Show, Suspense, type JSX } from "solid-js";
 import { useBranding, useMe } from "@/api/queries";
 import { ApiError, describeError } from "@/api/client";
 import { applyBranding } from "@/lib/brand";
@@ -108,6 +108,34 @@ function AdminOnly(props: { children: JSX.Element }) {
   );
 }
 
+/** Shown when a page fails to draw. The rest of the panel keeps working. */
+function PageError(props: { onRetry: () => void }) {
+  return (
+    <div class="flex flex-col items-start gap-3 py-16" role="alert">
+      <p class="font-heading text-2xl font-semibold">Something went wrong on this page</p>
+      <p class="text-sm text-muted-foreground">
+        Your data is safe. Try again, or open another page from the menu.
+      </p>
+      <div class="flex gap-2">
+        <button
+          type="button"
+          class="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted"
+          onClick={props.onRetry}
+        >
+          Try again
+        </button>
+        <button
+          type="button"
+          class="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted"
+          onClick={() => window.location.reload()}
+        >
+          Reload the panel
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function NotFound() {
   return (
     <div class="flex flex-col items-start gap-2 py-16">
@@ -158,7 +186,14 @@ export function App() {
   return (
     <Show when={location.pathname !== "/login"} fallback={<LoginRoute />}>
       <Protected>
-        <Routes routes={PAGES} fallback={() => <NotFound />} />
+        {/* A new address builds a new boundary, so an error does not follow the visitor to the next page. */}
+        <Show when={location.pathname} keyed>
+          {(_pathname) => (
+            <ErrorBoundary fallback={(_err, reset) => <PageError onRetry={reset} />}>
+              <Routes routes={PAGES} fallback={() => <NotFound />} />
+            </ErrorBoundary>
+          )}
+        </Show>
       </Protected>
     </Show>
   );

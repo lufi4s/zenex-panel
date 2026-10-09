@@ -17,6 +17,7 @@ import type {
   SftpSettings,
   ActivityResult,
   RemoteBackup,
+  SiteActivity,
   SiteBackup,
   SiteDefaults,
   Domain,
@@ -42,6 +43,7 @@ const keys = {
   metrics: ["metrics"] as const,
   domains: ["domains"] as const,
   sites: ["sites"] as const,
+  activity: ["site-activity"] as const,
   job: (id: string) => ["job", id] as const,
   phpVersions: ["php-versions"] as const,
 };
@@ -497,6 +499,21 @@ export interface SiteDetail {
   steps?: JobStep[];
 }
 
+/**
+ * What each of the user's websites is doing: a build, backup, restore, migration or deletion
+ * that is running (polled every 2 seconds) or finished in the last few minutes.
+ */
+export function useSiteActivity() {
+  return useQuery({
+    queryKey: keys.activity,
+    queryFn: () => apiRequest<SiteActivity[]>("/api/v1/sites/activity"),
+    refetchInterval: (query) =>
+      (query.state.data ?? []).some((a) => a.status === "queued" || a.status === "running")
+        ? 2_000
+        : 6_000,
+  });
+}
+
 export function useSite(id: string) {
   return useQuery({
     queryKey: ["site", id],
@@ -611,6 +628,7 @@ export function useRunBackupsNow() {
       void qc.invalidateQueries({ queryKey: keys.sites });
       void qc.invalidateQueries({ queryKey: ["backups"] });
       void qc.invalidateQueries({ queryKey: ["backup-progress"] });
+      void qc.invalidateQueries({ queryKey: keys.activity });
     },
   });
 }
@@ -646,6 +664,7 @@ export function useCpanelMigrate() {
     meta: { silent: true },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: keys.sites });
+      void qc.invalidateQueries({ queryKey: keys.activity });
     },
   });
 }
@@ -672,6 +691,7 @@ export function useRestoreRemote() {
     onSuccess: () => {
       toast.success("Restore started");
       void qc.invalidateQueries({ queryKey: ["backups"] });
+      void qc.invalidateQueries({ queryKey: keys.activity });
     },
   });
 }
@@ -696,6 +716,7 @@ export function useBackupAll() {
       }
       void qc.invalidateQueries({ queryKey: ["backups"] });
       void qc.invalidateQueries({ queryKey: ["backup-progress"] });
+      void qc.invalidateQueries({ queryKey: keys.activity });
     },
   });
 }
@@ -819,6 +840,7 @@ export function useBackupNow(siteId: string) {
       toast.success("Backup started");
       void qc.invalidateQueries({ queryKey: ["backups", siteId] });
       void qc.invalidateQueries({ queryKey: ["backup-progress", siteId] });
+      void qc.invalidateQueries({ queryKey: keys.activity });
     },
   });
 }
@@ -838,6 +860,7 @@ export function useRestoreBackup(siteId: string) {
     onSuccess: () => {
       toast.success("Restore started");
       void qc.invalidateQueries({ queryKey: ["backups", siteId] });
+      void qc.invalidateQueries({ queryKey: keys.activity });
     },
   });
 }

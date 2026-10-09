@@ -1,0 +1,1 @@
+import{ay as t,bc as n,av as l,g as o,i as c,t as i}from"./index-CLvJcTen.js";var m=i("<label>");function u(a){const[s,r]=t(a,["class","children"]);return(()=>{var e=m();return n(e,l({get class(){return o("text-sm font-medium leading-none",s.class)}},r),!1,!0),c(e,()=>s.children),e})()}export{u as L};

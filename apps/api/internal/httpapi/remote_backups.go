@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/manage"
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/store"
@@ -13,6 +14,7 @@ func (d Deps) handleListRemoteBackups(w http.ResponseWriter, r *http.Request) {
 	if _, ok := d.requireAdminUser(w, r); !ok {
 		return
 	}
+	allowSlowRequest(w, 0, 6*time.Minute)
 	list, err := d.Manage.ListRemoteBackups(r.Context())
 	if err != nil {
 		d.manageError(w, r, "settings.backups.remote", err)
@@ -51,6 +53,7 @@ func (d Deps) handleRestoreRemote(w http.ResponseWriter, r *http.Request) {
 		writeError(w, requestIDFrom(r), errBackupBusy)
 		return
 	}
+	allowSlowRequest(w, 0, 6*time.Minute)
 	list, err := d.Manage.ListRemoteBackups(r.Context())
 	if err != nil {
 		d.manageError(w, r, "sites.restore_remote.list", err)

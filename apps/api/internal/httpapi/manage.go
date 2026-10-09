@@ -50,6 +50,11 @@ func (d Deps) manageError(w http.ResponseWriter, r *http.Request, op string, err
 		writeError(w, requestIDFrom(r), APIError{Status: http.StatusUnprocessableEntity, Code: "operation_failed", Message: helperErr.Message})
 		return
 	}
+	if errors.Is(err, helperclient.ErrUnreachable) {
+		d.Log.Error("helper unreachable", "request_id", requestIDFrom(r), "operation", op, "error", err)
+		writeError(w, requestIDFrom(r), APIError{Status: http.StatusServiceUnavailable, Code: "helper_unavailable", Message: "The server's helper service is not running. Ask the administrator to check the zenex-helper service."})
+		return
+	}
 	d.internal(w, r, op, err)
 }
 

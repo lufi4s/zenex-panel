@@ -1,8 +1,8 @@
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { Plus } from "@/components/icons";
 import { useNavigate } from "@/lib/router";
-import { useBackupAll, useMe, useSiteHealth, useSites } from "@/api/queries";
-import type { Site } from "@/api/types";
+import { useBackupAll, useMe, useSiteActivity, useSiteHealth, useSites } from "@/api/queries";
+import type { Site, SiteActivity } from "@/api/types";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { ActivityStatus } from "@/components/ActivityStatus";
 import { CardSkeleton } from "@/components/CardSkeleton";
 import { JobProgress } from "@/components/JobProgress";
 import { NewWebsiteCard } from "@/components/NewWebsiteCard";
@@ -22,7 +23,11 @@ import { badgeTone } from "@/lib/badge";
 import { describeError } from "@/api/client";
 import { STATE_LABEL, STATE_TONE, timeAgo } from "@/lib/site-status";
 
-function WebsiteTable(props: { sites: Site[]; uptime: Map<string, string> }) {
+function WebsiteTable(props: {
+  sites: Site[];
+  uptime: Map<string, string>;
+  activity: Map<string, SiteActivity>;
+}) {
   const navigate = useNavigate();
   return (
     <div class="overflow-x-auto rounded-lg border border-border">
@@ -54,6 +59,7 @@ function WebsiteTable(props: { sites: Site[]; uptime: Map<string, string> }) {
                   <Badge variant="outline" class={badgeTone(STATE_TONE[site.state])}>
                     {STATE_LABEL[site.state]}
                   </Badge>
+                  <ActivityStatus activity={props.activity.get(site.id)} />
                 </td>
                 <td class="hidden px-4 py-3 tabular-nums text-muted-foreground md:table-cell">
                   {props.uptime.get(site.id) ?? "—"}
@@ -78,6 +84,10 @@ export function WebsitesPage() {
   const sites = useSites();
   const health = useSiteHealth("24h");
   const backupAll = useBackupAll();
+  const activity = useSiteActivity();
+  const activityBySite = createMemo(
+    () => new Map((activity.data ?? []).map((a) => [a.site_id, a] as const)),
+  );
   const me = useMe();
   const isAdmin = () => me.data?.roles.includes("administrator") ?? false;
   const navigate = useNavigate();
@@ -196,7 +206,7 @@ export function WebsitesPage() {
         </div>
       </Show>
       <Show when={(sites.data?.length ?? 0) > 0}>
-        <WebsiteTable sites={sites.data ?? []} uptime={uptime()} />
+        <WebsiteTable sites={sites.data ?? []} uptime={uptime()} activity={activityBySite()} />
       </Show>
       {newWebsiteDialog}
     </>

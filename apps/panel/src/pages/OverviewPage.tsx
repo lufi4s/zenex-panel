@@ -1,8 +1,8 @@
 import { For, Show } from "solid-js";
 import { Layers } from "@/components/icons";
 import { Link } from "@/lib/router";
-import { useMe, useSites, useSystemUpdate } from "@/api/queries";
-import type { Site } from "@/api/types";
+import { useMe, useSiteActivity, useSites, useSystemUpdate } from "@/api/queries";
+import type { Site, SiteActivity } from "@/api/types";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { buttonClasses } from "@/components/ui/button";
@@ -14,6 +14,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { ActivityStatus } from "@/components/ActivityStatus";
 import { CardSkeleton } from "@/components/CardSkeleton";
 import { PageHeader } from "@/components/PageHeader";
 import { ServerStrip } from "@/components/ServerStrip";
@@ -21,7 +22,7 @@ import { ServicesCard } from "@/components/ServicesCard";
 import { badgeTone } from "@/lib/badge";
 import { STATE_LABEL, STATE_TONE } from "@/lib/site-status";
 
-function RecentSites(props: { sites: Site[] }) {
+function RecentSites(props: { sites: Site[]; activity: Map<string, SiteActivity> }) {
   return (
     <Show
       when={props.sites.length > 0}
@@ -39,7 +40,10 @@ function RecentSites(props: { sites: Site[] }) {
                 to={`/websites/${site.id}`}
                 class="flex items-center justify-between gap-3 rounded-md py-2.5 hover:bg-muted/50"
               >
-                <span class="min-w-0 truncate font-medium">{site.domain}</span>
+                <span class="min-w-0">
+                  <span class="block truncate font-medium">{site.domain}</span>
+                  <ActivityStatus activity={props.activity.get(site.id)} />
+                </span>
                 <Badge variant="outline" class={badgeTone(STATE_TONE[site.state])}>
                   {STATE_LABEL[site.state]}
                 </Badge>
@@ -55,6 +59,8 @@ function RecentSites(props: { sites: Site[] }) {
 /** Landing page: server health, a quick look at the websites, and service status. */
 export function OverviewPage() {
   const sites = useSites();
+  const activity = useSiteActivity();
+  const activityBySite = () => new Map((activity.data ?? []).map((a) => [a.site_id, a] as const));
   const me = useMe();
   const isAdmin = me.data?.roles.includes("administrator") ?? false;
   const update = useSystemUpdate(isAdmin);
@@ -98,7 +104,7 @@ export function OverviewPage() {
           </CardHeader>
           <CardContent>
             <Show when={!sites.isPending} fallback={<CardSkeleton height="h-40" />}>
-              <RecentSites sites={list()} />
+              <RecentSites sites={list()} activity={activityBySite()} />
             </Show>
           </CardContent>
         </Card>

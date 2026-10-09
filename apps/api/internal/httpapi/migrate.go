@@ -181,7 +181,7 @@ func (d Deps) handleScanCpanel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// An account with many websites takes minutes to scan, longer than the server's usual write limit.
-	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(6 * time.Minute))
+	allowSlowRequest(w, 0, 6*time.Minute)
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
 	defer cancel()
 	installs, err := d.Manage.ScanCpanel(ctx, creds)

@@ -2,6 +2,7 @@ import { Select } from "@/components/ui/select";
 import { createSignal, For, Show } from "solid-js";
 import { useCreateSite, useDomains } from "@/api/queries";
 import { ApiError } from "@/api/client";
+import { Link } from "@/lib/router";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -52,7 +53,15 @@ export function NewWebsiteCard(props: { onCreated: (siteId: string, jobId: strin
       <CardContent>
         <Show
           when={!noDomain()}
-          fallback={<p class="text-sm text-muted-foreground">Add a domain above first.</p>}
+          fallback={
+            <p class="text-sm text-muted-foreground">
+              Add a domain under{" "}
+              <Link to="/domains" class="underline underline-offset-4">
+                Domains
+              </Link>{" "}
+              first, then come back to create a website.
+            </p>
+          }
         >
           <form onSubmit={submit} class="grid gap-5" noValidate>
             <div class="space-y-1.5">

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/dnscheck"
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/provision"
@@ -55,6 +56,7 @@ type SiteStore interface {
 	ListBackups(ctx context.Context, siteID string) ([]store.Backup, error)
 	GetBackup(ctx context.Context, siteID string, id int64) (store.Backup, error)
 	SitesWithActiveBackup(ctx context.Context) ([]string, error)
+	ListSiteActivity(ctx context.Context, ownerID string, types []string, recent time.Duration) ([]store.SiteActivity, error)
 	GetBrandingAssets(ctx context.Context) (store.BrandingAssets, error)
 	UpdateBrandingAssets(ctx context.Context, userID string, change func(*store.BrandingAssets)) error
 	GetSFTPPublicKey(ctx context.Context) (string, error)

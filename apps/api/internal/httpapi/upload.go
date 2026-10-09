@@ -21,6 +21,19 @@ const maxUploadBodyBytes = maxUploadFileBytes + 1<<20
 
 var errUploadTooLarge = APIError{Status: http.StatusRequestEntityTooLarge, Code: "file_too_large", Message: "The file is larger than 64 MB."}
 
+// allowSlowRequest gives this one request more time than the server's usual limits (15 seconds to
+// read, 30 to answer). A 64 MB upload on a slow line, or a scan of a remote server, needs minutes.
+func allowSlowRequest(w http.ResponseWriter, read, write time.Duration) {
+	rc := http.NewResponseController(w)
+	now := time.Now()
+	if read > 0 {
+		_ = rc.SetReadDeadline(now.Add(read))
+	}
+	if write > 0 {
+		_ = rc.SetWriteDeadline(now.Add(write))
+	}
+}
+
 // isFileUpload reports whether a request is a file upload, which may be larger than other requests.
 func isFileUpload(r *http.Request) bool {
 	return r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/files/upload")
@@ -39,6 +52,7 @@ func (d Deps) handleUploadFile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, requestIDFrom(r), ErrInvalidRequest)
 		return
 	}
+	allowSlowRequest(w, 20*time.Minute, 25*time.Minute)
 	reader, err := r.MultipartReader()
 	if err != nil {
 		writeError(w, requestIDFrom(r), ErrInvalidRequest)

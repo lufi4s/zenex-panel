@@ -287,6 +287,18 @@ export interface BackupStep {
   status: BackupStepStatus;
 }
 
+/** What a website is doing now, or just finished doing (a build, backup, restore, migration or deletion). */
+export interface SiteActivity {
+  site_id: string;
+  job_id: string;
+  type: string;
+  status: "queued" | "running" | "succeeded" | "failed" | "cancelled" | "dead";
+  /** 0 to 100. */
+  percent: number;
+  /** The step that is running, or the next one. Empty when finished. */
+  step: string;
+}
+
 // ---------------------------------------------------------------------------
 // Migration from cPanel
 // ---------------------------------------------------------------------------

@@ -70,7 +70,8 @@ type JobStep struct {
 // ---------------------------------------------------------------------------
 
 // EnsureLocalNode returns the node for this server, creating it on first use.
-// The node is owned by the first administrator.
+// The node is owned by the first administrator. An empty publicIP (not known yet) is stored as
+// 127.0.0.1, because the column is required; the panel shows the configured address elsewhere.
 func (s *Store) EnsureLocalNode(ctx context.Context, name, publicIP string) (string, error) {
 	var id string
 	err := s.pool.QueryRow(ctx,
@@ -84,7 +85,7 @@ func (s *Store) EnsureLocalNode(ctx context.Context, name, publicIP string) (str
 	}
 	err = s.pool.QueryRow(ctx, `
 		INSERT INTO vps_nodes (owner_user_id, name, public_ip, status, last_seen_at)
-		SELECT ur.user_id, $1, $2::inet, 'online', now()
+		SELECT ur.user_id, $1, COALESCE(NULLIF($2, ''), '127.0.0.1')::inet, 'online', now()
 		FROM user_roles ur JOIN roles r ON r.id = ur.role_id
 		WHERE r.name = 'administrator'
 		ORDER BY ur.user_id

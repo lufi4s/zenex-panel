@@ -10,6 +10,8 @@ function mockApi(options: {
   signedIn: boolean;
   update?: { state: string; log: string };
   emailEnabled?: boolean;
+  /** What the website list reports as each website's current job. */
+  activity?: Array<Record<string, unknown>>;
 }) {
   const json = (body: unknown, status = 200) =>
     Promise.resolve(
@@ -94,6 +96,7 @@ function mockApi(options: {
         { id: 1, time: "2026-10-08T10:00:00Z", level: "info", message: "Creating site account" },
       ]);
     }
+    if (url.endsWith("/api/v1/sites/activity")) return json(options.activity ?? []);
     if (url.endsWith("/api/v1/migrations/cpanel/scan") && method === "POST") {
       return json({
         installs: [
@@ -745,5 +748,70 @@ describe("migration from cPanel", () => {
       domain: "www.ozima.cloud",
       source_domain: "www.ozima.cloud",
     });
+  });
+});
+
+describe("website activity", () => {
+  const backup = (over: Record<string, unknown>) => ({
+    site_id: "s1",
+    job_id: "b1",
+    type: "site.backup",
+    status: "running",
+    percent: 45,
+    step: "upload",
+    ...over,
+  });
+
+  it("shows a running backup with its percent and step on the website list", async () => {
+    vi.stubGlobal("fetch", mockApi({ signedIn: true, activity: [backup({})] }));
+    renderAt("/websites");
+
+    expect(await screen.findByText("Backing up · 45%")).toBeTruthy();
+    expect(screen.getByText("Uploading to the remote server")).toBeTruthy();
+    const bar = screen.getByRole("progressbar", { name: "Backing up · 45%" });
+    expect(bar.getAttribute("aria-valuenow")).toBe("45");
+  });
+
+  it("says complete when the backup has finished", async () => {
+    vi.stubGlobal(
+      "fetch",
+      mockApi({
+        signedIn: true,
+        activity: [backup({ status: "succeeded", percent: 100, step: "" })],
+      }),
+    );
+    renderAt("/websites");
+
+    expect(await screen.findByText("Backup complete")).toBeTruthy();
+    expect(screen.queryByRole("progressbar", { name: /Backup/ })).toBeNull();
+  });
+
+  it("says failed when it stopped, and shows nothing for an idle website", async () => {
+    vi.stubGlobal(
+      "fetch",
+      mockApi({ signedIn: true, activity: [backup({ status: "failed", percent: 50, step: "" })] }),
+    );
+    renderAt("/websites");
+    expect(await screen.findByText("Backup failed")).toBeTruthy();
+    unmount();
+
+    resetQueryCache();
+    vi.stubGlobal("fetch", mockApi({ signedIn: true, activity: [] }));
+    renderAt("/websites");
+    await screen.findByText("shop.ozima.cloud");
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("names a restore and a migration in the same way", async () => {
+    vi.stubGlobal(
+      "fetch",
+      mockApi({
+        signedIn: true,
+        activity: [backup({ type: "site.restore", percent: 50, step: "restore" })],
+      }),
+    );
+    renderAt("/websites");
+    expect(await screen.findByText("Restoring · 50%")).toBeTruthy();
+    expect(screen.getByText("Restoring files and database")).toBeTruthy();
   });
 });

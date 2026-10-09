@@ -137,6 +137,10 @@ func serve(cfg config.Config, log *slog.Logger) error {
 	if err := s.ResetRunningJobs(ctx); err != nil {
 		return fmt.Errorf("reset jobs: %w", err)
 	}
+	// Backups, restores and migrations run inside this process, so none survives a restart.
+	if err := s.FailInterruptedJobs(ctx); err != nil {
+		return fmt.Errorf("fail interrupted jobs: %w", err)
+	}
 	// Host metrics and website uptime are recorded in the background. Each host
 	// sample is also checked against the alert thresholds.
 	alertSvc := alerts.New(s, cfg.SecretKey, cfg.NodeName, log)

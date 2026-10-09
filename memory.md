@@ -536,3 +536,22 @@ Pending next: try on a real account; optional bulk migration; optional www alias
 - First live tests to run: Open admin (needs PHP plugin check), file upload (needs /var/lib/zenex/uploads writable by the zenex user), restore and remote restore, cPanel migration against a test account.
 - Tool notes: heredocs with backslashes break in this shell; write Python edit scripts to the scratchpad with the Write tool (edit_util.py keeps line endings). `vp check --fix` formats; tsc -b rewrites apps/panel/tsconfig.tsbuildinfo (revert with git checkout).
 - Pending ideas: bulk cPanel migration, www alias in the Caddy vhost, cPanel backup-file upload, browser pass on real devices, a safety copy when replacing an existing website through migration.
+
+## 41. Live website status, report, small fixes (latest, NOT committed)
+
+- GET /api/v1/sites/activity (httpapi/activity.go, store/activity.go ListSiteActivity): per website, the latest job of type site.provision/backup/restore/migrate/delete that is queued/running or finished within 10 minutes; reply {site_id, job_id, type, status, percent, step}. Admin sees all websites, others their own. Percent from job steps (manage.ProgressPercent), 100 when succeeded.
+- store.FailInterruptedJobs runs at start-up (cmd/api/main.go after ResetRunningJobs): backup, restore and migrate jobs left queued/running by a restart become failed, so they do not show "running" for ever or block the website.
+- Frontend: components/ActivityStatus.tsx and lib/activity.ts render "Backing up · 45%" + progress bar + step, "Backup complete", "Backup failed" under the status badge in the Websites table and in the Overview recent list. useSiteActivity polls every 2 s while something runs, 6 s when idle; backup, restore, migrate hooks invalidate it.
+- App.tsx: ErrorBoundary per page (PageError with Try again / Reload); NewWebsiteCard no-domain text now links to Domains.
+- Tests: httpapi/activity_test.go (3), app.test.tsx (4 new). Totals: vitest 58/58, Go suites pass, vite build done (dist rebuilt).
+- Report for the user: C:\Users\YoKina\Desktop\report.txt (flow review, fixed problems, open issues H1-H4, M1-M11, L1-L7, 16 suggestions, live-server test list). Open issue H2 to decide: /monitoring/metrics and /monitoring/services are visible to customers (session-only check).
+- Next: commit and push when asked; deploy; run the live tests listed in the report.
+
+## 42. README, docs and technical check (latest)
+
+- README.md added at the repo root (features, how it works, requirements, one-command install, first steps, usage, update, configuration, security model, development, layout, troubleshooting, known limits). docs/architecture.md and docs/security.md rewritten for the real system (they described SvelteKit and nginx).
+- Desktop reports (outside the repo): C:\Users\YoKina\Desktop\report.txt (UI flow report) and C:\Users\YoKina\Desktop\tech_report.txt (backend, stack, bugs, open issues).
+- Backend verification done: vet, all tests (Go 300 pass, 9 skipped; UI 58), shuffled/repeat runs, Linux builds, 6 migrations on real PostgreSQL 16, real API binary smoke test, govulncheck, npm audit.
+- Real PostgreSQL integration tests: apps/api/internal/store/integration_test.go, run with ZENEX_TEST_DATABASE_URL (skipped otherwise). A scratch cluster was used in the scratchpad (port 55433, now stopped).
+- Bugs fixed: (1) EnsureLocalNode/create-admin failed with empty ZENEX_PUBLIC_IP (now stores 127.0.0.1); (2) upload and remote-list requests hit the server's 15 s read / 30 s write timeouts (allowSlowRequest in httpapi/upload.go, proved by upload_deadline_test.go); (3) helper global lock blocked everything during a backup or restore (unlockedOps in helper/verify.go, test lock_test.go); (4) helper not running returned 500, now 503 helper_unavailable (helperclient.ErrUnreachable).
+- Open items (see tech_report.txt section 5): HIGH Go toolchain on the VPS is Ubuntu's golang-go 1.22 (known stdlib issues) and pgx 5.9.2 / x/text 0.41 need Go 1.25, so the installer must install an official Go first, then bump deps (tried: go.mod goes to 1.25.0, reverted); HIGH decision: customers can see /monitoring/metrics and /services; MEDIUM: wp-cli gets the DB password in argv, no upload quota, jobs not resumable, tests/security empty, new helper ops never run on Linux.

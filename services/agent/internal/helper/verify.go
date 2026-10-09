@@ -8,11 +8,24 @@ import (
 	"time"
 )
 
-// runsWithoutLock lists operations that use only their own work folder, so they may run
-// beside other operations. Everything else shares web server and PHP configuration.
-func runsWithoutLock(op string) bool {
-	return op == "cpanel.scan" || op == "cpanel.pull"
+// unlockedOps are the operations that do not change the web server or PHP configuration that
+// the lock protects. They may run beside other operations. Without this, one backup (up to 20
+// minutes) or restore (up to 40) would block every other operation of every website: opening a
+// folder, reading a log, building a new site.
+//
+//   - read-only operations: folder listings, file reads, log tails, service and PHP lists, versions
+//   - backup, restore and cPanel copies: they work on one website's files and database, and on
+//     the backup folders; the panel never runs two of them for the same website at once
+var unlockedOps = map[string]bool{
+	"files.list": true, "files.read": true, "logs.tail": true, "services.status": true,
+	"php.versions": true, "panel.version": true, "panel.latest": true, "panel.update-status": true,
+	"backup.create": true, "backup.restore": true, "backup.upload": true, "backup.download": true,
+	"backup.delete": true, "backup.discover": true, "backup.test": true,
+	"cpanel.scan": true, "cpanel.pull": true,
 }
+
+// runsWithoutLock reports whether an operation skips the lock.
+func runsWithoutLock(op string) bool { return unlockedOps[op] }
 
 // wpOutput runs WP-CLI as the site's account and returns what it printed.
 func (o *Ops) wpOutput(ctx context.Context, linuxUser string, wpArgs ...string) (string, error) {

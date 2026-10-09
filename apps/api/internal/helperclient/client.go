@@ -14,6 +14,10 @@ import (
 	"time"
 )
 
+// ErrUnreachable means the helper's socket could not be reached: its service is not running
+// or the panel may not open it. Callers can tell this apart from an operation that failed.
+var ErrUnreachable = errors.New("privileged helper is not reachable")
+
 // Error is returned when the helper rejected or failed an operation.
 // Its message is safe to show to the customer.
 type Error struct{ Message string }
@@ -69,7 +73,7 @@ func (c *Client) call(ctx context.Context, op string, args map[string]string, pi
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("privileged helper is not reachable: %w", err)
+		return "", fmt.Errorf("%w: %w", ErrUnreachable, err)
 	}
 	defer resp.Body.Close()
 

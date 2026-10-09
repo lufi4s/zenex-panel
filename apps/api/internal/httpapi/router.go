@@ -103,6 +103,7 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("PUT /api/v1/sites/{id}/auto-update", requireCSRF(d.requireSession(d.handleSetAutoUpdate)))
 	mux.Handle("PUT /api/v1/sites/{id}/maintenance", requireCSRF(d.requireSession(d.handleSetMaintenance)))
 	mux.Handle("GET /api/v1/sites/{id}/backups", d.requireSession(d.handleListBackups))
+	mux.Handle("GET /api/v1/sites/activity", d.requireSession(d.handleSiteActivity))
 	mux.Handle("POST /api/v1/sites/backup-all", requireCSRF(d.requireSession(d.handleBackupAll)))
 	mux.Handle("POST /api/v1/sites/{id}/backup", requireCSRF(d.requireSession(d.handleStartBackup)))
 	mux.Handle("POST /api/v1/sites/{id}/backups/{backup_id}/restore", requireCSRF(d.requireSession(d.handleRestoreBackup)))
