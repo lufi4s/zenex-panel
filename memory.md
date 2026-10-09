@@ -317,3 +317,7 @@ Removed every UI/animation/data/routing library from apps/panel. Only React, Rea
 - Headless Chrome, all routes (/, /websites, site page, /domains, /server, /activity, /settings, unknown route, /login): 0 exceptions, 0 console errors, 0 leaked undefined/NaN text, no unexpected API failures.
 - Click-through (site tabs Logs/Files/Settings, WordPress login dialog, new-website dialog, Escape to close, notification bell, mobile drawer, no horizontal overflow on phone width, wrong-password error): 19/19 checks pass. The only 401 responses are the expected signed-out check and the wrong password.
 - Not covered by this pass: creating/deleting a real site, DNS checks, the in-panel update button, visual review of the Solid build on phone and desktop.
+
+## 24. Typography (latest)
+
+- Headings: Bricolage Grotesque Variable. Body: Outfit Variable. Both self-hosted via @fontsource-variable (CSP-safe), with system fallbacks. Set in apps/panel/src/index.css.
