@@ -526,3 +526,13 @@ Pending next: try on a real account; optional bulk migration; optional www alias
 ## 39. Pushed to GitHub
 
 - Commit 08da8d0 on main (origin lufi4s/zenex-panel) contains sections 33-38 (restore, remote restore, upload, Open admin, stability pass, cPanel migration). VPS is not updated yet; deploy with update.sh/install.sh and test sections 33-38 live.
+
+## 40. Current state summary (resume here)
+
+- Repo: main at d679432, pushed to origin lufi4s/zenex-panel; working tree clean. Line endings: working tree is CRLF on this Windows machine (autocrlf), git stores LF.
+- Checks that pass: go vet/test in apps/api and services/agent (also GOOS=linux vet), panel tsc, vp check, vitest 54/54, vite build (dist committed in apps/api/web/dist).
+- Features added since section 32 (details in sections 33-38): per-site restore with safety copy; restore from SFTP backups found by manifest; file upload; one-click WordPress admin link; wider New website form; frontend stability pass; migrate from cPanel; ownership fix on restore.
+- Nothing from sections 33-38 is deployed or tested on the VPS. Deploy: `git -C /opt/zenex/src fetch -q --depth 1 origin main && git -C /opt/zenex/src reset -q --hard FETCH_HEAD && bash /opt/zenex/src/infrastructure/deployment/install.sh` (needs ZENEX_VPS_PASS or the user running it).
+- First live tests to run: Open admin (needs PHP plugin check), file upload (needs /var/lib/zenex/uploads writable by the zenex user), restore and remote restore, cPanel migration against a test account.
+- Tool notes: heredocs with backslashes break in this shell; write Python edit scripts to the scratchpad with the Write tool (edit_util.py keeps line endings). `vp check --fix` formats; tsc -b rewrites apps/panel/tsconfig.tsbuildinfo (revert with git checkout).
+- Pending ideas: bulk cPanel migration, www alias in the Caddy vhost, cPanel backup-file upload, browser pass on real devices, a safety copy when replacing an existing website through migration.
