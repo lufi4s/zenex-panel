@@ -9,6 +9,7 @@ import {
   Pencil,
   RefreshCw,
   Trash2,
+  Upload,
   X,
 } from "@/components/icons";
 import {
@@ -17,6 +18,7 @@ import {
   useFileContent,
   useFolder,
   useSaveFile,
+  useUploadFile,
 } from "@/api/queries";
 import { describeError } from "@/api/client";
 import type { FileEntry, Site } from "@/api/types";
@@ -292,7 +294,10 @@ function Editor(props: { siteId: string; path: string; onClose: () => void }) {
   );
 }
 
-/** Browse, edit, create and delete the files of one website. */
+/** Largest file the panel accepts; the server enforces the same limit. */
+const MAX_UPLOAD_BYTES = 64 * 1024 * 1024;
+
+/** Browse, edit, upload, create and delete the files of one website. */
 export function FileBrowser(props: { site: Site }) {
   const [path, setPath] = createSignal("");
   const [openFile, setOpenFile] = createSignal<string | null>(null);
@@ -302,6 +307,35 @@ export function FileBrowser(props: { site: Site }) {
   const [createError, setCreateError] = createSignal<string | null>(null);
   const createFolder = useCreateFolder(props.site.id);
   const saveNew = useSaveFile(props.site.id);
+  const upload = useUploadFile(props.site.id);
+  const [uploadStatus, setUploadStatus] = createSignal<string | null>(null);
+  const [uploadError, setUploadError] = createSignal<string | null>(null);
+  let fileInput: HTMLInputElement | undefined;
+
+  // Files go one after another, so a failure stops the rest and the message names the file.
+  const uploadPicked = async (input: HTMLInputElement) => {
+    const files = Array.from(input.files ?? []);
+    input.value = "";
+    if (files.length === 0) return;
+    setUploadError(null);
+    let done = 0;
+    for (const file of files) {
+      if (file.size > MAX_UPLOAD_BYTES) {
+        setUploadError(`${file.name} is larger than 64 MB and was not uploaded.`);
+        break;
+      }
+      setUploadStatus(`Uploading ${file.name} (${done + 1} of ${files.length})…`);
+      try {
+        await upload.mutateAsync({ folder: path(), file });
+        done += 1;
+      } catch (err) {
+        setUploadError(`${file.name}: ${describeError(err)}`);
+        break;
+      }
+    }
+    setUploadStatus(null);
+    if (done > 0) setRefreshKey((k) => k + 1);
+  };
 
   // The listing query reads its folder when it starts, so a new folder or refresh mounts a new listing.
   const listing = createMemo(() => ({ path: path(), refresh: refreshKey() }));
@@ -353,6 +387,24 @@ export function FileBrowser(props: { site: Site }) {
           <div class="flex flex-wrap items-center gap-2">
             <Crumbs path={path()} onGo={go} />
             <div class="ml-auto flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={upload.isPending}
+                onClick={() => fileInput?.click()}
+              >
+                <Upload aria-hidden="true" /> {upload.isPending ? "Uploading…" : "Upload"}
+              </Button>
+              <input
+                ref={(el) => {
+                  fileInput = el;
+                }}
+                type="file"
+                multiple
+                class="hidden"
+                aria-label="Choose files to upload"
+                onChange={(e) => void uploadPicked(e.currentTarget)}
+              />
               <Button
                 variant="outline"
                 size="sm"
@@ -421,6 +473,21 @@ export function FileBrowser(props: { site: Site }) {
                   )}
                 </Show>
               </form>
+            )}
+          </Show>
+
+          <Show when={uploadStatus()}>
+            {(message) => (
+              <p class="text-xs text-muted-foreground" role="status">
+                {message()}
+              </p>
+            )}
+          </Show>
+          <Show when={uploadError()}>
+            {(message) => (
+              <Alert variant="destructive">
+                <AlertDescription>{message()}</AlertDescription>
+              </Alert>
             )}
           </Show>
 

@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "./query";
-import { ApiError, apiRequest, newIdempotencyKey } from "./client";
+import { ApiError, apiRequest, apiUpload, newIdempotencyKey } from "./client";
 import { toast } from "../lib/toast";
 import { touchBrandAssets } from "../lib/brand";
 import type {
@@ -8,11 +8,15 @@ import type {
   AlertSettingsInput,
   BackupJobProgress,
   BackupSettings,
+  CpanelConn,
+  CpanelMigrateResult,
+  CpanelScanResult,
   Branding,
   BrandingInput,
   BrandImageInput,
   SftpSettings,
   ActivityResult,
+  RemoteBackup,
   SiteBackup,
   SiteDefaults,
   Domain,
@@ -373,6 +377,34 @@ export function useSaveFile(siteId: string) {
   });
 }
 
+/** Uploads one file into a folder of the website. An existing file with the same name is refused. */
+export function useUploadFile(siteId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { folder: string; file: File }) => {
+      const form = new FormData();
+      form.append("file", input.file);
+      return apiUpload<{ name: string }>(
+        `/api/v1/sites/${siteId}/files/upload?path=${encodeURIComponent(input.folder)}`,
+        form,
+      );
+    },
+    meta: { silent: true },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["files", siteId] }),
+  });
+}
+
+/** A one-time link that opens the website's admin dashboard already signed in. It expires within 90 seconds. */
+export function useWPLoginLink() {
+  return useMutation({
+    mutationFn: (siteId: string) =>
+      apiRequest<{ url: string; expires_at: string }>(`/api/v1/sites/${siteId}/wp-login-link`, {
+        method: "POST",
+      }),
+    meta: { silent: true },
+  });
+}
+
 export function useCreateFolder(siteId: string) {
   const qc = useQueryClient();
   return useMutation({
@@ -583,6 +615,91 @@ export function useRunBackupsNow() {
   });
 }
 
+/** Finds the WordPress websites on a cPanel account. Administrators only. Only reads from cPanel. */
+export function useCpanelScan() {
+  return useMutation({
+    mutationFn: (conn: CpanelConn) =>
+      apiRequest<CpanelScanResult>("/api/v1/migrations/cpanel/scan", {
+        method: "POST",
+        body: conn,
+      }),
+    meta: { silent: true },
+  });
+}
+
+/**
+ * Builds a website here and fills it from a cPanel website. With `site_id` it fills an existing
+ * website instead (a retry, or a replacement). Answers the migration job to follow.
+ */
+export function useCpanelMigrate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (
+      input: CpanelConn & {
+        path: string;
+        domain: string;
+        source_domain?: string;
+        site_id?: string;
+      },
+    ) =>
+      apiRequest<CpanelMigrateResult>("/api/v1/migrations/cpanel", { method: "POST", body: input }),
+    meta: { silent: true },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: keys.sites });
+    },
+  });
+}
+
+/** Backups on the saved SFTP server, from any Zenex panel that uses it. Administrators only. */
+export function useRemoteBackups() {
+  return useQuery({
+    queryKey: ["settings", "backups", "remote"],
+    queryFn: () => apiRequest<RemoteBackup[]>("/api/v1/settings/backups/remote"),
+    retry: false,
+  });
+}
+
+/** Restores a website from a backup on the SFTP server. Answers the restore job ID. */
+export function useRestoreRemote() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { siteId: string; path: string }) =>
+      apiRequest<{ job_id: string }>(`/api/v1/sites/${input.siteId}/restore-remote`, {
+        method: "POST",
+        body: { path: input.path },
+      }),
+    meta: { silent: true },
+    onSuccess: () => {
+      toast.success("Restore started");
+      void qc.invalidateQueries({ queryKey: ["backups"] });
+    },
+  });
+}
+
+/** Starts a backup of every website the customer owns now. Answers how many were started and how many were skipped. */
+export function useBackupAll() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiRequest<{ started: number; skipped: number }>("/api/v1/sites/backup-all", {
+        method: "POST",
+      }),
+    onSuccess: (res) => {
+      if (res.started === 0) {
+        toast.info("No websites were backed up. Each one may already be backing up.");
+      } else {
+        toast.success(
+          res.started === 1
+            ? "Backup started for 1 website"
+            : `Backup started for ${res.started} websites`,
+        );
+      }
+      void qc.invalidateQueries({ queryKey: ["backups"] });
+      void qc.invalidateQueries({ queryKey: ["backup-progress"] });
+    },
+  });
+}
+
 /** The SFTP public key the backups use. A 404 means no key has been generated yet. */
 export function useSftpKey() {
   return useQuery({
@@ -702,6 +819,25 @@ export function useBackupNow(siteId: string) {
       toast.success("Backup started");
       void qc.invalidateQueries({ queryKey: ["backups", siteId] });
       void qc.invalidateQueries({ queryKey: ["backup-progress", siteId] });
+    },
+  });
+}
+
+/**
+ * Restores a website from one of its backups. A copy of the current website is taken first.
+ * Answers the ID of the restore job, which the page follows with JobProgress.
+ */
+export function useRestoreBackup(siteId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (backupId: number) =>
+      apiRequest<{ job_id: string }>(`/api/v1/sites/${siteId}/backups/${backupId}/restore`, {
+        method: "POST",
+      }),
+    meta: { silent: true },
+    onSuccess: () => {
+      toast.success("Restore started");
+      void qc.invalidateQueries({ queryKey: ["backups", siteId] });
     },
   });
 }

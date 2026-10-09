@@ -74,9 +74,10 @@ export function AppSidebar(props: { user: User; open: boolean; onNavigate: () =>
     <aside
       aria-label="Main navigation"
       class={cn(
-        "fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-border bg-card transition-transform duration-200",
+        "fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-border bg-card transition-[transform,visibility] duration-200",
         "lg:sticky lg:top-0 lg:h-dvh lg:shrink-0 lg:translate-x-0",
-        props.open ? "translate-x-0" : "-translate-x-full",
+        // A closed drawer is also hidden, so keyboard focus cannot reach its links.
+        props.open ? "translate-x-0" : "-translate-x-full max-lg:invisible",
       )}
     >
       <div class="flex h-14 items-center gap-2.5 border-b border-border px-4">

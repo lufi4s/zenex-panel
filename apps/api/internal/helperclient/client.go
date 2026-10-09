@@ -36,7 +36,7 @@ func New(path string) *Client {
 			return d.DialContext(ctx, "unix", path)
 		},
 	}
-	return &Client{http: &http.Client{Transport: transport, Timeout: 50 * time.Minute}}
+	return &Client{http: &http.Client{Transport: transport, Timeout: 4 * time.Hour}}
 }
 
 type request struct {

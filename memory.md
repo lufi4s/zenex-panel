@@ -378,3 +378,147 @@ Removed every UI/animation/data/routing library from apps/panel. Only React, Rea
 - GET /api/v1/sites/{id}/backup-progress (httpapi/site_features.go): latest site.backup job as {job_id,status,percent,steps:[{name,status}]}; percent = succeeded + 0.5*running over total steps (manage.ProgressPercent). No job: 200 {"job_id":""}.
 - Known limitation: the step list is fixed at job creation from the destination at that moment; a destination change between creation and run is not reflected in steps.
 - Tests: manage/backup_progress_test.go, httpapi/backup_progress_test.go. gofmt, go vet, go test ./... pass in apps/api.
+
+## 32. API details for alert test email, backup destination and branding assets (apps/api)
+
+- Test email: POST /api/v1/settings/alerts/test-email (admin, CSRF, audit alerts.test_email). Uses the saved alert email settings and sends to the saved recipients. Responses: 200 {"sent":true}; 400 email_not_configured (disabled, incomplete, or username set without a password); 502 email_failed (password redacted, max 200 chars); 409 secret_key_missing. Code: alerts/service.go SendTestEmail.
+- SMTP message (alerts/senders.go buildMessage): multipart/alternative with a quoted-printable text part and an escaped HTML part. From and Reply-To are the configured sender (bare address stays exact). Message-ID is on the sender's domain. CRLF only. A comment documents the Gmail rule: from must equal the login address.
+- SFTP key: POST /api/v1/settings/backups/sftp-key calls helper backup.keygen, validates the ssh-ed25519 line, and stores it in system_settings "backup_sftp_public_key". GET returns it, or 404 key_missing if none exists. GET does not check the helper's disk, because no helper op exists for that.
+- SFTP test: POST /api/v1/settings/backups/sftp-test uses the saved SFTP destination. 400 sftp_not_configured when the destination is local; 502 sftp_failed; 200 {"ok":true}.
+- Backup destination validation (httpapi/settings.go validBackupSettings): type local|sftp (empty means local); host is a hostname or IP; port 1-65535; username ^[a-z_][a-z0-9_-]{0,31}$; path absolute, not "/", no "..", no control characters, max 200 chars, cleaned with path.Clean.
+- Store: decodeBackupSettings keeps legacy values (no destination) as local. Asset store methods GetBrandingAssets and UpdateBrandingAssets (mutex-guarded read-modify-write of system_settings "branding_assets").
+- Branding: GET and PUT /api/v1/branding return has_logo and has_favicon. Asset routes are under /api/v1/branding/logo and /favicon. Magic-byte check (detectImageMime), 256 KB decoded limit (413 image_too_large), invalid_image 400 otherwise. Public GET sends the stored Content-Type, Cache-Control public max-age=300, nosniff, and CSP default-src 'none'; img-src 'self'.
+- Known limitations: remote retention takes port and username from current settings, so after a host change old remote deletes keep failing and their rows are retained. If the local archive removal fails after a successful upload, the local copy is untracked and a job warning is logged.
+- Tests: alerts/alerts_test.go, httpapi/settings_test.go, httpapi/settings_backup_test.go, httpapi/branding_assets_test.go, manage/features_test.go, store/settings_test.go. Not run against a real SMTP server, a real SFTP server, or PostgreSQL.
+
+## 33. Resume check (latest)
+
+- Working tree clean apart from memory.md. HEAD 1f2e296 (backup progress bar). Nothing committed or deployed in this step.
+- Re-verified on Windows: apps/api `go vet` + `go test ./...` pass; services/agent `go vet` + `go test` pass and `GOOS=linux go vet` passes; apps/panel `tsc -b` clean and vitest 49/49 pass (6 files). The Solid `cleanNode` stack trace in the test output is logged noise, not a failure.
+- Still not verified: VPS deploy of 27-32, real SMTP, real SFTP, backups against PostgreSQL in a live run.
+- Pending decisions for the user: (a) deploy to VPS (needs ZENEX_VPS_PASS or the user running install.sh/update); (b) stale "running" site.backup job after a crash blocks that site (section 30 gap, backend fix not started, needs approval since backend changes were restricted in section 19); (c) password-free WordPress admin sign-in (section 26, needs approval).
+
+## 34. Per-website backup and restore (latest)
+
+Customer request: every website has its own backup and restore; a "back up now" button covers all websites.
+
+API (apps/api):
+- POST /api/v1/sites/{id}/backups/{backup_id}/restore (CSRF, owner or admin): 202 {job_id}. Refuses while a site.backup or site.restore job is queued/running (409 backup_in_progress). Only ready sites. Backup must belong to the site (404 otherwise).
+- POST /api/v1/sites/backup-all (CSRF): backs up every ready site the caller owns (all for admin); returns {started, skipped}. Shares the run-now lock.
+- Restore job type `site.restore`, steps: `save_current` (local safety archive, recorded in backups so it can be restored again), `download` (SFTP records only; fetches the archive via helper backup.download), `restore` (helper backup.restore). Code: manage/restore.go. Audit: site.restore, site.backup_all.
+- store.GetBackup (store/backups.go). SitesWithActiveBackup now also counts site.restore jobs.
+- makeArchive extracted from backupSite (manage/features.go) and reused by the safety step.
+- Manager.RestoreTimeout (40 min).
+
+Helper (services/agent/internal/helper/restore.go, ops.go dispatch):
+- backup.restore: archive must be under the site's backup folder; `tar -tzf` listing must contain only htdocs/ and database.sql (no ".." or absolute names); unpack into a root-only .restore-* folder inside the home dir; reject symlinks; swap the htdocs folder (old one moved aside, put back on failure); DB: DROP + CREATE + SOURCE in one mariadb session, stdin only. If the DB step fails the files are put back, but the old DB is already dropped (the safety copy is the recovery path).
+- backup.download: sftp `get` into the site's backup folder; partial file removed on failure; password via SSHPASS env like the other SFTP ops.
+- Tests: helper/restore_test.go (3), httpapi/site_restore_test.go (3).
+
+Frontend (apps/panel):
+- SitePage BackupsCard: Restore button per backup row (disabled unless ready) with confirm dialog; restore job shown with JobProgress "Restoring backup".
+- WebsitesPage: "Back up all websites" button (useBackupAll) next to New website.
+- queries.ts: useRestoreBackup, useBackupAll.
+
+Verified: go vet and go test ./... (apps/api), go vet + helper tests (Windows), GOOS=linux vet for api and agent; panel tsc, vitest 49/49, vp check clean, vite build (apps/api/web/dist rebuilt, so dist files in git status changed).
+
+Not verified: a real restore on the VPS or against PostgreSQL/MariaDB; SFTP download against a real server; SOURCE over stdin in mariadb client on Ubuntu; not deployed.
+
+Known limitations:
+- Helper runs ops under one mutex; backup.restore and backup.create hold it for up to 40/20 min, which blocks other helper calls (existing design for backups; restore inherits it).
+- A restore does not drop tables that a DB user created after the backup in another tool; DROP DATABASE removes everything in the site DB, so the dump is authoritative.
+- Restoring a backup from a deleted site is not offered (backups are per site ID).
+- Backup-all for admins covers all sites, same as run-now.
+
+## 35. Cross-panel backup discovery and restore; dropdown look (latest)
+
+Request: restore must work when a new panel is connected to the same SFTP backup server: it detects the backups and shows them, and restore brings them back. Also: the dropdowns and the restore label looked wrong.
+
+Manifests (helper): each archive now gets `<name>.json` beside it: format 1, domain, site_id, linux_user, database, created_at. backup.create takes optional `domain` and `site_id` (API always sends them; both or neither). backup.upload sends the manifest after the archive (upload batch). backup.delete removes the manifest first (remote) or with the archive (local). Archives without a manifest (made before this) are not offered on other panels.
+Archive names are still timestamps (`YYYYMMDD-HHMMSS.tar.gz`), so the manifest is the only link to the website.
+
+Helper ops:
+- backup.discover (new, services/agent/internal/helper/discover.go): `ls -l` the remote folder, download manifests of archives that have one (max 500, 16 KB each), reply JSON array {file, size_bytes, domain, site_id, linux_user, database, created_at}. parseSFTPListing and readManifest are pure and unit tested.
+- backup.restore: now also needs dbpass (hex; the site's DB password derived from the site ID by the API), optional from_domain and to_domain. After the DB import it rewrites wp-config.php with this site's DB account and the archive's table prefix (salts are new, so logins end), then `wp search-replace` http(s)://from -> https://to when the domain differs. wp-cli gets the DB password in argv (same as the existing config create; known risk).
+- backup.download (restore.go): used for SFTP restores.
+
+API (apps/api):
+- GET /api/v1/settings/backups/remote (admin): lists backups on the saved SFTP server, newest first (manage.ListRemoteBackups). 400-style refusal (409 not_allowed) when destination is local.
+- POST /api/v1/sites/{id}/restore-remote (admin, CSRF): body {path}. The path must be in the current listing (else 404), so a typed path cannot reach other files. Busy check as usual. Job site.restore with steps save_current, download, restore.
+- manage.StartRestore now takes sourceDomain; local restores pass site.Domain (no domain change). Manager.DBPassword is wired in cmd/api/main.go via provision.DBPassword.
+- Tests: manage/remote_restore_test.go (list sorting, refusal, args for domain/dbpass, local restore unchanged), helper/discover_test.go, helper/restore_test.go, httpapi/site_restore_test.go.
+
+Frontend (apps/panel):
+- New components/RemoteBackupsCard.tsx on Settings (shown only when the destination is SFTP): backups grouped by domain; Restore opens a dialog where the target website is picked (auto-selects the site with the same domain; warns when none exists on this panel); job shown with JobProgress.
+- components/ui/select.tsx: one styled native select with a chevron. Used in BackupSettingsCard (weekday, time), SiteDefaultsCard (PHP), NewWebsiteCard (domain), SitePage (PHP version). This is the "dropdown icon" fix (the browser's default arrow looked off); the restore button now has an icon.
+- SitePage backup list: restore button has RotateCcw icon.
+- icons.tsx: ChevronDown, RotateCcw.
+
+Limits (not done):
+- Target website must already exist on this panel (no auto-create; creating a site needs DNS verification).
+- Old archives (no manifest) are not offered from another panel.
+- Restoring another panel's backup regenerates WordPress salts; users must sign in again.
+- Customer accounts cannot restore from the backup server (admin only), by design: the listing covers every site on the server.
+- Helper ops still run under one mutex; discover and restore wait behind a running backup.
+- Not verified on a real SFTP server, MariaDB, or two VPS; not deployed.
+
+Verified: go vet and go test ./... in apps/api; agent go vet and helper tests; GOOS=linux vet for both; panel tsc, vitest 49/49, vp check clean, vite build (apps/api/web/dist rebuilt).
+
+## 36. File upload, wider New website form, one-click WordPress admin (latest)
+
+File manager upload:
+- POST /api/v1/sites/{id}/files/upload?path=<folder> (multipart field "file", CSRF). The API streams the file to /var/lib/zenex/uploads (manage.UploadDir, owned by the zenex API user), then helper op files.import moves it into the folder (copy with O_EXCL, chown to site account, 0640), and removes the staged file. Existing names are refused. Max 64 MB (helper and API both enforce). The body limit for this route is 65 MB (httpapi/middleware.go limitBody uses isFileUpload); other routes stay at 1 MB.
+- Files: apps/api/internal/httpapi/upload.go, manage/upload_login.go (ImportFile), services/agent/internal/helper/files_import.go, files.go dispatch, ops.go (Paths.UploadDir, "files.import"). Tests: helper/files_import_test.go, manage/upload_login_test.go.
+- Frontend: FileManager.tsx Upload button (sequential, status line, error names the file), api/client.ts apiUpload, queries.ts useUploadFile, icons Upload.
+
+New website form: the dialog was max-w-lg with a 3-column grid, so the inputs were narrow. Now dialog is sm:max-w-xl and the form is stacked (label, domain, full-width button on mobile, right-aligned on desktop). NewWebsiteCard.tsx, WebsitesPage.tsx.
+
+Open admin (one-click, auto signed in):
+- Why not before: the panel and the website are different sites, so the browser dropped the login cookie after a cross-site POST redirect (section 26). Fix: a one-time link opened on the website itself.
+- Link: https://<domain>/?zenex_autologin=<expiry>.<nonce>.<hmac-sha256 hex>, key = provision.AutoLoginKey (derive "autologin:"+siteID, same as other site secrets), valid 90 s, single use (transient for 300 s), signed for the administrator "zenexadmin" only.
+- API: POST /api/v1/sites/{id}/wp-login-link (owner/admin, CSRF) → {url, expires_at}. manage.WPLoginLink calls helper wp.autologin first.
+- Helper wp.autologin (services/agent/internal/helper/autologin.go): writes wp-content/mu-plugins/zenex-autologin.php (mode 0600, owned by the site account, so other sites cannot read the key). Installed or refreshed on each click, so existing sites need no migration. Plugin: checks format, expiry, HMAC (hash_equals), nonce, user has manage_options, then wp_set_auth_cookie and redirect to admin.
+- Frontend: SitePage WordPressAccess "Open admin" opens about:blank synchronously (pop-up allowed), then sets its location to the link. Shows an error if pop-ups are blocked.
+
+Not verified: no PHP runtime on this machine, so the plugin was not linted or run; it must be tested on the VPS (click Open admin, check login, expired/replayed link refused). Not verified on a real Caddy/WordPress. Not deployed.
+Final check (2026-10-10): memory.md is the last update of this session. Working tree: 44 changed files outside apps/api/web/dist, plus the rebuilt dist (44 entries there). Nothing committed or deployed. Pending next steps: commit when the user asks; deploy via update.sh or install.sh on the VPS; test section 36 (upload, New website layout, Open admin link) and sections 33-35 on the live server.
+Known limits: a maintenance-mode website returns 503 before PHP, so the link fails there. The token is in the URL (short-lived, single-use). The key is in the site's mu-plugin file; anyone who controls the site's own files can read it, which only grants access to that same site.
+
+## 37. Frontend stability pass (latest)
+
+Audit of apps/panel/src; fixes (tsc, vp check, vitest 51/51, vite build all pass; apps/api/web/dist rebuilt; not deployed):
+- api/query.ts: an invalidation that arrives while a fetch is running now queues one more fetch (before, the stale in-flight result won). Tests: api/query.test.ts.
+- lib/router.tsx: Routes is keyed, so params follow the address; NavLink reads the location reactively (it destructured it once).
+- App.tsx: the signed-in frame (sidebar, header) is built once and stays; only the page inside changes. Before, the whole tree was rebuilt on every navigation. Pages scroll to the top on navigation.
+- WebsitesPage: one New website dialog (it was built twice, so it opened twice on the empty state).
+- Mobile drawer: hidden when closed (no focus on hidden links), Escape closes it. Toaster above dialogs (z-[60]).
+- JobProgress: wording is generic; `retryable={false}` for restores (a restore cannot be queued again, the Retry button would have left it queued forever).
+- SitePage: Files tab falls back to Overview when it disappears; backup sizes use formatBytes; restore/delete dialogs reset old errors; Visit site and the new-site address use https.
+- Dark mode: --destructive-foreground added (red buttons and the bell badge were unreadable), color-scheme light dark. Login page shows the saved logo and the panel name's first letter.
+- Backup settings message says "1 website".
+Known/not done: no browser pass on a real device; BrandingCard, AlertSettingsCard, MonitoringCard, LineChart, Terminal were skimmed only.
+
+## 38. Migrate from cPanel (latest)
+
+Admin-only. Websites page > "Migrate from cPanel" (components/MigrateFromCpanel.tsx): connect (host, SSH port, username, password) > "Find websites" > pick one > live JobProgress > DNS instructions (A record to server IP) and "Open website". A failed migration shows "Try again" (re-posts with site_id into the already built website).
+
+Principles: read-only on cPanel (nothing written or left there); the DNS is never touched (the person switches it after checking); the cPanel password is kept in memory only (dialog state, request, helper env SSHPASS) and redacted from errors; nothing is stored.
+
+Flow (job type `site.migrate`, steps create_site, download, restore, verify; manage/migrate.go):
+1. API POST /api/v1/migrations/cpanel/scan (admin, CSRF) -> helper `cpanel.scan` (ssh `find "$HOME" -name wp-config.php`, reads each wp-config.php, parses DB settings, asks the DB for the `home` URL, `du -sk`). Reply: installs + matched_domain (connected domain covering the address) + existing_site_id + server_ip. The write deadline is raised to 6 min for this request (server WriteTimeout is 30 s).
+2. API POST /api/v1/migrations/cpanel (admin, CSRF): validates, creates the website here (slug from the whole domain, e.g. www-example-com, account zx_www_example_com; DNS check skipped because DNS still points at cPanel; domain must be covered by a connected domain under Domains), starts the normal provisioning job, then the migration job waits for it. With `site_id` it reuses an existing ready site (retry / replace).
+3. Helper `cpanel.pull`: streams `tar -czf -` from the remote folder (excludes error_log, wp-content/cache, upgrade, updraft, ai1wm-backups) and `mysqldump` (MYSQL_PWD in the remote command env, values shell-quoted; fallback flag set for old servers; the dump must end with "-- Dump completed") into BackupRoot/<user>/migrate-<ts>.tar.gz in the usual layout (htdocs/ + database.sql). Symlinks are removed. Work folder removed in all cases.
+4. Restore step reuses `backup.restore` (rewrites wp-config.php with this site's DB account, keeps the table prefix, search-replaces from_domain to to_domain when they differ). The archive stays as a backup (listed, pruned by retention); on restore failure it is deleted.
+5. `wp.verify`: `wp core is-installed` + `wp option get home`.
+
+Other changes in this step:
+- backup.restore now calls normalizeSiteTree (lchown to site account:www-data, dirs 0750, files 0640) BEFORE running WP-CLI. This also fixes cross-panel restores, where file owners were uid numbers from another server.
+- executor.RunToFile (stdout streamed to a new file) added to the Runner and the commandRunner interface (all test fakes updated). /usr/bin/ssh added to AllowedBinaries.
+- cpanel.scan and cpanel.pull run without the helper's global lock (runsWithoutLock), so a long copy does not block other operations. Helper op timeout for cpanel.pull is 3 h 15 min; helperclient timeout is now 4 h; Manager.MigrateTimeout 4 h.
+- SitesWithActiveBackup and the busy check now also count site.migrate jobs.
+- API host check: scan/migrate refuse loopback, link-local, unspecified and multicast addresses (host names are resolved first).
+- Tests: helper cpanel_test.go (wp-config parser, shell quoting, scan/pull with a fake runner, password only in env, truncated dump refused, bad input refused), manage/migrate_test.go (full flow, failure paths, password never in logs, copy removed when restore fails), httpapi/migrate_test.go (host and domain rules, admin-only, create + start, retry), app.test.tsx (3 UI tests). Verified: go vet/test for api and agent, GOOS=linux vet, panel tsc, vp check, vitest 54/54, vite build (dist rebuilt).
+
+NOT verified (no cPanel server available here): a real SSH sign-in, real wp-config variants, mysqldump on a real host, a real large transfer, Caddy/ACME behaviour before the DNS switch. It must be tried on the VPS with a test cPanel account first. "Without any error" cannot be promised; the design is to fail early with clear messages and never change the source.
+Limits: needs SSH enabled on the cPanel account and password sign-in; one website per run (a loop in the UI is not built); sites on the bare apex or on www both work as long as the domain is connected under Domains, but no www/apex redirect or alias is created; WordPress only; DB must be reachable from the cPanel shell (DB_HOST local or reachable); `--single-transaction` does not make MyISAM tables consistent on a busy site (put it in maintenance first); custom wp-config that reads DB settings from the environment is refused; backup-file (cpanel backup .tar.gz) upload is not built.
+Pending next: try on a real account; optional bulk migration; optional www alias in the Caddy vhost.

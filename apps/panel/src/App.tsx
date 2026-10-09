@@ -1,4 +1,4 @@
-import { createEffect, lazy, Show, Suspense, type JSX } from "solid-js";
+import { createEffect, lazy, on, Show, Suspense, type JSX } from "solid-js";
 import { useBranding, useMe } from "@/api/queries";
 import { ApiError, describeError } from "@/api/client";
 import { applyBranding } from "@/lib/brand";
@@ -117,69 +117,27 @@ function NotFound() {
   );
 }
 
-const ROUTES: RouteDef[] = [
-  { path: "/login", component: () => <LoginRoute /> },
-  {
-    path: "/",
-    component: () => (
-      <Protected>
-        <OverviewPage />
-      </Protected>
-    ),
-  },
-  {
-    path: "/websites",
-    component: () => (
-      <Protected>
-        <WebsitesPage />
-      </Protected>
-    ),
-  },
-  {
-    path: "/websites/:id",
-    component: () => (
-      <Protected>
-        <SitePage />
-      </Protected>
-    ),
-  },
-  {
-    path: "/domains",
-    component: () => (
-      <Protected>
-        <DomainsPage />
-      </Protected>
-    ),
-  },
-  {
-    path: "/server",
-    component: () => (
-      <Protected>
-        <ServerPage />
-      </Protected>
-    ),
-  },
-  {
-    path: "/activity",
-    component: () => (
-      <Protected>
-        <ActivityPage />
-      </Protected>
-    ),
-  },
+const PAGES: RouteDef[] = [
+  { path: "/", component: () => <OverviewPage /> },
+  { path: "/websites", component: () => <WebsitesPage /> },
+  { path: "/websites/:id", component: () => <SitePage /> },
+  { path: "/domains", component: () => <DomainsPage /> },
+  { path: "/server", component: () => <ServerPage /> },
+  { path: "/activity", component: () => <ActivityPage /> },
   {
     path: "/settings",
     component: () => (
-      <Protected>
-        <AdminOnly>
-          <SettingsPage />
-        </AdminOnly>
-      </Protected>
+      <AdminOnly>
+        <SettingsPage />
+      </AdminOnly>
     ),
   },
 ];
 
-/** The application: routes, the saved branding, and the signed-in frame. */
+/**
+ * The application: sign-in, or the signed-in frame with the page for the current address.
+ * The frame (sidebar, header) is built once and stays while the page inside it changes.
+ */
 export function App() {
   const branding = useBranding();
   const location = useLocation();
@@ -188,19 +146,20 @@ export function App() {
     if (branding.data) applyBranding(branding.data);
   });
 
+  // A new page starts at the top.
+  createEffect(
+    on(
+      () => location.pathname,
+      () => window.scrollTo?.(0, 0),
+      { defer: true },
+    ),
+  );
+
   return (
-    // Routes keeps the params of the route it first matched, so it is rebuilt for each address.
-    <Show when={location.pathname} keyed>
-      {(_pathname) => (
-        <Routes
-          routes={ROUTES}
-          fallback={() => (
-            <Protected>
-              <NotFound />
-            </Protected>
-          )}
-        />
-      )}
+    <Show when={location.pathname !== "/login"} fallback={<LoginRoute />}>
+      <Protected>
+        <Routes routes={PAGES} fallback={() => <NotFound />} />
+      </Protected>
     </Show>
   );
 }

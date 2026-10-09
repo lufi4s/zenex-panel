@@ -27,6 +27,7 @@
   --primary: #1f2937;
   --primary-foreground: #fafafa;
   --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
   --success: #15803d;
   --warning: #b45309;
   --ring: #737373;
@@ -45,6 +46,7 @@
     --primary: #e5e7eb;
     --primary-foreground: #111827;
     --destructive: #f87171;
+    --destructive-foreground: #18181b;
     --success: #4ade80;
     --warning: #fbbf24;
     --ring: #a1a1aa;
@@ -63,6 +65,7 @@
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
   --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-ring: var(--ring);
@@ -70,6 +73,8 @@
 
 @layer base {
   html {
+    /* Form controls, scrollbars and the select list follow the light or dark theme. */
+    color-scheme: light dark;
     font-family: var(--font-sans);
     -webkit-text-size-adjust: 100%;
   }

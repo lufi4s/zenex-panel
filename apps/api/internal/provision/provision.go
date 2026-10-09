@@ -92,6 +92,12 @@ func DBPassword(key []byte, siteID string) string {
 	return derive(key, "db:"+siteID, 32)
 }
 
+// AutoLoginKey derives the key that signs "Open admin" links for a site. The website's
+// sign-in plugin holds the same key.
+func AutoLoginKey(key []byte, siteID string) string {
+	return derive(key, "autologin:"+siteID, 32)
+}
+
 // WPAdminPassword derives the WordPress administrator password for a site.
 func WPAdminPassword(key []byte, siteID string) string {
 	return derive(key, "wp-admin:"+siteID, 24)

@@ -53,6 +53,7 @@ type SiteStore interface {
 	SetBackupSettings(ctx context.Context, userID string, v store.BackupSettings) error
 	SetSiteAutoUpdate(ctx context.Context, siteID string, enabled bool) error
 	ListBackups(ctx context.Context, siteID string) ([]store.Backup, error)
+	GetBackup(ctx context.Context, siteID string, id int64) (store.Backup, error)
 	SitesWithActiveBackup(ctx context.Context) ([]string, error)
 	GetBrandingAssets(ctx context.Context) (store.BrandingAssets, error)
 	UpdateBrandingAssets(ctx context.Context, userID string, change func(*store.BrandingAssets)) error
@@ -67,6 +68,8 @@ type SiteSettings struct {
 	NodeID     string
 	PHPVersion string
 	SecretKey  []byte
+	// PublicIP is this server's address, shown in the DNS instructions after a migration.
+	PublicIP string
 	// DNS checks that customer domains point at this server.
 	DNS *dnscheck.Checker
 	// StartJob runs a job in the background.

@@ -57,7 +57,11 @@ func securityHeaders(next http.Handler) http.Handler {
 // limitBody caps request bodies so a client cannot exhaust memory.
 func limitBody(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+		limit := int64(maxBodyBytes)
+		if isFileUpload(r) {
+			limit = maxUploadBodyBytes
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, limit)
 		next.ServeHTTP(w, r)
 	})
 }

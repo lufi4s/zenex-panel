@@ -85,6 +85,10 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("PUT /api/v1/sites/{id}/file", requireCSRF(d.requireSession(d.handleWriteFile)))
 	mux.Handle("POST /api/v1/sites/{id}/folders", requireCSRF(d.requireSession(d.handleCreateFolder)))
 	mux.Handle("DELETE /api/v1/sites/{id}/files", requireCSRF(d.requireSession(d.handleDeleteFile)))
+	mux.Handle("POST /api/v1/sites/{id}/files/upload", requireCSRF(d.requireSession(d.handleUploadFile)))
+	mux.Handle("POST /api/v1/migrations/cpanel/scan", requireCSRF(d.requireSession(d.handleScanCpanel)))
+	mux.Handle("POST /api/v1/migrations/cpanel", requireCSRF(d.requireSession(d.handleMigrateCpanel)))
+	mux.Handle("POST /api/v1/sites/{id}/wp-login-link", requireCSRF(d.requireSession(d.handleWPLoginLink)))
 	mux.Handle("GET /api/v1/settings/defaults", d.requireSession(d.handleGetSiteDefaults))
 	mux.Handle("PUT /api/v1/settings/defaults", requireCSRF(d.requireSession(d.handlePutSiteDefaults)))
 	mux.Handle("GET /api/v1/settings/backups", d.requireSession(d.handleGetBackupSettings))
@@ -99,7 +103,11 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("PUT /api/v1/sites/{id}/auto-update", requireCSRF(d.requireSession(d.handleSetAutoUpdate)))
 	mux.Handle("PUT /api/v1/sites/{id}/maintenance", requireCSRF(d.requireSession(d.handleSetMaintenance)))
 	mux.Handle("GET /api/v1/sites/{id}/backups", d.requireSession(d.handleListBackups))
+	mux.Handle("POST /api/v1/sites/backup-all", requireCSRF(d.requireSession(d.handleBackupAll)))
 	mux.Handle("POST /api/v1/sites/{id}/backup", requireCSRF(d.requireSession(d.handleStartBackup)))
+	mux.Handle("POST /api/v1/sites/{id}/backups/{backup_id}/restore", requireCSRF(d.requireSession(d.handleRestoreBackup)))
+	mux.Handle("GET /api/v1/settings/backups/remote", d.requireSession(d.handleListRemoteBackups))
+	mux.Handle("POST /api/v1/sites/{id}/restore-remote", requireCSRF(d.requireSession(d.handleRestoreRemote)))
 	mux.Handle("GET /api/v1/sites/{id}/backup-progress", d.requireSession(d.handleBackupProgress))
 
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {

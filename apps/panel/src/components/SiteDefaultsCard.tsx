@@ -1,3 +1,4 @@
+import { Select } from "@/components/ui/select";
 import { createSignal, For, Show } from "solid-js";
 import { useSaveDefaults, usePHPVersions, useSettingsDefaults } from "@/api/queries";
 import { describeError } from "@/api/client";
@@ -47,9 +48,8 @@ export function SiteDefaultsCard() {
 
             <div class="max-w-xs space-y-1.5">
               <Label for="default-php">PHP version</Label>
-              <select
+              <Select
                 id="default-php"
-                class="flex h-10 w-full rounded-md border border-input bg-card px-3 text-base sm:h-9 sm:text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
                 onChange={(e) => setDraft({ php_version: e.currentTarget.value })}
               >
                 <For each={PHP_CHOICES}>
@@ -64,7 +64,7 @@ export function SiteDefaultsCard() {
                     </option>
                   )}
                 </For>
-              </select>
+              </Select>
               <p class="text-xs text-muted-foreground">
                 Versions that are not installed on this server cannot be chosen.
               </p>

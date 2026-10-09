@@ -87,6 +87,12 @@ func secureOwnership(p string, mode os.FileMode) error {
 	return nil
 }
 
+// fileExists reports whether p is an existing regular file.
+func fileExists(p string) bool {
+	info, err := os.Lstat(p)
+	return err == nil && info.Mode().IsRegular()
+}
+
 func pathExists(p string) (bool, error) {
 	_, err := os.Lstat(p)
 	if err == nil {
@@ -460,6 +466,14 @@ func (o *Ops) backupUpload(ctx context.Context, args map[string]string) error {
 		"put " + local + " " + base + ".part",
 		"rename " + base + ".part " + base,
 	}
+	// The manifest follows the archive, so another panel can find the backup.
+	if manifest := manifestPath(local); fileExists(manifest) {
+		mbase := filepath.Base(manifest)
+		batch = append(batch,
+			"put "+manifest+" "+mbase+".part",
+			"rename "+mbase+".part "+mbase,
+		)
+	}
 	pw := args["password"]
 	res, err := o.runSFTP(ctx, t, pw, batch, sftpUploadTime, msgUploadFailed)
 	if err != nil {
@@ -483,6 +497,9 @@ func (o *Ops) backupDeleteRemote(ctx context.Context, args map[string]string) er
 		return err
 	}
 	pw := args["password"]
+	// The manifest goes first, so a backup being deleted is never offered for restore.
+	// Its absence is not an error: archives from before manifests have none.
+	_, _ = o.runSFTP(ctx, t, pw, []string{"rm " + manifestPath(p)}, sftpDeleteTime, msgDeleteFailed)
 	res, err := o.runSFTP(ctx, t, pw, []string{"rm " + p}, sftpDeleteTime, msgDeleteFailed)
 	if err != nil {
 		return err

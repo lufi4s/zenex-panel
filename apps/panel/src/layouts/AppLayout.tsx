@@ -1,4 +1,4 @@
-import { createSignal, Show, type JSX } from "solid-js";
+import { createSignal, onCleanup, onMount, Show, type JSX } from "solid-js";
 import { useMe } from "@/api/queries";
 import { AppSidebar } from "@/components/app-sidebar";
 import { Menu } from "@/components/icons";
@@ -8,6 +8,15 @@ import { NotificationBell } from "@/components/NotificationBell";
 export function AppLayout(props: { children: JSX.Element }) {
   const me = useMe();
   const [drawerOpen, setDrawerOpen] = createSignal(false);
+
+  // Escape closes the drawer on small screens.
+  onMount(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setDrawerOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    onCleanup(() => window.removeEventListener("keydown", onKey));
+  });
 
   return (
     <Show when={me.data}>

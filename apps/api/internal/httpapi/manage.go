@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/helperclient"
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/manage"
@@ -23,6 +24,13 @@ type SiteManager interface {
 	Files(ctx context.Context, site store.Site, op, path, content string) (string, error)
 	SetMaintenance(ctx context.Context, site store.Site, enabled bool) error
 	StartBackup(ctx context.Context, site store.Site, actorID string) (string, error)
+	StartRestore(ctx context.Context, site store.Site, backup store.Backup, sourceDomain string, actorID string) (string, error)
+	ListRemoteBackups(ctx context.Context) ([]manage.RemoteBackup, error)
+	StartRemoteRestore(ctx context.Context, site store.Site, rb manage.RemoteBackup, actorID string) (string, error)
+	ImportFile(ctx context.Context, site store.Site, dir, name, staged string) error
+	ScanCpanel(ctx context.Context, c manage.CpanelCreds) ([]manage.CpanelInstall, error)
+	StartMigration(ctx context.Context, req manage.MigrationRequest) (string, error)
+	WPLoginLink(ctx context.Context, site store.Site, now time.Time) (string, time.Time, error)
 	SFTPPublicKey(ctx context.Context) (string, error)
 	TestSFTP(ctx context.Context, dest store.SFTPDestination) error
 }

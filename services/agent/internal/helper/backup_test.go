@@ -32,6 +32,10 @@ func (s *scriptExec) RunInput(ctx context.Context, bin string, args []string, _ 
 	return s.Run(ctx, bin, args, timeout)
 }
 
+func (s *scriptExec) RunToFile(ctx context.Context, bin string, args []string, _ []string, _ string, timeout time.Duration) (executor.Result, error) {
+	return s.Run(ctx, bin, args, timeout)
+}
+
 func (s *scriptExec) RunEnv(ctx context.Context, bin string, args []string, _ []string, timeout time.Duration) (executor.Result, error) {
 	return s.Run(ctx, bin, args, timeout)
 }

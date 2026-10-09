@@ -6,6 +6,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { brandAssetVersion } from "@/lib/brand";
 import { cn } from "@/lib/utils";
 
 const FEATURES: { icon: typeof Globe; title: string; text: string }[] = [
@@ -26,27 +27,38 @@ const FEATURES: { icon: typeof Globe; title: string; text: string }[] = [
   },
 ];
 
-function Mark(props: { class?: string }) {
+/** The saved logo, or the first letter of the panel name when there is none. */
+function Mark(props: { class?: string; name: string; hasLogo?: boolean }) {
   return (
     <span
       aria-hidden
       class={cn(
-        "flex size-10 items-center justify-center rounded-xl bg-primary text-lg font-bold text-primary-foreground shadow-sm",
+        "flex size-10 items-center justify-center overflow-hidden rounded-xl bg-primary text-lg font-bold text-primary-foreground shadow-sm",
         props.class,
       )}
     >
-      Z
+      <Show when={props.hasLogo} fallback={props.name.trim().charAt(0).toUpperCase() || "Z"}>
+        <img
+          src={`/api/v1/branding/logo?v=${brandAssetVersion()}`}
+          alt=""
+          class="size-full object-contain"
+        />
+      </Show>
     </span>
   );
 }
 
 /** Two-column on wide screens: the brand on the left, the form on the right. */
-function Frame(props: { children: JSX.Element; name: string; tagline: string }) {
+function Frame(props: { children: JSX.Element; name: string; tagline: string; hasLogo?: boolean }) {
   return (
     <div class="grid min-h-dvh bg-background lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
       <aside class="relative hidden flex-col justify-between overflow-hidden bg-primary p-12 text-primary-foreground lg:flex">
         <div class="relative flex items-center gap-3">
-          <Mark class="bg-primary-foreground text-primary" />
+          <Mark
+            class="bg-primary-foreground text-primary"
+            name={props.name}
+            hasLogo={props.hasLogo}
+          />
           <span class="text-lg font-semibold tracking-tight">{props.name}</span>
         </div>
         <div class="relative max-w-md space-y-8">
@@ -80,7 +92,7 @@ function Frame(props: { children: JSX.Element; name: string; tagline: string }) 
       <main class="flex flex-col justify-center px-5 py-10 sm:px-10">
         <div class="mx-auto w-full max-w-sm">
           <div class="mb-8 flex items-center gap-3 lg:hidden">
-            <Mark />
+            <Mark name={props.name} hasLogo={props.hasLogo} />
             <div>
               <p class="font-semibold leading-tight">{props.name}</p>
               <p class="text-xs text-muted-foreground">{props.tagline}</p>
@@ -117,7 +129,7 @@ export function LoginPage() {
   };
 
   return (
-    <Frame name={name()} tagline={tagline()}>
+    <Frame name={name()} tagline={tagline()} hasLogo={branding.data?.has_logo}>
       <div class="space-y-1.5">
         <h2 class="text-2xl font-semibold tracking-tight">Welcome back</h2>
         <p class="text-sm text-muted-foreground">Sign in to continue to your dashboard.</p>

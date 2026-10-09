@@ -109,6 +109,13 @@ func serve(cfg config.Config, log *slog.Logger) error {
 	helpers := helperclient.New(cfg.HelperSocket)
 	prov := provision.New(s, helpers, []byte(cfg.SecretKey), log)
 	manager := manage.New(s, helpers, log)
+	manager.PublicIP = cfg.PublicIP
+	manager.DBPassword = func(siteID string) string {
+		return provision.DBPassword([]byte(cfg.SecretKey), siteID)
+	}
+	manager.AutoLoginKey = func(siteID string) string {
+		return provision.AutoLoginKey([]byte(cfg.SecretKey), siteID)
+	}
 	manager.SFTPPassword = func(ctx context.Context) (string, error) {
 		sealed, err := s.GetSealedSFTPPassword(ctx)
 		if err != nil {
@@ -160,6 +167,7 @@ func serve(cfg config.Config, log *slog.Logger) error {
 				NodeID:     nodeID,
 				PHPVersion: cfg.PHPVersion,
 				SecretKey:  []byte(cfg.SecretKey),
+				PublicIP:   cfg.PublicIP,
 				StartJob:   startJob,
 				DNS:        dnscheck.New(cfg.PublicIP),
 			},

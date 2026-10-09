@@ -287,6 +287,55 @@ export interface BackupStep {
   status: BackupStepStatus;
 }
 
+// ---------------------------------------------------------------------------
+// Migration from cPanel
+// ---------------------------------------------------------------------------
+
+/** The SSH sign-in to a cPanel account. Sent with each request and never stored. */
+export interface CpanelConn {
+  host: string;
+  port: number;
+  username: string;
+  password: string;
+}
+
+/** One WordPress website found on the cPanel account. */
+export interface CpanelInstall {
+  /** The website folder on the cPanel account. */
+  path: string;
+  site_url: string;
+  /** The website's host name, or "" when it could not be read. */
+  domain: string;
+  db_name: string;
+  table_prefix: string;
+  size_kb: number;
+  /** The connected domain that covers `domain`, or "". */
+  matched_domain: string;
+  /** The website here that already uses `domain`, or "". */
+  existing_site_id: string;
+}
+
+export interface CpanelScanResult {
+  installs: CpanelInstall[];
+  server_ip: string;
+}
+
+export interface CpanelMigrateResult {
+  site: Site;
+  job_id: string;
+  provision_job_id: string;
+  server_ip: string;
+}
+
+/** A backup on the SFTP server. `path` is the remote file path used to restore it. */
+export interface RemoteBackup {
+  path: string;
+  size_bytes: number;
+  domain: string;
+  site_id: string;
+  created_at: string;
+}
+
 /** Progress of the latest backup job. `job_id` is "" when the website has never been backed up. */
 export interface BackupJobProgress {
   job_id: string;

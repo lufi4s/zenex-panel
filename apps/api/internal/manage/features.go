@@ -29,8 +29,10 @@ const (
 	// BackupRoot holds the archives. The helper only writes and deletes below it.
 	BackupRoot = "/var/backups/zenex"
 
-	defaultBackupTimeout = 20 * time.Minute
-	defaultUpdateTimeout = 15 * time.Minute
+	defaultBackupTimeout  = 20 * time.Minute
+	defaultRestoreTimeout = 40 * time.Minute
+	defaultMigrateTimeout = 4 * time.Hour
+	defaultUpdateTimeout  = 15 * time.Minute
 )
 
 // FeatureStore is the persistence surface for maintenance, backups and auto-updates.
@@ -163,15 +165,8 @@ func (m *Manager) backupSite(ctx context.Context, site store.Site, jobID string)
 	var archive string
 	var size int64
 	if err := m.runStep(ctx, jobID, StepArchive, func() error {
-		output := BackupRoot + "/" + site.LinuxUser + "/" + time.Now().UTC().Format("20060102-150405") + ".tar.gz"
-		_ = m.Store.AppendJobLog(ctx, jobID, "info", "creating backup of files and database")
-		out, err := m.Helper.Output(ctx, "backup.create", map[string]string{
-			"user": site.LinuxUser, "database": site.DBName, "docroot": DocRoot(site.LinuxUser), "output": output,
-		})
-		if err != nil {
-			return err
-		}
-		archive, size, err = parseBackupOutput(out)
+		var err error
+		archive, size, err = m.makeArchive(ctx, jobID, site)
 		return err
 	}); err != nil {
 		return err
@@ -197,6 +192,21 @@ func (m *Manager) backupSite(ctx context.Context, site store.Site, jobID string)
 		}
 		return m.PruneBackups(ctx, time.Now(), settings.RetentionDays)
 	})
+}
+
+// makeArchive writes a local archive of the website files and database. It returns the
+// archive path and size. The archive stays on this server; the caller decides what to do with it.
+func (m *Manager) makeArchive(ctx context.Context, jobID string, site store.Site) (string, int64, error) {
+	output := BackupRoot + "/" + site.LinuxUser + "/" + time.Now().UTC().Format("20060102-150405") + ".tar.gz"
+	_ = m.Store.AppendJobLog(ctx, jobID, "info", "creating backup of files and database")
+	out, err := m.Helper.Output(ctx, "backup.create", map[string]string{
+		"user": site.LinuxUser, "database": site.DBName, "docroot": DocRoot(site.LinuxUser), "output": output,
+		"domain": site.Domain, "site_id": site.ID,
+	})
+	if err != nil {
+		return "", 0, err
+	}
+	return parseBackupOutput(out)
 }
 
 // runStep marks a step running, runs its work and then marks it succeeded or failed.
@@ -238,6 +248,17 @@ func (m *Manager) runSFTPOp(ctx context.Context, op string, dest store.SFTPDesti
 	}
 	_, err = m.Helper.Do(ctx, op, args)
 	return redactError(err, password)
+}
+
+// runSFTPOutput is runSFTPOp for operations that return text, such as the backup listing.
+// Errors are redacted the same way.
+func (m *Manager) runSFTPOutput(ctx context.Context, op string, dest store.SFTPDestination, args map[string]string) (string, error) {
+	password, err := m.addSFTPPassword(ctx, dest, args)
+	if err != nil {
+		return "", err
+	}
+	out, err := m.Helper.Output(ctx, op, args)
+	return out, redactError(err, password)
 }
 
 // addSFTPPassword adds the "password" argument when dest uses password sign-in. It

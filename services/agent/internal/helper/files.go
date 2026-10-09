@@ -248,6 +248,8 @@ func (o *Ops) filesOp(ctx context.Context, op string, args map[string]string) (R
 		return Result{}, o.filesMkdir(name, rel)
 	case "files.delete":
 		return Result{}, o.filesDelete(name, rel)
+	case "files.import":
+		return Result{}, o.filesImport(ctx, name, rel, args["name"], args["staged"])
 	}
 	return Result{}, fmt.Errorf("unknown file operation %q", op)
 }

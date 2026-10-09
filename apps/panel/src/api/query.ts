@@ -17,6 +17,8 @@ interface Entry {
   status: "pending" | "success" | "error";
   fetchedAt: number;
   inflight: Promise<void> | null;
+  /** Set when the data was invalidated while a fetch was running: fetch once more afterwards. */
+  rerun: boolean;
   listeners: Set<Listener>;
   version: Accessor<number>;
   bump: () => void;
@@ -39,6 +41,7 @@ function entryFor(key: Key): Entry {
       status: "pending",
       fetchedAt: 0,
       inflight: null,
+      rerun: false,
       listeners: new Set(),
       version,
       bump: () => setVersion((n) => n + 1),
@@ -69,8 +72,13 @@ function runQuery(
   entry: Entry,
   queryFn: () => Promise<unknown>,
   retry: Retry | undefined,
+  force = false,
 ): Promise<void> {
-  if (entry.inflight) return entry.inflight;
+  if (entry.inflight) {
+    // A running fetch may have read the data before the change that made this call, so run again.
+    if (force) entry.rerun = true;
+    return entry.inflight;
+  }
   entry.inflight = (async () => {
     let failures = 0;
     for (;;) {
@@ -98,6 +106,10 @@ function runQuery(
     entry.fetchedAt = Date.now();
     entry.inflight = null;
     emit(entry, "data");
+    if (entry.rerun) {
+      entry.rerun = false;
+      void runQuery(entry, queryFn, retry);
+    }
   })();
   return entry.inflight;
 }
@@ -169,7 +181,9 @@ export function useQuery<T>(opts: QueryOptions<T>) {
   const refetch = () => runQuery(entry, opts.queryFn as () => Promise<unknown>, opts.retry);
 
   const listener: Listener = (kind) => {
-    if (kind === "refetch" && enabled()) void refetch();
+    if (kind === "refetch" && enabled()) {
+      void runQuery(entry, opts.queryFn as () => Promise<unknown>, opts.retry, true);
+    }
     entry.bump();
   };
   entry.listeners.add(listener);

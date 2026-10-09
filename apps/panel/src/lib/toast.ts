@@ -1,4 +1,4 @@
-// A tiny toast store. It lives outside React so the query client can report
+// A tiny toast store. It lives outside the components so the query layer can report
 // failed actions from anywhere.
 
 export type ToastTone = "success" | "error" | "info";

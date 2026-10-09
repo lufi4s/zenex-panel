@@ -56,6 +56,15 @@ export const Bell = icon(
     <path d="M13.7 21a2 2 0 0 1-3.4 0" />
   </>,
 );
+export const ChevronDown = icon("ChevronDown", <path d="m6 9 6 6 6-6" />);
+
+export const RotateCcw = icon("RotateCcw", <path d="M3 3v5h5M3.05 13A9 9 0 1 0 6 5.3L3 8" />);
+
+export const Upload = icon(
+  "Upload",
+  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" />,
+);
+
 export const Check = icon("Check", <path d="M20 6 9 17l-5-5" />);
 export const CheckCheck = icon("CheckCheck", <path d="M18 6 7 17l-5-5M22 10l-7.5 7.5L13 16" />);
 export const CheckCircle2 = icon(

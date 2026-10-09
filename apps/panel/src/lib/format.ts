@@ -35,5 +35,5 @@ export function stepLabel(name: string): string {
 
 /** The address of a website, as a clickable link target. */
 export function siteUrl(domain: string): string {
-  return `http://${domain}`;
+  return `https://${domain}`;
 }

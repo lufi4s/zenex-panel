@@ -62,11 +62,11 @@ export function Link(props: AnchorProps & { to: string }) {
 
 /** A link that marks itself active when its page is open. */
 export function NavLink(props: AnchorProps & { to: string; end?: boolean }) {
-  const { pathname } = useLocation();
+  const location = useLocation();
   const active = () =>
     props.end
-      ? pathname === props.to
-      : pathname === props.to || pathname.startsWith(`${props.to}/`);
+      ? location.pathname === props.to
+      : location.pathname === props.to || location.pathname.startsWith(`${props.to}/`);
   return (
     <Link
       to={props.to}
@@ -119,9 +119,10 @@ export function Routes(props: { routes: RouteDef[]; fallback: () => JSX.Element 
     return null;
   });
   return (
-    <Show when={match()} fallback={props.fallback()}>
+    // Keyed: a new address builds the page again, so it never keeps the previous address's params.
+    <Show when={match()} keyed fallback={props.fallback()}>
       {(m) => (
-        <ParamsContext.Provider value={m().params}>{m().route.component()}</ParamsContext.Provider>
+        <ParamsContext.Provider value={m.params}>{m.route.component()}</ParamsContext.Provider>
       )}
     </Show>
   );

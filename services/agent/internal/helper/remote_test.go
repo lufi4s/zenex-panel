@@ -35,6 +35,10 @@ func (r *recExec) Run(_ context.Context, bin string, args []string, timeout time
 	return r.record(bin, args, nil, timeout)
 }
 
+func (r *recExec) RunToFile(_ context.Context, bin string, args []string, env []string, _ string, timeout time.Duration) (executor.Result, error) {
+	return r.record(bin, args, env, timeout)
+}
+
 func (r *recExec) RunEnv(_ context.Context, bin string, args []string, env []string, timeout time.Duration) (executor.Result, error) {
 	return r.record(bin, args, env, timeout)
 }
@@ -563,14 +567,18 @@ func TestBackupDeleteRemoteArgsAndMissingFileTolerance(t *testing.T) {
 	if _, err := o.Do(context.Background(), "backup.delete", remoteDeleteArgs(nil)); err != nil {
 		t.Fatalf("missing remote file reported as error: %v", err)
 	}
-	if len(ex.calls) != 1 {
-		t.Fatalf("expected one sftp run, got %d", len(ex.calls))
+	// The manifest is removed first, then the archive.
+	if len(ex.calls) != 2 {
+		t.Fatalf("expected two sftp runs, got %d", len(ex.calls))
 	}
-	if ex.calls[0].batch != "rm /home/backup/zenex/zx_shop/shop-1.tar.gz\n" {
-		t.Fatalf("batch = %q", ex.calls[0].batch)
+	if ex.calls[0].batch != "rm /home/backup/zenex/zx_shop/shop-1.json\n" {
+		t.Fatalf("manifest batch = %q", ex.calls[0].batch)
 	}
-	if ex.calls[0].timeout != sftpDeleteTime {
-		t.Fatalf("timeout = %v", ex.calls[0].timeout)
+	if ex.calls[1].batch != "rm /home/backup/zenex/zx_shop/shop-1.tar.gz\n" {
+		t.Fatalf("batch = %q", ex.calls[1].batch)
+	}
+	if ex.calls[1].timeout != sftpDeleteTime {
+		t.Fatalf("timeout = %v", ex.calls[1].timeout)
 	}
 }
 
@@ -793,10 +801,11 @@ func TestPasswordModeAcrossOperations(t *testing.T) {
 	if _, err := o.Do(context.Background(), "backup.delete", remoteDeleteArgs(map[string]string{"password": testPassword})); err != nil {
 		t.Fatal(err)
 	}
-	if len(ex.calls) != 2 {
-		t.Fatalf("expected two runs, got %d", len(ex.calls))
+	// upload, manifest delete, archive delete
+	if len(ex.calls) != 3 {
+		t.Fatalf("expected three runs, got %d", len(ex.calls))
 	}
-	upload, del := ex.calls[0], ex.calls[1]
+	upload, del := ex.calls[0], ex.calls[2]
 	assertPasswordRun(t, upload, testPassword)
 	if upload.timeout != sftpUploadTime {
 		t.Fatalf("upload timeout = %v", upload.timeout)

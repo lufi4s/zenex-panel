@@ -68,6 +68,7 @@ type Paths struct {
 	PHPFPMGlob     string // PHP-FPM binaries installed on the server
 	BackupDir      string // /var/backups/zenex
 	BackupKeyDir   string // /etc/zenex/backup (SSH key pair, known_hosts, sftp batch files)
+	UploadDir      string // /var/lib/zenex/uploads (uploads staged by the API before they are imported)
 }
 
 func DefaultPaths() Paths {
@@ -80,6 +81,7 @@ func DefaultPaths() Paths {
 		PHPFPMGlob:     "/usr/sbin/php-fpm[0-9]*.[0-9]*",
 		BackupDir:      "/var/backups/zenex",
 		BackupKeyDir:   "/etc/zenex/backup",
+		UploadDir:      "/var/lib/zenex/uploads",
 	}
 }
 
@@ -94,6 +96,7 @@ type commandRunner interface {
 	Run(ctx context.Context, bin string, args []string, timeout time.Duration) (executor.Result, error)
 	RunInput(ctx context.Context, bin string, args []string, stdin string, timeout time.Duration) (executor.Result, error)
 	RunEnv(ctx context.Context, bin string, args []string, env []string, timeout time.Duration) (executor.Result, error)
+	RunToFile(ctx context.Context, bin string, args []string, env []string, outPath string, timeout time.Duration) (executor.Result, error)
 }
 
 // Ops executes validated operations. All operations are serialized by one lock,
@@ -108,8 +111,12 @@ type Ops struct {
 
 // Do dispatches a named operation with its arguments.
 func (o *Ops) Do(ctx context.Context, op string, args map[string]string) (Result, error) {
-	o.mu.Lock()
-	defer o.mu.Unlock()
+	// Long copies from another server touch no shared configuration, so they do not hold the
+	// lock. Otherwise one migration would block every other operation for hours.
+	if !runsWithoutLock(op) {
+		o.mu.Lock()
+		defer o.mu.Unlock()
+	}
 
 	switch op {
 	case "user.create":
@@ -130,7 +137,7 @@ func (o *Ops) Do(ctx context.Context, op string, args map[string]string) (Result
 		return Result{}, o.wpCoreInstall(ctx, args)
 	case "services.status":
 		return o.servicesStatus(ctx)
-	case "files.list", "files.read", "files.write", "files.mkdir", "files.delete":
+	case "files.list", "files.read", "files.write", "files.mkdir", "files.delete", "files.import":
 		return o.filesOp(ctx, op, args)
 	case "php.versions":
 		return o.phpVersionsOutput(), nil
@@ -150,6 +157,14 @@ func (o *Ops) Do(ctx context.Context, op string, args map[string]string) (Result
 		return Result{}, o.wpHarden(ctx, args)
 	case "wp.update":
 		return Result{}, o.wpUpdate(ctx, args)
+	case "wp.autologin":
+		return Result{}, o.wpAutoLogin(ctx, args)
+	case "wp.verify":
+		return o.wpVerify(ctx, args)
+	case "cpanel.scan":
+		return o.cpanelScan(ctx, args)
+	case "cpanel.pull":
+		return o.cpanelPull(ctx, args)
 	case "backup.create":
 		return o.backupCreate(ctx, args)
 	case "backup.keygen":
@@ -160,6 +175,12 @@ func (o *Ops) Do(ctx context.Context, op string, args map[string]string) (Result
 		return Result{}, o.backupUpload(ctx, args)
 	case "backup.delete":
 		return Result{}, o.backupDelete(ctx, args)
+	case "backup.download":
+		return Result{}, o.backupDownload(ctx, args)
+	case "backup.restore":
+		return Result{}, o.backupRestore(ctx, args)
+	case "backup.discover":
+		return o.backupDiscover(ctx, args)
 	case "panel.version":
 		return o.panelVersion(ctx)
 	case "panel.latest":
@@ -654,7 +675,7 @@ func trim(s string) string {
 // AllowedBinaries lists every program the helper may execute. phpFPM is the
 // set of PHP-FPM binaries installed on the server, discovered at startup.
 func AllowedBinaries(phpFPM []string) []string {
-	base := []string{binUseradd, binUserdel, binRunuser, binEnv, binMariadb, binMariadbDump, binTar, binSystemctl, binWP, binGit, binSystemdRun, binBash, binSSHKeygen, binSFTP, binSSHPass}
+	base := []string{binUseradd, binUserdel, binRunuser, binEnv, binMariadb, binMariadbDump, binTar, binSystemctl, binWP, binGit, binSystemdRun, binBash, binSSHKeygen, binSFTP, binSSHPass, binSSH}
 	base = append(base, caddy.AllowedBinaries...)
 	return append(base, phpFPM...)
 }

@@ -14,6 +14,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { CardSkeleton } from "@/components/CardSkeleton";
 import { Check, Copy } from "@/components/icons";
@@ -36,8 +37,6 @@ const DEFAULTS: BackupSettings = {
 
 const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-const SELECT_CLASS =
-  "flex h-10 w-full rounded-md border border-input bg-card px-3 text-base sm:h-9 sm:text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30";
 /** Hourly backups above this many days of retention get a space warning. */
 const HOURLY_RETENTION_WARNING_DAYS = 14;
 
@@ -139,7 +138,8 @@ export function BackupSettingsCard() {
     const result = runNow.data;
     if (!result) return "";
     const skipped = result.skipped > 0 ? ` (${result.skipped} already running)` : "";
-    return `Started backups for ${result.started} sites.${skipped}`;
+    const sites = result.started === 1 ? "1 website" : `${result.started} websites`;
+    return `Started backups for ${sites}.${skipped}`;
   };
 
   const publicKey = () => sftpKey.data?.public_key ?? "";
@@ -301,9 +301,8 @@ export function BackupSettingsCard() {
               <Show when={frequency() === "weekly"}>
                 <div class="space-y-2">
                   <Label for="backup-weekday">Day</Label>
-                  <select
+                  <Select
                     id="backup-weekday"
-                    class={SELECT_CLASS}
                     onChange={(e) => set({ weekday: Number(e.currentTarget.value) })}
                   >
                     <For each={WEEKDAYS}>
@@ -313,16 +312,15 @@ export function BackupSettingsCard() {
                         </option>
                       )}
                     </For>
-                  </select>
+                  </Select>
                 </div>
               </Show>
 
               <Show when={frequency() !== "hourly"}>
                 <div class="space-y-2">
                   <Label for="backup-hour">Time</Label>
-                  <select
+                  <Select
                     id="backup-hour"
-                    class={SELECT_CLASS}
                     onChange={(e) => set({ schedule_hour: Number(e.currentTarget.value) })}
                   >
                     <For each={HOURS}>
@@ -332,7 +330,7 @@ export function BackupSettingsCard() {
                         </option>
                       )}
                     </For>
-                  </select>
+                  </Select>
                   <p class="text-xs text-muted-foreground">Server time.</p>
                 </div>
               </Show>

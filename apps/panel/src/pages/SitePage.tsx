@@ -1,5 +1,6 @@
-import { createSignal, For, onMount, Show } from "solid-js";
-import { Check, Copy, Eye, EyeOff, ExternalLink } from "@/components/icons";
+import { createEffect, createSignal, For, onMount, Show } from "solid-js";
+import { useQueryClient } from "@/api/query";
+import { Check, Copy, Eye, EyeOff, ExternalLink, RotateCcw } from "@/components/icons";
 import { Link, useNavigate, useParams } from "@/lib/router";
 import {
   useBackupNow,
@@ -13,10 +14,13 @@ import {
   useSiteAction,
   useSiteBackups,
   useSiteHealth,
+  useRestoreBackup,
   useSiteLogs,
+  useWPLoginLink,
 } from "@/api/queries";
 import { ApiError, describeError } from "@/api/client";
-import type { Site } from "@/api/types";
+import type { Site, SiteBackup } from "@/api/types";
+import { Select } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { BackupProgress } from "@/components/BackupProgress";
 import { Badge } from "@/components/ui/badge";
@@ -40,7 +44,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { Terminal, levelFromText } from "@/components/Terminal";
 import { badgeTone } from "@/lib/badge";
 import { cn } from "@/lib/utils";
-import { siteUrl } from "@/lib/format";
+import { formatBytes, siteUrl } from "@/lib/format";
 import { STATE_LABEL, STATE_TONE } from "@/lib/site-status";
 
 function errorOf(err: unknown, fallback: string): string {
@@ -60,8 +64,31 @@ const LATEST_PHP = ["8.5", "8.4", "8.3", "8.2", "8.1"];
  */
 function WordPressAccess(props: { site: Site }) {
   const creds = useCredentials();
+  const loginLink = useWPLoginLink();
   const [showPassword, setShowPassword] = createSignal(false);
   const [copied, setCopied] = createSignal(false);
+  const [adminError, setAdminError] = createSignal<string | null>(null);
+
+  // The tab opens now, while the click still counts as a user action (pop-up blockers allow it);
+  // it is sent to the sign-in link once the panel has prepared it.
+  const openAdmin = () => {
+    setAdminError(null);
+    const tab = window.open("about:blank", "_blank");
+    if (!tab) {
+      setAdminError("Allow pop-ups for this panel to open the admin dashboard.");
+      return;
+    }
+    tab.opener = null;
+    loginLink.mutate(props.site.id, {
+      onSuccess: (res) => {
+        tab.location.href = res.url;
+      },
+      onError: (err) => {
+        tab.close();
+        setAdminError(errorOf(err, "Could not open the admin dashboard."));
+      },
+    });
+  };
 
   onMount(() => {
     if (props.site.state === "ready") creds.mutate(props.site.id);
@@ -78,20 +105,25 @@ function WordPressAccess(props: { site: Site }) {
       <CardHeader>
         <CardTitle>WordPress</CardTitle>
         <CardDescription>
-          Open the admin dashboard and sign in with the username and password below.
+          Open the admin dashboard and you are signed in automatically. The username and password
+          below sign you in later.
         </CardDescription>
       </CardHeader>
       <CardContent class="space-y-4">
-        <div>
-          <a
-            href={`https://${props.site.domain}/wp-admin/`}
-            target="_blank"
-            rel="noopener"
-            class={buttonClasses("default")}
-            aria-disabled={props.site.state !== "ready"}
+        <div class="space-y-2">
+          <Button
+            disabled={props.site.state !== "ready" || loginLink.isPending}
+            onClick={openAdmin}
           >
-            <ExternalLink aria-hidden /> Open admin
-          </a>
+            <ExternalLink aria-hidden /> {loginLink.isPending ? "Opening…" : "Open admin"}
+          </Button>
+          <Show when={adminError()}>
+            {(message) => (
+              <Alert variant="destructive">
+                <AlertDescription>{message()}</AlertDescription>
+              </Alert>
+            )}
+          </Show>
         </div>
         <Show when={creds.isError}>
           <Alert variant="destructive">
@@ -342,11 +374,7 @@ function OverviewTab(props: { site: Site }) {
             >
               <div class="space-y-1.5">
                 <Label for="php-version">Version</Label>
-                <select
-                  id="php-version"
-                  class="flex h-10 rounded-md border border-input bg-card px-3 text-base sm:h-9 sm:text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
-                  onChange={(e) => setPhpChoice(e.currentTarget.value)}
-                >
+                <Select id="php-version" onChange={(e) => setPhpChoice(e.currentTarget.value)}>
                   <For each={versions()}>
                     {(v) => {
                       const available = () =>
@@ -359,7 +387,7 @@ function OverviewTab(props: { site: Site }) {
                       );
                     }}
                   </For>
-                </select>
+                </Select>
               </div>
               <Button
                 type="submit"
@@ -443,7 +471,8 @@ function DeleteWebsite(props: { site: Site; onDeleting: () => void }) {
       open={open()}
       onOpenChange={(next) => {
         setOpen(next);
-        if (!next) setTyped("");
+        if (next) del.reset();
+        else setTyped("");
       }}
     >
       <DialogTrigger>
@@ -490,12 +519,32 @@ function DeleteWebsite(props: { site: Site; onDeleting: () => void }) {
 
 /** Lists the website's backups, newest first, and starts a backup on demand. */
 function BackupsCard(props: { site: Site }) {
+  const qc = useQueryClient();
   const backups = useSiteBackups(props.site.id);
   const backupNow = useBackupNow(props.site.id);
+  const restore = useRestoreBackup(props.site.id);
+  // The backup the customer is about to restore, and the restore job once it has started.
+  const [restoring, setRestoring] = createSignal<SiteBackup | null>(null);
+  const [restoreJob, setRestoreJob] = createSignal<string | null>(null);
   const rows = () =>
     [...(backups.data ?? [])].sort(
       (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
     );
+  const restoringAt = () => {
+    const backup = restoring();
+    return backup ? new Date(backup.created_at).toLocaleString() : "";
+  };
+
+  const confirmRestore = () => {
+    const backup = restoring();
+    if (!backup) return;
+    restore.mutate(backup.id, {
+      onSuccess: (res) => {
+        setRestoring(null);
+        setRestoreJob(res.job_id);
+      },
+    });
+  };
 
   return (
     <Card class="lg:col-span-2">
@@ -518,6 +567,26 @@ function BackupsCard(props: { site: Site }) {
           <Alert variant="destructive">
             <AlertDescription>
               {errorOf(backupNow.error, "Could not start a backup.")}
+            </AlertDescription>
+          </Alert>
+        </Show>
+        <Show when={restoreJob()} keyed>
+          {(jobId) => (
+            <JobProgress
+              jobId={jobId}
+              title="Restoring backup"
+              retryable={false}
+              onDismiss={() => {
+                setRestoreJob(null);
+                void qc.invalidateQueries({ queryKey: ["backups", props.site.id] });
+              }}
+            />
+          )}
+        </Show>
+        <Show when={restore.isError}>
+          <Alert variant="destructive">
+            <AlertDescription>
+              {errorOf(restore.error, "Could not start the restore.")}
             </AlertDescription>
           </Alert>
         </Show>
@@ -545,8 +614,11 @@ function BackupsCard(props: { site: Site }) {
                     <th scope="col" class="py-2 pr-4 font-medium">
                       Date
                     </th>
-                    <th scope="col" class="py-2 text-right font-medium">
+                    <th scope="col" class="py-2 pr-4 text-right font-medium">
                       Size
+                    </th>
+                    <th scope="col" class="py-2 text-right font-medium">
+                      <span class="sr-only">Actions</span>
                     </th>
                   </tr>
                 </thead>
@@ -557,8 +629,22 @@ function BackupsCard(props: { site: Site }) {
                         <td class="py-2 pr-4 tabular-nums">
                           {new Date(backup.created_at).toLocaleString()}
                         </td>
-                        <td class="py-2 text-right tabular-nums">
-                          {(backup.size_bytes / 1024 / 1024).toFixed(1)} MB
+                        <td class="py-2 pr-4 text-right tabular-nums">
+                          {formatBytes(backup.size_bytes)}
+                        </td>
+                        <td class="py-2 text-right">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={props.site.state !== "ready" || restore.isPending}
+                            onClick={() => {
+                              restore.reset();
+                              setRestoring(backup);
+                            }}
+                          >
+                            <RotateCcw aria-hidden="true" />
+                            Restore
+                          </Button>
                         </td>
                       </tr>
                     )}
@@ -569,6 +655,31 @@ function BackupsCard(props: { site: Site }) {
           </Show>
         </Show>
       </CardContent>
+      <Dialog
+        open={restoring() !== null}
+        onOpenChange={(next) => {
+          if (!next) setRestoring(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Restore this backup?</DialogTitle>
+            <DialogDescription>
+              The files and database of {props.site.domain} are replaced with the backup from{" "}
+              {restoringAt()}. A copy of the current website is saved first, so you can restore it
+              again from the list.
+            </DialogDescription>
+          </DialogHeader>
+          <div class="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setRestoring(null)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" disabled={restore.isPending} onClick={confirmRestore}>
+              {restore.isPending ? "Starting…" : "Restore backup"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
@@ -603,6 +714,14 @@ export function SitePage() {
   const detail = useSite(params.id ?? "");
   const [tab, setTab] = createSignal("overview");
   const [dismissedJob, setDismissedJob] = createSignal<string | null>(null);
+  const filesAvailable = () => {
+    const state = detail.data?.site.state;
+    return state === "ready" || state === "suspended";
+  };
+  // The Files tab disappears when the website goes offline for a build; do not stay on it.
+  createEffect(() => {
+    if (detail.data && !filesAvailable() && tab() === "files") setTab("overview");
+  });
 
   const notFound = () => detail.error instanceof ApiError && detail.error.status === 404;
   const activeJob = () => {

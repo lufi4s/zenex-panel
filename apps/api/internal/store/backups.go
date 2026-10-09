@@ -2,7 +2,10 @@ package store
 
 import (
 	"context"
+	"errors"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // Backup is one archive of a website (files and database).
@@ -69,11 +72,12 @@ func (s *Store) DeleteBackup(ctx context.Context, id int64) error {
 	return err
 }
 
-// SitesWithActiveBackup returns the IDs of sites that have a backup job queued or running.
+// SitesWithActiveBackup returns the IDs of sites that have a backup or restore job queued
+// or running. Both change the same files and database, so neither may overlap another.
 func (s *Store) SitesWithActiveBackup(ctx context.Context) ([]string, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT DISTINCT site_id::text FROM jobs
-		WHERE type = 'site.backup' AND status IN ('queued', 'running') AND site_id IS NOT NULL`)
+		WHERE type IN ('site.backup', 'site.restore', 'site.migrate') AND status IN ('queued', 'running') AND site_id IS NOT NULL`)
 	if err != nil {
 		return nil, err
 	}
@@ -87,4 +91,17 @@ func (s *Store) SitesWithActiveBackup(ctx context.Context) ([]string, error) {
 		ids = append(ids, id)
 	}
 	return ids, rows.Err()
+}
+
+// GetBackup returns one backup of a site, or ErrNotFound when it does not belong to that site.
+func (s *Store) GetBackup(ctx context.Context, siteID string, id int64) (Backup, error) {
+	var b Backup
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, site_id::text, created_at, size_bytes, path FROM backups
+		WHERE id = $1 AND site_id = $2::uuid`, id, siteID).
+		Scan(&b.ID, &b.SiteID, &b.CreatedAt, &b.SizeBytes, &b.Path)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Backup{}, ErrNotFound
+	}
+	return b, err
 }

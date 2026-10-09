@@ -94,6 +94,50 @@ function mockApi(options: {
         { id: 1, time: "2026-10-08T10:00:00Z", level: "info", message: "Creating site account" },
       ]);
     }
+    if (url.endsWith("/api/v1/migrations/cpanel/scan") && method === "POST") {
+      return json({
+        installs: [
+          {
+            path: "/home/acct/public_html",
+            site_url: "https://www.ozima.cloud",
+            domain: "www.ozima.cloud",
+            db_name: "acct_wp",
+            table_prefix: "wp_",
+            size_kb: 2048,
+            matched_domain: "ozima.cloud",
+            existing_site_id: "",
+          },
+          {
+            path: "/home/acct/other",
+            site_url: "https://www.unrelated.org",
+            domain: "www.unrelated.org",
+            db_name: "acct_other",
+            table_prefix: "wp_",
+            size_kb: 100,
+            matched_domain: "",
+            existing_site_id: "",
+          },
+        ],
+        server_ip: "203.0.113.7",
+      });
+    }
+    if (url.endsWith("/api/v1/migrations/cpanel") && method === "POST") {
+      return json(
+        { site: sites[0], job_id: "m1", provision_job_id: "p1", server_ip: "203.0.113.7" },
+        202,
+      );
+    }
+    if (url.endsWith("/api/v1/jobs/m1")) {
+      return json({
+        job: { id: "m1", type: "site.migrate", status: "succeeded", attempts: 1 },
+        steps: [
+          { name: "create_site", status: "succeeded", attempts: 1 },
+          { name: "download", status: "succeeded", attempts: 1 },
+          { name: "restore", status: "succeeded", attempts: 1 },
+          { name: "verify", status: "succeeded", attempts: 1 },
+        ],
+      });
+    }
     if (url.endsWith("/api/v1/jobs/j1")) {
       return json({
         job: { id: "j1", type: "provision", status: "running", attempts: 1 },
@@ -299,6 +343,8 @@ function chooseTab(name: string) {
 
 beforeEach(() => {
   resetQueryCache();
+  // jsdom has no scrolling; the app scrolls to the top on navigation.
+  window.scrollTo = vi.fn() as unknown as typeof window.scrollTo;
 });
 
 afterEach(() => {
@@ -396,7 +442,7 @@ describe("navigation", () => {
     renderAt("/websites/s1");
     await screen.findByRole("heading", { name: "shop.ozima.cloud" });
     chooseTab("Settings");
-    expect(await screen.findByText("0.1 MB")).toBeTruthy();
+    expect(await screen.findByText("120.6 KB")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Back up now" })).toBeTruthy();
   });
 
@@ -430,7 +476,7 @@ describe("navigation", () => {
       target: { value: "blog" },
     });
     // The button stays disabled until the domain list has loaded.
-    await screen.findByText("Address: http://blog.ozima.cloud");
+    await screen.findByText("Address: https://blog.ozima.cloud");
     fireEvent.click(screen.getByRole("button", { name: "Create website" }));
 
     expect(await screen.findByRole("heading", { name: "Building website" })).toBeTruthy();
@@ -564,7 +610,7 @@ describe("settings", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Back up now" }));
     expect(
-      await screen.findByText("Started backups for 2 sites. (1 already running)"),
+      await screen.findByText("Started backups for 2 websites. (1 already running)"),
     ).toBeTruthy();
     const call = fetchMock.mock.calls.find(([url]) =>
       String(url).endsWith("/api/v1/settings/backups/run-now"),
@@ -632,5 +678,72 @@ describe("notifications", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Notifications, 2 unread" }));
     expect(await screen.findByText("Website build failed")).toBeTruthy();
     expect(screen.getByText("Could not download WordPress.")).toBeTruthy();
+  });
+});
+
+describe("migration from cPanel", () => {
+  async function findWebsites() {
+    vi.stubGlobal("fetch", mockApi({ signedIn: true }));
+    renderAt("/websites");
+    fireEvent.click(await screen.findByRole("button", { name: "Migrate from cPanel" }));
+    changeValue(await screen.findByLabelText("cPanel server"), {
+      target: { value: "cpanel.example.com" },
+    });
+    changeValue(screen.getByLabelText("cPanel username"), { target: { value: "acct" } });
+    changeValue(screen.getByLabelText("cPanel password"), { target: { value: "s3cret" } });
+    fireEvent.click(screen.getByRole("button", { name: "Find websites" }));
+  }
+
+  it("finds the websites on the account and starts moving one", async () => {
+    await findWebsites();
+    expect(await screen.findByText("www.ozima.cloud")).toBeTruthy();
+    expect(screen.getByText("/home/acct/public_html")).toBeTruthy();
+
+    const migrateButtons = screen.getAllByRole("button", { name: "Migrate" });
+    fireEvent.click(migrateButtons[0]);
+
+    expect(await screen.findByText("Moving your website")).toBeTruthy();
+    expect(await screen.findByText(/set the DNS A record/)).toBeTruthy();
+    expect(screen.getByText("203.0.113.7")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Open website" })).toBeTruthy();
+  });
+
+  it("asks for the domain to be added first when it is not connected here", async () => {
+    await findWebsites();
+    await screen.findByText("www.unrelated.org");
+
+    expect(screen.getByText("unrelated.org")).toBeTruthy();
+    const buttons = screen.getAllByRole("button", { name: "Migrate" });
+    // The first website can be moved; the second cannot until its domain is added.
+    expect((buttons[0] as HTMLButtonElement).disabled).toBe(false);
+    expect((buttons[1] as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("sends the sign-in details with the migration request", async () => {
+    await findWebsites();
+    await screen.findByText("www.ozima.cloud");
+    fireEvent.click(screen.getAllByRole("button", { name: "Migrate" })[0]);
+    await screen.findByText("Moving your website");
+
+    const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+    const call = fetchMock.mock.calls.find(([url, init]) => {
+      return (
+        String(url).endsWith("/api/v1/migrations/cpanel") &&
+        (init as RequestInit | undefined)?.method === "POST"
+      );
+    });
+    const body = JSON.parse(String((call?.[1] as RequestInit | undefined)?.body ?? "{}")) as Record<
+      string,
+      unknown
+    >;
+    expect(body).toMatchObject({
+      host: "cpanel.example.com",
+      port: 22,
+      username: "acct",
+      password: "s3cret",
+      path: "/home/acct/public_html",
+      domain: "www.ozima.cloud",
+      source_domain: "www.ozima.cloud",
+    });
   });
 });

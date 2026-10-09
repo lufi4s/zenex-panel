@@ -12,6 +12,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -74,17 +76,33 @@ func (r *Runner) Run(ctx context.Context, bin string, args []string, timeout tim
 // RunInput is Run with data written to the program's standard input. Use it for
 // secrets and multi-line payloads (for example SQL) so they never appear in argv.
 func (r *Runner) RunInput(ctx context.Context, bin string, args []string, stdin string, timeout time.Duration) (Result, error) {
-	return r.run(ctx, bin, args, stdin, nil, timeout)
+	return r.run(ctx, bin, args, stdin, nil, nil, timeout)
 }
 
 // RunEnv is Run with extra environment variables for this one child process.
 // Each entry is NAME=VALUE. The variables exist only in that child; the next run
 // starts again from the fixed environment. PATH and LC_ALL cannot be overridden.
 func (r *Runner) RunEnv(ctx context.Context, bin string, args []string, env []string, timeout time.Duration) (Result, error) {
-	return r.run(ctx, bin, args, "", env, timeout)
+	return r.run(ctx, bin, args, "", env, nil, timeout)
 }
 
-func (r *Runner) run(ctx context.Context, bin string, args []string, stdin string, extraEnv []string, timeout time.Duration) (Result, error) {
+// RunToFile is RunEnv with the program's standard output written to a new file instead of
+// kept in memory. Use it for large streams, such as a remote archive or a database dump.
+// The file must not exist yet and is created with owner-only permissions. It is left in place
+// when the command fails, so the caller removes it.
+func (r *Runner) RunToFile(ctx context.Context, bin string, args []string, env []string, outPath string, timeout time.Duration) (Result, error) {
+	f, err := os.OpenFile(outPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return Result{}, fmt.Errorf("create output file: %w", err)
+	}
+	res, runErr := r.run(ctx, bin, args, "", env, f, timeout)
+	if closeErr := f.Close(); runErr == nil && closeErr != nil {
+		runErr = fmt.Errorf("write output file: %w", closeErr)
+	}
+	return res, runErr
+}
+
+func (r *Runner) run(ctx context.Context, bin string, args []string, stdin string, extraEnv []string, stdoutTo io.Writer, timeout time.Duration) (Result, error) {
 	if _, ok := r.allowed[bin]; !ok {
 		return Result{}, fmt.Errorf("%w: %s", ErrBinaryNotAllowed, bin)
 	}
@@ -113,6 +131,9 @@ func (r *Runner) run(ctx context.Context, bin string, args []string, stdin strin
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Env = append([]string{"PATH=" + safePath, "LC_ALL=C"}, extraEnv...)
 	cmd.Stdout = &stdout
+	if stdoutTo != nil {
+		cmd.Stdout = stdoutTo
+	}
 	cmd.Stderr = &stderr
 	if stdin != "" {
 		cmd.Stdin = strings.NewReader(stdin)

@@ -60,6 +60,30 @@ export async function apiRequest<T>(
   return body as T;
 }
 
+/** Sends form data, for file uploads. Errors are handled the same way as apiRequest. */
+export async function apiUpload<T>(path: string, form: FormData): Promise<T> {
+  const res = await fetch(path, {
+    method: "POST",
+    headers: { ...CSRF_HEADER },
+    credentials: "same-origin",
+    body: form,
+  });
+  let body: unknown = null;
+  try {
+    body = await res.json();
+  } catch {
+    body = null;
+  }
+  if (!res.ok) {
+    throw new ApiError(
+      res.status,
+      (body as Partial<ApiErrorBody> | null)?.error?.code ?? "request_failed",
+      errorMessageFrom(body, "The file could not be uploaded."),
+    );
+  }
+  return body as T;
+}
+
 /** A unique key for one create request, so a double click never makes two sites. */
 export function newIdempotencyKey(): string {
   return crypto.randomUUID();

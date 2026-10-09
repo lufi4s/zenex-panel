@@ -1,3 +1,4 @@
+import { Select } from "@/components/ui/select";
 import { createSignal, For, Show } from "solid-js";
 import { useCreateSite, useDomains } from "@/api/queries";
 import { ApiError } from "@/api/client";
@@ -53,11 +54,7 @@ export function NewWebsiteCard(props: { onCreated: (siteId: string, jobId: strin
           when={!noDomain()}
           fallback={<p class="text-sm text-muted-foreground">Add a domain above first.</p>}
         >
-          <form
-            onSubmit={submit}
-            class="grid gap-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end"
-            noValidate
-          >
+          <form onSubmit={submit} class="grid gap-5" noValidate>
             <div class="space-y-1.5">
               <Label for="site-label">Subdomain name</Label>
               <Input
@@ -72,9 +69,8 @@ export function NewWebsiteCard(props: { onCreated: (siteId: string, jobId: strin
             </div>
             <div class="space-y-1.5">
               <Label for="site-apex">Domain</Label>
-              <select
+              <Select
                 id="site-apex"
-                class="flex h-10 w-full rounded-md border border-input bg-background px-3 text-base sm:h-9 sm:text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 disabled:opacity-50"
                 value={selectedApex()}
                 onChange={(e) => setApex(e.currentTarget.value)}
                 disabled={!domains.data || domains.data.length === 0}
@@ -86,21 +82,25 @@ export function NewWebsiteCard(props: { onCreated: (siteId: string, jobId: strin
                     </option>
                   )}
                 </For>
-              </select>
+              </Select>
             </div>
-            <Button type="submit" disabled={!canSubmit()}>
+            <Button
+              type="submit"
+              class="w-full sm:w-auto sm:justify-self-end"
+              disabled={!canSubmit()}
+            >
               {create.isPending ? "Creating…" : "Create website"}
             </Button>
-            <p class="text-xs text-muted-foreground sm:col-span-3">
+            <p class="text-xs text-muted-foreground">
               {label() !== "" && !labelValid()
                 ? "Use 3–28 lowercase letters, numbers or hyphens, starting with a letter."
                 : labelValid() && selectedApex()
-                  ? `Address: http://${cleanLabel()}.${selectedApex()}`
+                  ? `Address: https://${cleanLabel()}.${selectedApex()}`
                   : " "}
             </p>
             <Show when={error()}>
               {(message) => (
-                <div class="sm:col-span-3">
+                <div>
                   <Alert variant="destructive">
                     <AlertDescription>{message()}</AlertDescription>
                   </Alert>

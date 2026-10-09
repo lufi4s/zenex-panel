@@ -36,6 +36,7 @@ type Store interface {
 	SetSitePHPVersion(ctx context.Context, siteID, version string) error
 	MarkSiteDeleted(ctx context.Context, siteID string) error
 	CreateManagementJob(ctx context.Context, actorID, siteID, nodeID, jobType string) (string, error)
+	GetJob(ctx context.Context, id string) (store.Job, error)
 	EnsureJobSteps(ctx context.Context, jobID string, names []string) error
 	SetStepStatus(ctx context.Context, jobID, name, status, errMsg string) error
 	FinishJob(ctx context.Context, jobID, status, errMsg string) error
@@ -59,8 +60,19 @@ type Manager struct {
 	DeleteTimeout time.Duration
 	// BackupTimeout bounds one website backup.
 	BackupTimeout time.Duration
+	// RestoreTimeout bounds one website restore, including the safety copy and the download.
+	RestoreTimeout time.Duration
+	// MigrateTimeout bounds one migration from cPanel, including the build of the new website.
+	MigrateTimeout time.Duration
+	// PublicIP is this server's address, shown in the DNS instructions after a migration.
+	PublicIP string
 	// UpdateTimeout bounds one WordPress update.
 	UpdateTimeout time.Duration
+	// DBPassword derives a website's database password from its ID. Restores use it to
+	// write the archive's wp-config.php for this server's database account.
+	DBPassword func(siteID string) string
+	// AutoLoginKey derives the key that signs a website's one-time admin sign-in links.
+	AutoLoginKey func(siteID string) string
 	// SFTPPassword returns the saved SFTP password in plain text. It is called only for
 	// SFTP destinations that sign in with a password, just before the helper runs.
 	SFTPPassword func(ctx context.Context) (string, error)
@@ -69,9 +81,11 @@ type Manager struct {
 func New(s Store, h Helper, log *slog.Logger) *Manager {
 	return &Manager{
 		Store: s, Helper: h, Log: log,
-		DeleteTimeout: 10 * time.Minute,
-		BackupTimeout: defaultBackupTimeout,
-		UpdateTimeout: defaultUpdateTimeout,
+		DeleteTimeout:  10 * time.Minute,
+		BackupTimeout:  defaultBackupTimeout,
+		RestoreTimeout: defaultRestoreTimeout,
+		MigrateTimeout: defaultMigrateTimeout,
+		UpdateTimeout:  defaultUpdateTimeout,
 	}
 }
 

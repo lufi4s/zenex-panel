@@ -1,7 +1,7 @@
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { Plus } from "@/components/icons";
 import { useNavigate } from "@/lib/router";
-import { useSiteHealth, useSites } from "@/api/queries";
+import { useBackupAll, useMe, useSiteHealth, useSites } from "@/api/queries";
 import type { Site } from "@/api/types";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -12,11 +12,11 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { CardSkeleton } from "@/components/CardSkeleton";
 import { JobProgress } from "@/components/JobProgress";
 import { NewWebsiteCard } from "@/components/NewWebsiteCard";
+import { MigrateFromCpanel } from "@/components/MigrateFromCpanel";
 import { PageHeader } from "@/components/PageHeader";
 import { badgeTone } from "@/lib/badge";
 import { describeError } from "@/api/client";
@@ -77,6 +77,9 @@ function WebsiteTable(props: { sites: Site[]; uptime: Map<string, string> }) {
 export function WebsitesPage() {
   const sites = useSites();
   const health = useSiteHealth("24h");
+  const backupAll = useBackupAll();
+  const me = useMe();
+  const isAdmin = () => me.data?.roles.includes("administrator") ?? false;
   const navigate = useNavigate();
   const [creating, setCreating] = createSignal(false);
   // The website and build job started from the dialog; set once "Create website" succeeds.
@@ -99,14 +102,17 @@ export function WebsitesPage() {
     if (!open) setBuild(null);
   };
 
-  const newWebsite = () => (
+  const newWebsiteButton = () => (
+    <Button onClick={() => setCreating(true)}>
+      <Plus aria-hidden /> New website
+    </Button>
+  );
+
+  // One dialog for the whole page; the buttons only open it. Two dialogs on one signal would
+  // open on top of each other.
+  const newWebsiteDialog = (
     <Dialog open={creating()} onOpenChange={closeDialog}>
-      <DialogTrigger>
-        <Button>
-          <Plus aria-hidden /> New website
-        </Button>
-      </DialogTrigger>
-      <DialogContent class="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+      <DialogContent class="max-h-[90vh] overflow-y-auto sm:max-w-xl">
         <Show
           when={build()?.jobId}
           keyed
@@ -155,7 +161,21 @@ export function WebsitesPage() {
       <PageHeader
         title="Websites"
         description="Every WordPress site on this server. Open one to manage files, logs and settings."
-        actions={newWebsite()}
+        actions={
+          <div class="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              disabled={backupAll.isPending || !sites.data?.length}
+              onClick={() => backupAll.mutate()}
+            >
+              {backupAll.isPending ? "Starting…" : "Back up all websites"}
+            </Button>
+            <Show when={isAdmin()}>
+              <MigrateFromCpanel />
+            </Show>
+            {newWebsiteButton()}
+          </div>
+        }
       />
 
       <Show when={sites.isPending}>
@@ -172,12 +192,13 @@ export function WebsitesPage() {
           <p class="max-w-sm text-sm text-muted-foreground">
             Create a WordPress website on a domain you own. It takes a few minutes to build.
           </p>
-          {newWebsite()}
+          {newWebsiteButton()}
         </div>
       </Show>
       <Show when={(sites.data?.length ?? 0) > 0}>
         <WebsiteTable sites={sites.data ?? []} uptime={uptime()} />
       </Show>
+      {newWebsiteDialog}
     </>
   );
 }

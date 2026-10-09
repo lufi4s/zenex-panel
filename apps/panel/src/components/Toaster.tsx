@@ -23,7 +23,7 @@ export function Toaster() {
   onCleanup(unsubscribe);
 
   return (
-    <div class="pointer-events-none fixed bottom-4 right-4 z-50 flex w-[min(92vw,360px)] flex-col gap-2">
+    <div class="pointer-events-none fixed bottom-4 right-4 z-[60] flex w-[min(92vw,360px)] flex-col gap-2">
       <For each={items()}>
         {(t) => (
           <div

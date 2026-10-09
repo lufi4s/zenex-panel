@@ -28,6 +28,8 @@ const (
 	defaultGroup  = "zenex"
 	maxRequest    = 2 << 20 // large enough for a 1 MB file save
 	opTimeout     = 45 * time.Minute
+	// longOpTimeout is for copying a whole website from another server.
+	longOpTimeout = 3*time.Hour + 15*time.Minute
 )
 
 type request struct {
@@ -109,7 +111,11 @@ func handler(log *slog.Logger, ops *helper.Ops) http.Handler {
 			writeJSON(w, http.StatusBadRequest, response{Error: "invalid request"})
 			return
 		}
-		ctx, cancel := context.WithTimeout(r.Context(), opTimeout)
+		timeout := opTimeout
+		if req.Op == "cpanel.pull" {
+			timeout = longOpTimeout
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), timeout)
 		defer cancel()
 
 		// Arguments are never logged: they can contain passwords.

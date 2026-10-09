@@ -56,7 +56,13 @@ function StepRow(props: { step: JobStep }) {
  * Progress of one background job (building or deleting a website): the steps,
  * a retry when a step fails, and a dismiss once it has finished.
  */
-export function JobProgress(props: { jobId: string; title: string; onDismiss: () => void }) {
+export function JobProgress(props: {
+  jobId: string;
+  title: string;
+  onDismiss: () => void;
+  /** False for jobs that cannot be queued again, such as a restore. Defaults to true. */
+  retryable?: boolean;
+}) {
   const qc = useQueryClient();
   // The job query is keyed by the id at mount time, so give a new job its own instance (for example with a keyed Show).
   const job = useJob(props.jobId);
@@ -75,9 +81,11 @@ export function JobProgress(props: { jobId: string; title: string; onDismiss: ()
   const done = () => steps().filter((s) => s.status === "succeeded").length;
   const subtitle = () =>
     status() === "succeeded"
-      ? "Your website is ready."
+      ? "All steps finished."
       : status() === "failed"
-        ? "The build stopped. Retry to continue from where it failed."
+        ? props.retryable === false
+          ? "It stopped before finishing. The reason is shown below."
+          : "It stopped. Retry to continue from where it failed."
         : steps().length > 0
           ? `${done()} of ${steps().length} steps complete`
           : "Starting…";
@@ -120,7 +128,7 @@ export function JobProgress(props: { jobId: string; title: string; onDismiss: ()
 
       <Show when={status() === "failed" || finished()}>
         <div class="flex flex-wrap justify-end gap-2 border-t border-border pt-4">
-          <Show when={status() === "failed"}>
+          <Show when={status() === "failed" && props.retryable !== false}>
             <Button
               variant="outline"
               size="sm"

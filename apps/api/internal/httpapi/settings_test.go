@@ -62,6 +62,11 @@ func (s *settingsSites) SetBackupSettings(_ context.Context, _ string, v store.B
 	s.backup = v
 	return nil
 }
+// LatestJobForSiteOfType reports no backup or restore job, so starts are not refused as busy.
+func (s *settingsSites) LatestJobForSiteOfType(context.Context, string, string) (store.Job, error) {
+	return store.Job{}, store.ErrNotFound
+}
+
 func (s *settingsSites) GetSite(_ context.Context, id string) (store.Site, error) {
 	return store.Site{ID: id, State: s.siteState, OwnerID: "11111111-1111-1111-1111-111111111111", Domain: "shop.example.com", LinuxUser: "zx_shop"}, nil
 }
