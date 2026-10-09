@@ -3,6 +3,14 @@ import { splitProps, type JSX } from "solid-js";
 
 type IconProps = JSX.SvgSVGAttributes<SVGSVGElement> & { class?: string };
 
+// A shape is a DOM node. Every render gets its own copy: one shared node would be moved from
+// icon to icon, and so vanish from every place but the last one shown.
+function copyShape(shape: JSX.Element): JSX.Element {
+  if (Array.isArray(shape)) return shape.map(copyShape);
+  if (shape instanceof Node) return shape.cloneNode(true);
+  return shape;
+}
+
 function icon(name: string, body: JSX.Element) {
   return function Icon(props: IconProps) {
     const [own, rest] = splitProps(props, ["class"]);
@@ -19,7 +27,7 @@ function icon(name: string, body: JSX.Element) {
         data-icon={name}
         {...rest}
       >
-        {body}
+        {copyShape(body)}
       </svg>
     );
   };

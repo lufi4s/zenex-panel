@@ -321,3 +321,7 @@ Removed every UI/animation/data/routing library from apps/panel. Only React, Rea
 ## 24. Typography (latest)
 
 - Headings: Bricolage Grotesque Variable. Body: Outfit Variable. Both self-hosted via @fontsource-variable (CSP-safe), with system fallbacks. Set in apps/panel/src/index.css.
+
+## 25. Icon bug fix
+
+- Icons shared one DOM shape. An icon used in two places (for example Layers in the sidebar and on the Overview card) lost its shape from the first place when it rendered in the second. Each render now copies its shape (apps/panel/src/components/icons.tsx). Regression test: icons.test.tsx (fails on the old code).

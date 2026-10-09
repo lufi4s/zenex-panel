@@ -1,1 +1,0 @@
-import{ab as t,aR as n,a8 as l,g as o,i,t as c}from"./index-CF0bcfwZ.js";var m=c("<label>");function u(a){const[s,r]=t(a,["class","children"]);return(()=>{var e=m();return n(e,l({get class(){return o("text-sm font-medium leading-none",s.class)}},r),!1,!0),i(e,()=>s.children),e})()}export{u as L};
