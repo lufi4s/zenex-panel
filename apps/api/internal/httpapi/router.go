@@ -100,6 +100,7 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("PUT /api/v1/sites/{id}/maintenance", requireCSRF(d.requireSession(d.handleSetMaintenance)))
 	mux.Handle("GET /api/v1/sites/{id}/backups", d.requireSession(d.handleListBackups))
 	mux.Handle("POST /api/v1/sites/{id}/backup", requireCSRF(d.requireSession(d.handleStartBackup)))
+	mux.Handle("GET /api/v1/sites/{id}/backup-progress", d.requireSession(d.handleBackupProgress))
 
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, requestIDFrom(r), ErrNotFound)

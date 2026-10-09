@@ -18,6 +18,7 @@ import {
 import { ApiError, describeError } from "@/api/client";
 import type { Site } from "@/api/types";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { BackupProgress } from "@/components/BackupProgress";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -512,6 +513,7 @@ function BackupsCard(props: { site: Site }) {
             {backupNow.isPending ? "Starting…" : "Back up now"}
           </Button>
         </div>
+        <BackupProgress siteId={props.site.id} />
         <Show when={backupNow.isError}>
           <Alert variant="destructive">
             <AlertDescription>

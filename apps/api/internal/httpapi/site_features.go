@@ -1,8 +1,10 @@
 package httpapi
 
 import (
+	"errors"
 	"net/http"
 
+	"github.com/zenexcloud/zenex-panel/apps/api/internal/manage"
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/store"
 )
 
@@ -88,4 +90,50 @@ func (d Deps) handleStartBackup(w http.ResponseWriter, r *http.Request) {
 	}
 	d.audit(r.Context(), r, store.AuditEntry{ActorUserID: user.ID, ActorRole: primaryRole(user), Action: "site.backup", TargetType: "site", TargetID: site.ID, Result: "success"})
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
+}
+
+// backupProgressStep is one step of a backup job as the progress bar shows it.
+type backupProgressStep struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+}
+
+// backupProgress is the latest backup job of a website. Percent counts a succeeded
+// step as a whole step and a running step as half of one.
+type backupProgress struct {
+	JobID   string               `json:"job_id"`
+	Status  string               `json:"status"`
+	Percent int                  `json:"percent"`
+	Steps   []backupProgressStep `json:"steps"`
+}
+
+// handleBackupProgress returns the progress of the website's latest backup job. A
+// website without any backup job gets 200 with an empty job_id.
+func (d Deps) handleBackupProgress(w http.ResponseWriter, r *http.Request) {
+	site, _, ok := d.loadSiteForUser(w, r)
+	if !ok {
+		return
+	}
+	job, err := d.Sites.LatestJobForSiteOfType(r.Context(), site.ID, manage.JobBackup)
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusOK, map[string]string{"job_id": ""})
+		return
+	}
+	if err != nil {
+		d.internal(w, r, "sites.backup_progress", err)
+		return
+	}
+	steps, err := d.Sites.JobSteps(r.Context(), job.ID)
+	if err != nil {
+		d.internal(w, r, "sites.backup_progress", err)
+		return
+	}
+	out := backupProgress{JobID: job.ID, Status: job.Status, Steps: make([]backupProgressStep, 0, len(steps))}
+	statuses := make([]string, 0, len(steps))
+	for _, st := range steps {
+		out.Steps = append(out.Steps, backupProgressStep{Name: st.Name, Status: st.Status})
+		statuses = append(statuses, st.Status)
+	}
+	out.Percent = manage.ProgressPercent(statuses)
+	writeJSON(w, http.StatusOK, out)
 }

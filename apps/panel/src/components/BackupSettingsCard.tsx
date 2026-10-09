@@ -8,6 +8,7 @@ import {
   useTestSftp,
 } from "@/api/queries";
 import { ApiError, describeError } from "@/api/client";
+import { Link } from "@/lib/router";
 import type { BackupFrequency, BackupSettings, SftpAuth, SftpSettings } from "@/api/types";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -543,6 +544,12 @@ export function BackupSettingsCard() {
               </Button>
               <Show when={runNow.isSuccess}>
                 <span class="text-sm text-success">{runNowMessage()}</span>
+                <p class="basis-full text-sm text-muted-foreground">
+                  Watch progress on each website&apos;s Settings tab.{" "}
+                  <Link to="/websites" class="underline underline-offset-4 hover:text-foreground">
+                    Go to websites
+                  </Link>
+                </p>
               </Show>
               <Show when={runNow.isError}>
                 <span class="text-sm text-destructive">{describeError(runNow.error)}</span>

@@ -243,6 +243,18 @@ function mockApi(options: {
     if (url.endsWith("/api/v1/sites/s1/backups")) {
       return json([{ id: 1, created_at: "2026-10-09T03:00:00Z", size_bytes: 123456 }]);
     }
+    if (url.endsWith("/api/v1/sites/s1/backup-progress")) {
+      return json({
+        job_id: "b1",
+        status: "running",
+        percent: 50,
+        steps: [
+          { name: "archive", status: "succeeded" },
+          { name: "upload", status: "succeeded" },
+          { name: "record", status: "running" },
+        ],
+      });
+    }
     return json({ error: { code: "not_found", message: "not found" } }, 404);
   });
 }
@@ -386,6 +398,20 @@ describe("navigation", () => {
     chooseTab("Settings");
     expect(await screen.findByText("0.1 MB")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Back up now" })).toBeTruthy();
+  });
+
+  it("shows the percent and step labels of a running backup on its Settings tab", async () => {
+    vi.stubGlobal("fetch", mockApi({ signedIn: true }));
+    renderAt("/websites/s1");
+    await screen.findByRole("heading", { name: "shop.ozima.cloud" });
+    chooseTab("Settings");
+    const bar = await screen.findByRole("progressbar");
+    expect(bar.getAttribute("aria-valuenow")).toBe("50");
+    expect(screen.getByText("50%")).toBeTruthy();
+    expect(screen.getByText("Backing up...")).toBeTruthy();
+    expect(screen.getByText("Archiving files and database")).toBeTruthy();
+    expect(screen.getByText("Uploading to the remote server")).toBeTruthy();
+    expect(screen.getByText("Saving the backup record")).toBeTruthy();
   });
 
   it("shows the site log on its Logs tab", async () => {

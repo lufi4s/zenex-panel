@@ -6,6 +6,7 @@ import type {
   ActivityPage,
   AlertSettings,
   AlertSettingsInput,
+  BackupJobProgress,
   BackupSettings,
   Branding,
   BrandingInput,
@@ -577,6 +578,7 @@ export function useRunBackupsNow() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: keys.sites });
       void qc.invalidateQueries({ queryKey: ["backups"] });
+      void qc.invalidateQueries({ queryKey: ["backup-progress"] });
     },
   });
 }
@@ -699,6 +701,19 @@ export function useBackupNow(siteId: string) {
     onSuccess: () => {
       toast.success("Backup started");
       void qc.invalidateQueries({ queryKey: ["backups", siteId] });
+      void qc.invalidateQueries({ queryKey: ["backup-progress", siteId] });
+    },
+  });
+}
+
+/** Progress of the site's latest backup. Polls every 2 seconds while the job is queued or running. */
+export function useBackupProgress(siteId: string) {
+  return useQuery({
+    queryKey: ["backup-progress", siteId],
+    queryFn: () => apiRequest<BackupJobProgress>(`/api/v1/sites/${siteId}/backup-progress`),
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return status === "queued" || status === "running" ? 2_000 : false;
     },
   });
 }

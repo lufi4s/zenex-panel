@@ -278,3 +278,20 @@ export interface SiteBackup {
   created_at: string;
   size_bytes: number;
 }
+
+export type BackupStepName = "archive" | "upload" | "record";
+export type BackupStepStatus = "pending" | "running" | "succeeded" | "failed";
+
+export interface BackupStep {
+  name: BackupStepName;
+  status: BackupStepStatus;
+}
+
+/** Progress of the latest backup job. `job_id` is "" when the website has never been backed up. */
+export interface BackupJobProgress {
+  job_id: string;
+  status?: "queued" | "running" | "succeeded" | "failed";
+  percent?: number;
+  /** The "upload" step is absent for local storage. */
+  steps?: BackupStep[];
+}

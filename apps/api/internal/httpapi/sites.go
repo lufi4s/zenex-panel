@@ -40,6 +40,7 @@ type SiteStore interface {
 	GetSite(ctx context.Context, id string) (store.Site, error)
 	ListSites(ctx context.Context, ownerID string) ([]store.Site, error)
 	LatestJobForSite(ctx context.Context, siteID string) (store.Job, error)
+	LatestJobForSiteOfType(ctx context.Context, siteID, jobType string) (store.Job, error)
 	GetJob(ctx context.Context, id string) (store.Job, error)
 	JobSteps(ctx context.Context, jobID string) ([]store.JobStep, error)
 	RequeueFailedJob(ctx context.Context, jobID string) (bool, error)

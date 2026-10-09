@@ -36,6 +36,8 @@ type Store interface {
 	SetSitePHPVersion(ctx context.Context, siteID, version string) error
 	MarkSiteDeleted(ctx context.Context, siteID string) error
 	CreateManagementJob(ctx context.Context, actorID, siteID, nodeID, jobType string) (string, error)
+	EnsureJobSteps(ctx context.Context, jobID string, names []string) error
+	SetStepStatus(ctx context.Context, jobID, name, status, errMsg string) error
 	FinishJob(ctx context.Context, jobID, status, errMsg string) error
 	AppendJobLog(ctx context.Context, jobID, level, msg string) error
 	Notify(ctx context.Context, userID, level, title, body string) error

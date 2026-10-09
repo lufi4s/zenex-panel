@@ -1,1 +1,0 @@
-import{i as e,d as t,g as o,t as n}from"./index-NehW0Bdb.js";import{S as a}from"./skeleton-CoporthT.js";var s=n('<div role=status aria-label="Loading section"class="rounded-xl border border-border bg-card p-6">');function u(l){return(()=>{var r=s();return e(r,t(a,{class:"mb-4 h-4 w-40"}),null),e(r,t(a,{get class(){return o("w-full",l.height??"h-48")}}),null),r})()}export{u as C};

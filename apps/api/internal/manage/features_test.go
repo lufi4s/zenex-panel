@@ -24,6 +24,7 @@ type featureStore struct {
 	autoUpdate  []store.Site
 	inserted    []string
 	settings    store.BackupSettings
+	insertErr   error
 }
 
 func (f *featureStore) GetBackupSettings(context.Context) (store.BackupSettings, error) {
@@ -38,6 +39,9 @@ func (f *featureStore) ListAutoUpdateSites(context.Context) ([]store.Site, error
 	return f.autoUpdate, nil
 }
 func (f *featureStore) InsertBackup(_ context.Context, siteID string, _ int64, path string) error {
+	if f.insertErr != nil {
+		return f.insertErr
+	}
 	f.inserted = append(f.inserted, siteID+"|"+path)
 	return nil
 }

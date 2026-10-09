@@ -370,3 +370,11 @@ Removed every UI/animation/data/routing library from apps/panel. Only React, Rea
 - Backup schedule: hourly, daily (time) or weekly (day and time). Settings keep frequency, schedule_hour and weekday; default daily.
 - POST /api/v1/settings/backups/run-now starts a backup for every ready site (skips sites already backing up). Only one run-now at a time.
 - Known gap: a backup job left "running" after a crash blocks that site until its row is changed (only site.provision jobs are reset at startup).
+
+## 31. Backup job steps and progress endpoint (apps/api)
+
+- site.backup jobs record job_steps: "archive" (backup.create), "upload" (backup.upload + local delete; SFTP only), "record" (InsertBackup + PruneBackups). All created pending by createBackupJob (manage/features.go) before the job starts; runStep sets running, then succeeded or failed (error kept on the step, secrets redacted by runSFTPOp).
+- PruneBackups now returns an error (listing failure only); a failure there fails the record step.
+- GET /api/v1/sites/{id}/backup-progress (httpapi/site_features.go): latest site.backup job as {job_id,status,percent,steps:[{name,status}]}; percent = succeeded + 0.5*running over total steps (manage.ProgressPercent). No job: 200 {"job_id":""}.
+- Known limitation: the step list is fixed at job creation from the destination at that moment; a destination change between creation and run is not reflected in steps.
+- Tests: manage/backup_progress_test.go, httpapi/backup_progress_test.go. gofmt, go vet, go test ./... pass in apps/api.

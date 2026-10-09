@@ -354,6 +354,13 @@ func (s *Store) LatestJobForSite(ctx context.Context, siteID string) (Job, error
 		 ORDER BY j.created_at DESC LIMIT 1`, siteID))
 }
 
+// LatestJobForSiteOfType returns the most recent job of one type for a site.
+func (s *Store) LatestJobForSiteOfType(ctx context.Context, siteID, jobType string) (Job, error) {
+	return scanJob(s.pool.QueryRow(ctx,
+		`SELECT `+jobColumns+` FROM jobs j WHERE j.site_id = $1::uuid AND j.type = $2
+		 ORDER BY j.created_at DESC LIMIT 1`, siteID, jobType))
+}
+
 // JobSteps returns the steps of a job in execution order.
 func (s *Store) JobSteps(ctx context.Context, jobID string) ([]JobStep, error) {
 	rows, err := s.pool.Query(ctx, `

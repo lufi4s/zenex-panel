@@ -16,6 +16,13 @@ import (
 // JobBackup is the job type recorded for a website backup.
 const JobBackup = "site.backup"
 
+// Backup job steps, in execution order. The upload step exists only for SFTP destinations.
+const (
+	StepArchive = "archive"
+	StepUpload  = "upload"
+	StepRecord  = "record"
+)
+
 const (
 	// WebRoot is where the helper keeps each website's account home.
 	WebRoot = "/var/www"
@@ -67,7 +74,7 @@ func (m *Manager) StartBackup(ctx context.Context, site store.Site, actorID stri
 	if site.State != "ready" {
 		return "", refuse("only a ready website can be backed up (it is %s)", site.State)
 	}
-	jobID, err := m.Store.CreateManagementJob(ctx, actorID, site.ID, site.NodeID, JobBackup)
+	jobID, err := m.createBackupJob(ctx, actorID, site)
 	if err != nil {
 		return "", err
 	}
@@ -77,6 +84,50 @@ func (m *Manager) StartBackup(ctx context.Context, site store.Site, actorID stri
 		m.runBackup(bctx, site, jobID, actorID)
 	}()
 	return jobID, nil
+}
+
+// BackupSteps returns the ordered step names of a backup job for a destination.
+func BackupSteps(dest store.BackupDestination) []string {
+	if dest.Type == store.BackupDestSFTP {
+		return []string{StepArchive, StepUpload, StepRecord}
+	}
+	return []string{StepArchive, StepRecord}
+}
+
+// createBackupJob records the backup job and all its steps as pending, so the
+// progress is visible before any work starts.
+func (m *Manager) createBackupJob(ctx context.Context, actorID string, site store.Site) (string, error) {
+	settings, err := m.Store.GetBackupSettings(ctx)
+	if err != nil {
+		return "", err
+	}
+	jobID, err := m.Store.CreateManagementJob(ctx, actorID, site.ID, site.NodeID, JobBackup)
+	if err != nil {
+		return "", err
+	}
+	if err := m.Store.EnsureJobSteps(ctx, jobID, BackupSteps(settings.Destination)); err != nil {
+		_ = m.Store.FinishJob(ctx, jobID, "failed", "the backup steps could not be recorded")
+		return "", err
+	}
+	return jobID, nil
+}
+
+// ProgressPercent is how far a job has got, from its step statuses: a succeeded step
+// counts as one step and a running step as half of one. It returns 0 to 100.
+func ProgressPercent(statuses []string) int {
+	if len(statuses) == 0 {
+		return 0
+	}
+	halves := 0
+	for _, s := range statuses {
+		switch s {
+		case "succeeded":
+			halves += 2
+		case "running":
+			halves++
+		}
+	}
+	return halves * 100 / (2 * len(statuses))
 }
 
 // runBackup creates one backup, records the job outcome and tells the customer
@@ -101,31 +152,64 @@ func (m *Manager) runBackup(ctx context.Context, site store.Site, jobID, actorID
 	}
 }
 
+// backupSite runs the archive, upload (SFTP only) and record steps in order. The first
+// failing step stops the backup and its error is returned.
 func (m *Manager) backupSite(ctx context.Context, site store.Site, jobID string) error {
 	settings, err := m.Store.GetBackupSettings(ctx)
 	if err != nil {
+		return m.runStep(ctx, jobID, StepArchive, func() error { return err })
+	}
+
+	var archive string
+	var size int64
+	if err := m.runStep(ctx, jobID, StepArchive, func() error {
+		output := BackupRoot + "/" + site.LinuxUser + "/" + time.Now().UTC().Format("20060102-150405") + ".tar.gz"
+		_ = m.Store.AppendJobLog(ctx, jobID, "info", "creating backup of files and database")
+		out, err := m.Helper.Output(ctx, "backup.create", map[string]string{
+			"user": site.LinuxUser, "database": site.DBName, "docroot": DocRoot(site.LinuxUser), "output": output,
+		})
+		if err != nil {
+			return err
+		}
+		archive, size, err = parseBackupOutput(out)
+		return err
+	}); err != nil {
 		return err
 	}
-	output := BackupRoot + "/" + site.LinuxUser + "/" + time.Now().UTC().Format("20060102-150405") + ".tar.gz"
-	_ = m.Store.AppendJobLog(ctx, jobID, "info", "creating backup of files and database")
-	out, err := m.Helper.Output(ctx, "backup.create", map[string]string{
-		"user": site.LinuxUser, "database": site.DBName, "docroot": DocRoot(site.LinuxUser), "output": output,
+
+	location := archive
+	if settings.Destination.Type == store.BackupDestSFTP {
+		if err := m.runStep(ctx, jobID, StepUpload, func() error {
+			remote, err := m.sendToSFTP(ctx, jobID, archive, settings.Destination.SFTP)
+			if err != nil {
+				return err
+			}
+			location = remote
+			return nil
+		}); err != nil {
+			return err
+		}
+	}
+
+	return m.runStep(ctx, jobID, StepRecord, func() error {
+		if err := m.Store.InsertBackup(ctx, site.ID, size, location); err != nil {
+			return err
+		}
+		return m.PruneBackups(ctx, time.Now(), settings.RetentionDays)
 	})
-	if err != nil {
+}
+
+// runStep marks a step running, runs its work and then marks it succeeded or failed.
+// A failure is kept on the step; the caller decides what happens to the job.
+func (m *Manager) runStep(ctx context.Context, jobID, name string, work func() error) error {
+	if err := m.Store.SetStepStatus(ctx, jobID, name, "running", ""); err != nil {
 		return err
 	}
-	archive, size, err := parseBackupOutput(out)
-	if err != nil {
+	if err := work(); err != nil {
+		_ = m.Store.SetStepStatus(ctx, jobID, name, "failed", err.Error())
 		return err
 	}
-	if settings.Destination.Type != store.BackupDestSFTP {
-		return m.Store.InsertBackup(ctx, site.ID, size, archive)
-	}
-	remote, err := m.sendToSFTP(ctx, jobID, archive, settings.Destination.SFTP)
-	if err != nil {
-		return err
-	}
-	return m.Store.InsertBackup(ctx, site.ID, size, remote)
+	return m.Store.SetStepStatus(ctx, jobID, name, "succeeded", "")
 }
 
 // sendToSFTP uploads the local archive and then removes the local copy. It returns
@@ -240,7 +324,7 @@ func (m *Manager) RunScheduledBackups(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		jobID, err := m.Store.CreateManagementJob(ctx, "", site.ID, site.NodeID, JobBackup)
+		jobID, err := m.createBackupJob(ctx, "", site)
 		if err != nil {
 			m.Log.Warn("scheduled backup job failed to start", "site_id", site.ID, "error", err)
 			continue
@@ -249,16 +333,19 @@ func (m *Manager) RunScheduledBackups(ctx context.Context) {
 		m.runBackup(bctx, site, jobID, "")
 		cancel()
 	}
-	m.PruneBackups(ctx, time.Now(), settings.RetentionDays)
+	if err := m.PruneBackups(ctx, time.Now(), settings.RetentionDays); err != nil {
+		m.Log.Warn("pruning expired backups failed", "error", err)
+	}
 }
 
 // PruneBackups deletes archives created before the retention cutoff. An archive
-// whose deletion fails keeps its record, so the next run tries again.
-func (m *Manager) PruneBackups(ctx context.Context, now time.Time, retentionDays int) {
+// whose deletion fails keeps its record, so the next run tries again. It returns an
+// error only when the expired list cannot be read.
+func (m *Manager) PruneBackups(ctx context.Context, now time.Time, retentionDays int) error {
 	expired, err := m.Store.BackupsBefore(ctx, now.AddDate(0, 0, -retentionDays))
 	if err != nil {
 		m.Log.Warn("listing expired backups failed", "error", err)
-		return
+		return err
 	}
 	settings, settingsErr := m.Store.GetBackupSettings(ctx)
 	for _, b := range expired {
@@ -275,6 +362,7 @@ func (m *Manager) PruneBackups(ctx context.Context, now time.Time, retentionDays
 			m.Log.Warn("removing expired backup record failed", "backup_id", b.ID, "error", err)
 		}
 	}
+	return nil
 }
 
 // runSFTPOpIfRemote runs a delete for a remote archive. Local deletes are plain helper calls

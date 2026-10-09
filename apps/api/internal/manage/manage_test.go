@@ -11,7 +11,13 @@ import (
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/store"
 )
 
-type fakeStore struct{ state string }
+type fakeStore struct {
+	state     string
+	steps     []store.JobStep
+	stepEvent []string
+	jobStatus string
+	jobErr    string
+}
 
 func (f *fakeStore) SetSiteState(_ context.Context, _, s string) error { f.state = s; return nil }
 func (f *fakeStore) SetSitePHPVersion(context.Context, string, string) error {
@@ -21,7 +27,25 @@ func (f *fakeStore) MarkSiteDeleted(context.Context, string) error { f.state = "
 func (f *fakeStore) CreateManagementJob(context.Context, string, string, string, string) (string, error) {
 	return "job-1", nil
 }
-func (f *fakeStore) FinishJob(context.Context, string, string, string) error    { return nil }
+func (f *fakeStore) FinishJob(_ context.Context, _, status, errMsg string) error {
+	f.jobStatus, f.jobErr = status, errMsg
+	return nil
+}
+func (f *fakeStore) EnsureJobSteps(_ context.Context, _ string, names []string) error {
+	for _, n := range names {
+		f.steps = append(f.steps, store.JobStep{Name: n, Status: "pending"})
+	}
+	return nil
+}
+func (f *fakeStore) SetStepStatus(_ context.Context, _, name, status, errMsg string) error {
+	f.stepEvent = append(f.stepEvent, name+":"+status)
+	for i := range f.steps {
+		if f.steps[i].Name == name {
+			f.steps[i].Status, f.steps[i].Error = status, errMsg
+		}
+	}
+	return nil
+}
 func (f *fakeStore) AppendJobLog(context.Context, string, string, string) error { return nil }
 
 type fakeHelper struct{ calls []string }
