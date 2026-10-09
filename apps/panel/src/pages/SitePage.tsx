@@ -1,5 +1,5 @@
-import { createSignal, For, Show } from "solid-js";
-import { ExternalLink } from "@/components/icons";
+import { createSignal, For, onMount, Show } from "solid-js";
+import { Check, Copy, Eye, EyeOff, ExternalLink } from "@/components/icons";
 import { Link, useNavigate, useParams } from "@/lib/router";
 import {
   useChangePHP,
@@ -12,7 +12,7 @@ import {
   useSiteLogs,
 } from "@/api/queries";
 import { ApiError, describeError } from "@/api/client";
-import type { Site } from "@/api/types";
+import type { Site, SiteCredentials } from "@/api/types";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonClasses } from "@/components/ui/button";
@@ -45,6 +45,120 @@ function errorOf(err: unknown, fallback: string): string {
 // Overview tab
 // ---------------------------------------------------------------------------
 
+/** The five newest PHP releases offered for a website. */
+const LATEST_PHP = ["8.5", "8.4", "8.3", "8.2", "8.1"];
+
+/**
+ * WordPress admin access: "Open admin" signs the visitor in without asking for a password,
+ * by posting the stored login to the site's own login page in a new tab.
+ */
+function WordPressAccess(props: { site: Site }) {
+  const creds = useCredentials();
+  const [showPassword, setShowPassword] = createSignal(false);
+  const [copied, setCopied] = createSignal(false);
+
+  onMount(() => {
+    if (props.site.state === "ready") creds.mutate(props.site.id);
+  });
+
+  const submitLogin = (c: SiteCredentials) => {
+    const form = document.createElement("form");
+    form.method = "POST";
+    form.action = `${siteUrl(props.site.domain)}/wp-login.php`;
+    form.target = "_blank";
+    form.style.display = "none";
+    const fields: Record<string, string> = {
+      log: c.username,
+      pwd: c.password,
+      "wp-submit": "Log In",
+      redirect_to: `${siteUrl(props.site.domain)}/wp-admin/`,
+      testcookie: "1",
+    };
+    for (const [name, value] of Object.entries(fields)) {
+      const input = document.createElement("input");
+      input.type = "hidden";
+      input.name = name;
+      input.value = value;
+      form.appendChild(input);
+    }
+    document.body.appendChild(form);
+    form.submit();
+    form.remove();
+  };
+
+  const openAdmin = () => {
+    const known = creds.data;
+    if (known) {
+      submitLogin(known);
+      return;
+    }
+    // The login is not loaded yet, so fetch it first, then sign in.
+    creds
+      .mutateAsync(props.site.id)
+      .then(submitLogin)
+      .catch(() => undefined);
+  };
+
+  const copyPassword = async (password: string) => {
+    await navigator.clipboard.writeText(password);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1500);
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>WordPress</CardTitle>
+        <CardDescription>
+          Open the admin dashboard. You are signed in automatically.
+        </CardDescription>
+      </CardHeader>
+      <CardContent class="space-y-4">
+        <div>
+          <Button disabled={props.site.state !== "ready"} onClick={openAdmin}>
+            <ExternalLink aria-hidden /> Open admin
+          </Button>
+        </div>
+        <Show when={creds.isError}>
+          <Alert variant="destructive">
+            <AlertDescription>{errorOf(creds.error, "Could not load the login.")}</AlertDescription>
+          </Alert>
+        </Show>
+        <Show when={creds.data}>
+          {(c) => (
+            <dl class="grid grid-cols-[auto_1fr] items-center gap-x-6 gap-y-3 text-sm">
+              <dt class="text-muted-foreground">Username</dt>
+              <dd class="font-mono">{c().username}</dd>
+              <dt class="text-muted-foreground">Password</dt>
+              <dd class="flex flex-wrap items-center gap-2">
+                <span class="font-mono break-all">
+                  {showPassword() ? c().password : "•".repeat(Math.min(c().password.length, 16))}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label={showPassword() ? "Hide password" : "Show password"}
+                  onClick={() => setShowPassword((v) => !v)}
+                >
+                  {showPassword() ? <EyeOff aria-hidden /> : <Eye aria-hidden />}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label="Copy password"
+                  onClick={() => void copyPassword(c().password)}
+                >
+                  {copied() ? <Check aria-hidden /> : <Copy aria-hidden />}
+                </Button>
+              </dd>
+            </dl>
+          )}
+        </Show>
+      </CardContent>
+    </Card>
+  );
+}
+
 function OverviewTab(props: { site: Site }) {
   const health = useSiteHealth("24h");
   const action = useSiteAction();
@@ -59,7 +173,12 @@ function OverviewTab(props: { site: Site }) {
   };
   const ready = () => props.site.state === "ready";
   const suspended = () => props.site.state === "suspended";
-  const versions = () => (phpVersions.data?.length ? phpVersions.data : [props.site.php_version]);
+  // The five newest PHP releases, plus the site's current version if it is older.
+  const versions = () =>
+    LATEST_PHP.includes(props.site.php_version)
+      ? LATEST_PHP
+      : [props.site.php_version, ...LATEST_PHP];
+  const installed = () => phpVersions.data ?? [];
   const message = () => action.error ?? changePHP.error;
 
   return (
@@ -126,6 +245,12 @@ function OverviewTab(props: { site: Site }) {
       </Card>
 
       <Show when={ready()}>
+        <div class="lg:col-span-3">
+          <WordPressAccess site={props.site} />
+        </div>
+      </Show>
+
+      <Show when={ready()}>
         <Card class="lg:col-span-3">
           <CardHeader>
             <CardTitle>PHP version</CardTitle>
@@ -150,11 +275,16 @@ function OverviewTab(props: { site: Site }) {
                   onChange={(e) => setPhpChoice(e.currentTarget.value)}
                 >
                   <For each={versions()}>
-                    {(v) => (
-                      <option value={v} selected={v === phpChoice()}>
-                        PHP {v}
-                      </option>
-                    )}
+                    {(v) => {
+                      const available = () =>
+                        installed().includes(v) || v === props.site.php_version;
+                      return (
+                        <option value={v} selected={v === phpChoice()} disabled={!available()}>
+                          PHP {v}
+                          {available() ? "" : " (not installed on this server)"}
+                        </option>
+                      );
+                    }}
                   </For>
                 </select>
               </div>
@@ -218,58 +348,6 @@ function LogsTab(props: { site: Site }) {
 // ---------------------------------------------------------------------------
 // Settings tab: login, and the danger zone
 // ---------------------------------------------------------------------------
-
-function WordPressLogin(props: { site: Site }) {
-  const creds = useCredentials();
-  return (
-    <Dialog
-      onOpenChange={(open) => {
-        if (open) creds.mutate(props.site.id);
-      }}
-    >
-      <DialogTrigger>
-        <Button variant="outline">WordPress login</Button>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>WordPress login</DialogTitle>
-          <DialogDescription>
-            Use these details to sign in to the dashboard of {props.site.domain}.
-          </DialogDescription>
-        </DialogHeader>
-        <Show when={creds.isPending}>
-          <p class="text-sm text-muted-foreground">Loading…</p>
-        </Show>
-        <Show when={creds.isError}>
-          <Alert variant="destructive">
-            <AlertDescription>{errorOf(creds.error, "Could not load the login.")}</AlertDescription>
-          </Alert>
-        </Show>
-        <Show when={creds.data}>
-          {(c) => (
-            <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
-              <dt class="text-muted-foreground">Dashboard</dt>
-              <dd class="break-all">
-                <a
-                  class="text-primary underline-offset-4 hover:underline"
-                  href={c().url}
-                  target="_blank"
-                  rel="noopener"
-                >
-                  {c().url}
-                </a>
-              </dd>
-              <dt class="text-muted-foreground">Username</dt>
-              <dd class="font-mono">{c().username}</dd>
-              <dt class="text-muted-foreground">Password</dt>
-              <dd class="break-all font-mono">{c().password}</dd>
-            </dl>
-          )}
-        </Show>
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 function DeleteWebsite(props: { site: Site; onDeleting: () => void }) {
   const del = useDeleteSite();
@@ -340,26 +418,6 @@ function DeleteWebsite(props: { site: Site; onDeleting: () => void }) {
 function SettingsTab(props: { site: Site; onDeleting: () => void }) {
   return (
     <div class="grid gap-4 lg:grid-cols-2">
-      <Card>
-        <CardHeader>
-          <CardTitle>WordPress</CardTitle>
-          <CardDescription>Sign in to the admin dashboard of this website.</CardDescription>
-        </CardHeader>
-        <CardContent class="flex flex-wrap gap-2">
-          <Show when={props.site.state === "ready"}>
-            <a
-              href={`${siteUrl(props.site.domain)}/wp-admin/`}
-              target="_blank"
-              rel="noopener"
-              class={buttonClasses("outline")}
-            >
-              <ExternalLink aria-hidden /> Open admin
-            </a>
-          </Show>
-          <WordPressLogin site={props.site} />
-        </CardContent>
-      </Card>
-
       <Card class="border-destructive/40">
         <CardHeader>
           <CardTitle class="text-destructive">Danger zone</CardTitle>

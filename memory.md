@@ -325,3 +325,10 @@ Removed every UI/animation/data/routing library from apps/panel. Only React, Rea
 ## 25. Icon bug fix
 
 - Icons shared one DOM shape. An icon used in two places (for example Layers in the sidebar and on the Overview card) lost its shape from the first place when it rendered in the second. Each render now copies its shape (apps/panel/src/components/icons.tsx). Regression test: icons.test.tsx (fails on the old code).
+
+## 26. Site and server UI (latest)
+
+- Site Overview: WordPress card (Open admin signs in without a password by posting the stored login to the site's wp-login.php in a new tab; username and password shown with show/hide and copy). Removed the old WordPress dialog from Settings; Settings keeps the danger zone.
+- PHP version: the five newest releases (8.5 to 8.1). Versions the server does not have show "(not installed on this server)" and cannot be picked.
+- Server page: new "Capacity and load" card (load 1/5/15 min, CPU cores, memory and disk totals, uptime) from existing metrics.
+- Needs backend work (not done, backend is off-limits for now): file upload in the Files tab, installing the extra PHP versions, server details such as OS and IP.
