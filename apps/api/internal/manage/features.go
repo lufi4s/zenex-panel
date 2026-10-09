@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/zenexcloud/zenex-panel/apps/api/internal/helperclient"
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/store"
 )
 
@@ -135,12 +136,64 @@ func (m *Manager) sendToSFTP(ctx context.Context, jobID, local string, dest stor
 	_ = m.Store.AppendJobLog(ctx, jobID, "info", "sending the archive to the SFTP server")
 	args := sftpArgs(dest, remoteDir)
 	args["file"] = local
-	if _, err := m.Helper.Do(ctx, "backup.upload", args); err != nil {
-		m.removeLocalArchive(ctx, jobID, local)
+	err := m.runSFTPOp(ctx, "backup.upload", dest, args)
+	m.removeLocalArchive(ctx, jobID, local)
+	if err != nil {
 		return "", err
 	}
-	m.removeLocalArchive(ctx, jobID, local)
 	return remoteBackupPath(dest.Host, path.Join(remoteDir, path.Base(local))), nil
+}
+
+// runSFTPOp runs a helper operation that talks to the SFTP server. The saved password
+// is added to the arguments when the destination signs in with one. Any error text is
+// returned without the password.
+func (m *Manager) runSFTPOp(ctx context.Context, op string, dest store.SFTPDestination, args map[string]string) error {
+	password, err := m.addSFTPPassword(ctx, dest, args)
+	if err != nil {
+		return err
+	}
+	_, err = m.Helper.Do(ctx, op, args)
+	return redactError(err, password)
+}
+
+// addSFTPPassword adds the "password" argument when dest uses password sign-in. It
+// returns the password so the caller can redact it from errors. Key sign-in adds nothing.
+func (m *Manager) addSFTPPassword(ctx context.Context, dest store.SFTPDestination, args map[string]string) (string, error) {
+	if dest.Auth != store.SFTPAuthPassword {
+		return "", nil
+	}
+	if m.SFTPPassword == nil {
+		return "", errors.New("the SFTP password cannot be read on this server")
+	}
+	password, err := m.SFTPPassword(ctx)
+	if errors.Is(err, store.ErrNotFound) {
+		return "", errors.New("no SFTP password is saved; enter it in the backup settings")
+	}
+	if err != nil {
+		return "", err
+	}
+	if password == "" {
+		return "", errors.New("no SFTP password is saved; enter it in the backup settings")
+	}
+	args["password"] = password
+	return password, nil
+}
+
+// redactError removes the secret from an error message. Helper errors keep their type,
+// because callers show their message to the customer.
+func redactError(err error, secret string) error {
+	if err == nil || secret == "" {
+		return err
+	}
+	const mask = "[redacted]"
+	var helperErr *helperclient.Error
+	if errors.As(err, &helperErr) {
+		return &helperclient.Error{Message: strings.ReplaceAll(helperErr.Message, secret, mask)}
+	}
+	if msg := err.Error(); strings.Contains(msg, secret) {
+		return errors.New(strings.ReplaceAll(msg, secret, mask))
+	}
+	return err
 }
 
 // removeLocalArchive deletes a local archive. A failure is logged to the job only:
@@ -214,7 +267,7 @@ func (m *Manager) PruneBackups(ctx context.Context, now time.Time, retentionDays
 			m.Log.Warn("expired backup skipped", "backup_id", b.ID, "error", err)
 			continue
 		}
-		if _, err := m.Helper.Do(ctx, "backup.delete", args); err != nil {
+		if err := m.runSFTPOpIfRemote(ctx, args, settings.Destination.SFTP, "backup.delete"); err != nil {
 			m.Log.Warn("deleting expired backup failed", "backup_id", b.ID, "error", err)
 			continue
 		}
@@ -222,6 +275,16 @@ func (m *Manager) PruneBackups(ctx context.Context, now time.Time, retentionDays
 			m.Log.Warn("removing expired backup record failed", "backup_id", b.ID, "error", err)
 		}
 	}
+}
+
+// runSFTPOpIfRemote runs a delete for a remote archive. Local deletes are plain helper calls
+// without any SFTP password.
+func (m *Manager) runSFTPOpIfRemote(ctx context.Context, args map[string]string, dest store.SFTPDestination, op string) error {
+	if args["remote"] != "1" {
+		_, err := m.Helper.Do(ctx, op, args)
+		return err
+	}
+	return m.runSFTPOp(ctx, op, dest, args)
 }
 
 // RunAutoUpdates applies WordPress updates to every site that has auto-updates on.
@@ -328,6 +391,5 @@ func validPublicKey(key string) bool {
 
 // TestSFTP checks that the panel can sign in to the SFTP server and reach the path.
 func (m *Manager) TestSFTP(ctx context.Context, dest store.SFTPDestination) error {
-	_, err := m.Helper.Do(ctx, "backup.test", sftpArgs(dest, dest.Path))
-	return err
+	return m.runSFTPOp(ctx, "backup.test", dest, sftpArgs(dest, dest.Path))
 }

@@ -26,6 +26,10 @@ func (f *fakeExec) RunInput(_ context.Context, bin string, args []string, stdin 
 	return f.record(bin, args, stdin)
 }
 
+func (f *fakeExec) RunEnv(_ context.Context, bin string, args []string, _ []string, _ time.Duration) (executor.Result, error) {
+	return f.record(bin, args, "")
+}
+
 func (f *fakeExec) record(bin string, args []string, stdin string) (executor.Result, error) {
 	f.calls = append(f.calls, bin+" "+strings.Join(args, " "))
 	f.stdin = stdin

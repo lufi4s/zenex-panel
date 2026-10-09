@@ -88,3 +88,24 @@ func TestRunReportsTimeout(t *testing.T) {
 		t.Fatalf("expected ErrTimeout, got %v", err)
 	}
 }
+
+func TestRunEnvRejectsForbiddenEntriesBeforeStarting(t *testing.T) {
+	bin := testBin("bin", "echo")
+	r, err := NewRunner(bin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, env := range [][]string{
+		{"lower=1"},
+		{"NOEQUALS"},
+		{"=value"},
+		{"PATH=/tmp"},
+		{"LC_ALL=en_US"},
+		{"SSHPASS=bad\nvalue"},
+		{"SSHPASS=bad\x00value"},
+	} {
+		if _, err := r.RunEnv(context.Background(), bin, []string{"x"}, env, time.Second); !errors.Is(err, ErrInvalidEnv) {
+			t.Errorf("env %q: expected ErrInvalidEnv, got %v", env, err)
+		}
+	}
+}

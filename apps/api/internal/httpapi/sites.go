@@ -56,6 +56,8 @@ type SiteStore interface {
 	UpdateBrandingAssets(ctx context.Context, userID string, change func(*store.BrandingAssets)) error
 	GetSFTPPublicKey(ctx context.Context) (string, error)
 	SetSFTPPublicKey(ctx context.Context, userID, key string) error
+	GetSealedSFTPPassword(ctx context.Context) (string, error)
+	SetSealedSFTPPassword(ctx context.Context, userID, sealed string) error
 }
 
 // SiteSettings are the server-level values the site handlers need.

@@ -197,7 +197,7 @@ install_packages() {
     retry 3 15 apt-get update -qq
     retry 3 20 apt-get install -y -qq --no-install-recommends \
         -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold \
-        ca-certificates curl git openssl \
+        ca-certificates curl git openssl sshpass \
         golang-go \
         postgresql \
         php-cli php-fpm php-mysql php-curl php-gd php-mbstring php-xml php-zip php-intl php-redis \

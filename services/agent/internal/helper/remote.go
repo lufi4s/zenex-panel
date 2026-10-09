@@ -30,6 +30,14 @@ const (
 	sftpDeleteTime = 60 * time.Second
 
 	maxRemotePath = 200
+	maxPassword   = 512
+)
+
+// sshpass exit codes (sshpass(1)). Any other code is classified from stderr.
+const (
+	sshpassWrongPassword  = 5
+	sshpassHostKeyUnknown = 6
+	sshpassHostKeyChanged = 7
 )
 
 // Messages returned to the panel. Raw sftp output is never passed through.
@@ -256,18 +264,36 @@ func isControl(r rune) bool { return r < 0x20 || r == 0x7f }
 // sftp runner
 // ---------------------------------------------------------------------------
 
+// validatePassword accepts 1 to 512 bytes with no NUL, CR or LF. The value is
+// never echoed back, so the error does not contain it.
+func validatePassword(p string) error {
+	if len(p) < 1 || len(p) > maxPassword || strings.ContainsAny(p, "\x00\r\n") {
+		return errors.New("invalid password")
+	}
+	return nil
+}
+
 // runSFTP writes the batch to a root-only temp file under the key folder, runs
-// sftp against it and removes it again. A non-zero sftp exit is returned in the
-// Result so the caller can classify stderr. Errors are only for prerequisites
-// and for transport failures.
-func (o *Ops) runSFTP(ctx context.Context, t remoteTarget, batch []string, timeout time.Duration, def string) (executor.Result, error) {
+// sftp against it and removes it again. A non-empty password selects password
+// authentication through sshpass; the password travels only in the SSHPASS
+// variable of that one child process. An empty password uses the key pair.
+// A non-zero sftp exit is returned in the Result so the caller can classify it.
+// Errors are only for prerequisites and for transport failures.
+func (o *Ops) runSFTP(ctx context.Context, t remoteTarget, password string, batch []string, timeout time.Duration, def string) (executor.Result, error) {
+	if password != "" {
+		if err := validatePassword(password); err != nil {
+			return executor.Result{}, err
+		}
+	}
 	keyPath, err := o.backupKeyPath()
 	if err != nil {
 		return executor.Result{}, err
 	}
 	dir := filepath.Dir(keyPath)
-	if ok, err := pathExists(keyPath); err != nil || !ok {
-		return executor.Result{}, errors.New("backup key missing: run backup.keygen first")
+	if password == "" {
+		if ok, err := pathExists(keyPath); err != nil || !ok {
+			return executor.Result{}, errors.New("backup key missing: run backup.keygen first")
+		}
 	}
 
 	tmp, err := os.MkdirTemp(dir, batchFilePrefix)
@@ -288,17 +314,39 @@ func (o *Ops) runSFTP(ctx context.Context, t remoteTarget, batch []string, timeo
 		return executor.Result{}, errors.New("prepare transfer failed")
 	}
 
-	argv := []string{
-		"-i", keyPath,
-		"-P", strconv.Itoa(t.port),
-		"-o", "BatchMode=yes",
+	var argv []string
+	if password == "" {
+		argv = append(argv, "-i", keyPath)
+	}
+	argv = append(argv, "-P", strconv.Itoa(t.port))
+	if password == "" {
+		argv = append(argv, "-o", "BatchMode=yes")
+	} else {
+		// sftp -b adds "-obatchmode yes" after these options, and ssh keeps the first
+		// value it sees. BatchMode=no here stops batch mode from blocking the password prompt.
+		argv = append(argv,
+			"-o", "PubkeyAuthentication=no",
+			"-o", "PreferredAuthentications=password",
+			"-o", "NumberOfPasswordPrompts=1",
+			"-o", "BatchMode=no",
+		)
+	}
+	argv = append(argv,
 		"-o", "StrictHostKeyChecking=accept-new",
-		"-o", "UserKnownHostsFile=" + filepath.Join(dir, knownHostsName),
+		"-o", "UserKnownHostsFile="+filepath.Join(dir, knownHostsName),
 		"-o", "ConnectTimeout=10",
 		"-b", bf.Name(),
-		t.username + "@" + t.host,
+		t.username+"@"+t.host,
+	)
+
+	var res executor.Result
+	if password == "" {
+		res, err = o.Exec.Run(ctx, binSFTP, argv, timeout)
+	} else {
+		// sshpass -e reads the password from SSHPASS. The variable is set for this run only.
+		res, err = o.Exec.RunEnv(ctx, binSSHPass, append([]string{"-e", binSFTP}, argv...),
+			[]string{"SSHPASS=" + password}, timeout)
 	}
-	res, err := o.Exec.Run(ctx, binSFTP, argv, timeout)
 	if err != nil {
 		if isTimeout(err) {
 			return res, errors.New(msgTimedOut)
@@ -324,7 +372,8 @@ func sftpReason(stderr string) string {
 		return false
 	}
 	switch {
-	case has("permission denied (", "authentication failed", "too many authentication failures", "no supported authentication"):
+	case has("permission denied (", "permission denied, please try again", "authentication failed",
+		"too many authentication failures", "no supported authentication"):
 		return msgAuth
 	case has("could not resolve hostname", "connection refused", "connection timed out", "operation timed out",
 		"no route to host", "network is unreachable", "connection closed", "host key verification failed",
@@ -339,9 +388,23 @@ func sftpReason(stderr string) string {
 	return ""
 }
 
-// sftpFailure is the error for a failed sftp run: the mapped keyword or the default.
-func sftpFailure(stderr, def string) error {
-	if r := sftpReason(stderr); r != "" {
+// sftpReasonFor classifies a finished sftp run. When the run used sshpass
+// (viaPassword), its exit codes are checked first. "" means no mapping applies.
+func sftpReasonFor(res executor.Result, viaPassword bool) string {
+	if viaPassword {
+		switch res.ExitCode {
+		case sshpassWrongPassword:
+			return msgAuth
+		case sshpassHostKeyUnknown, sshpassHostKeyChanged:
+			return msgConnect
+		}
+	}
+	return sftpReason(res.Stderr)
+}
+
+// sftpFailure is the error for a failed sftp run: the mapped message or the default.
+func sftpFailure(res executor.Result, viaPassword bool, def string) error {
+	if r := sftpReasonFor(res, viaPassword); r != "" {
 		return errors.New(r)
 	}
 	return errors.New(def)
@@ -361,12 +424,13 @@ func (o *Ops) backupTest(ctx context.Context, args map[string]string) error {
 	if err := validateRemotePath(dir); err != nil {
 		return err
 	}
-	res, err := o.runSFTP(ctx, t, []string{"cd " + dir, "ls"}, sftpTestTime, msgTestFailed)
+	pw := args["password"]
+	res, err := o.runSFTP(ctx, t, pw, []string{"cd " + dir, "ls"}, sftpTestTime, msgTestFailed)
 	if err != nil {
 		return err
 	}
 	if res.ExitCode != 0 {
-		return sftpFailure(res.Stderr, msgTestFailed)
+		return sftpFailure(res, pw != "", msgTestFailed)
 	}
 	return nil
 }
@@ -396,12 +460,13 @@ func (o *Ops) backupUpload(ctx context.Context, args map[string]string) error {
 		"put " + local + " " + base + ".part",
 		"rename " + base + ".part " + base,
 	}
-	res, err := o.runSFTP(ctx, t, batch, sftpUploadTime, msgUploadFailed)
+	pw := args["password"]
+	res, err := o.runSFTP(ctx, t, pw, batch, sftpUploadTime, msgUploadFailed)
 	if err != nil {
 		return err
 	}
 	if res.ExitCode != 0 {
-		return sftpFailure(res.Stderr, msgUploadFailed)
+		return sftpFailure(res, pw != "", msgUploadFailed)
 	}
 	return nil
 }
@@ -417,7 +482,8 @@ func (o *Ops) backupDeleteRemote(ctx context.Context, args map[string]string) er
 	if err := validateRemoteArchive(p); err != nil {
 		return err
 	}
-	res, err := o.runSFTP(ctx, t, []string{"rm " + p}, sftpDeleteTime, msgDeleteFailed)
+	pw := args["password"]
+	res, err := o.runSFTP(ctx, t, pw, []string{"rm " + p}, sftpDeleteTime, msgDeleteFailed)
 	if err != nil {
 		return err
 	}
@@ -426,7 +492,7 @@ func (o *Ops) backupDeleteRemote(ctx context.Context, args map[string]string) er
 	}
 	// sftp reports a missing file as "No such file", which sftpReason maps to a
 	// missing folder. Either way the file is not there, so the delete has succeeded.
-	switch reason := sftpReason(res.Stderr); reason {
+	switch reason := sftpReasonFor(res, pw != ""); reason {
 	case msgFolderMissed:
 		return nil
 	case "":

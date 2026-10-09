@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -27,6 +28,9 @@ var (
 	ErrBinaryNotAllowed = errors.New("binary is not on the allowlist")
 	ErrInvalidArgument  = errors.New("argument contains forbidden characters")
 	ErrTimeout          = errors.New("command timed out")
+	ErrInvalidEnv       = errors.New("environment contains forbidden entries")
+
+	envNameRe = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
 )
 
 // Result is the outcome of a finished command.
@@ -70,12 +74,30 @@ func (r *Runner) Run(ctx context.Context, bin string, args []string, timeout tim
 // RunInput is Run with data written to the program's standard input. Use it for
 // secrets and multi-line payloads (for example SQL) so they never appear in argv.
 func (r *Runner) RunInput(ctx context.Context, bin string, args []string, stdin string, timeout time.Duration) (Result, error) {
+	return r.run(ctx, bin, args, stdin, nil, timeout)
+}
+
+// RunEnv is Run with extra environment variables for this one child process.
+// Each entry is NAME=VALUE. The variables exist only in that child; the next run
+// starts again from the fixed environment. PATH and LC_ALL cannot be overridden.
+func (r *Runner) RunEnv(ctx context.Context, bin string, args []string, env []string, timeout time.Duration) (Result, error) {
+	return r.run(ctx, bin, args, "", env, timeout)
+}
+
+func (r *Runner) run(ctx context.Context, bin string, args []string, stdin string, extraEnv []string, timeout time.Duration) (Result, error) {
 	if _, ok := r.allowed[bin]; !ok {
 		return Result{}, fmt.Errorf("%w: %s", ErrBinaryNotAllowed, bin)
 	}
 	for _, a := range args {
 		if strings.ContainsAny(a, "\x00\n\r") {
 			return Result{}, ErrInvalidArgument
+		}
+	}
+	for _, kv := range extraEnv {
+		name, value, ok := strings.Cut(kv, "=")
+		if !ok || !envNameRe.MatchString(name) || name == "PATH" || name == "LC_ALL" ||
+			strings.ContainsAny(value, "\x00\n\r") {
+			return Result{}, ErrInvalidEnv
 		}
 	}
 	if timeout <= 0 {
@@ -89,7 +111,7 @@ func (r *Runner) RunInput(ctx context.Context, bin string, args []string, stdin 
 	stdout.limit, stderr.limit = defaultMaxOutput, defaultMaxOutput
 
 	cmd := exec.CommandContext(ctx, bin, args...)
-	cmd.Env = []string{"PATH=" + safePath, "LC_ALL=C"}
+	cmd.Env = append([]string{"PATH=" + safePath, "LC_ALL=C"}, extraEnv...)
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if stdin != "" {

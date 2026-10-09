@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/zenexcloud/zenex-panel/apps/api/internal/helperclient"
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/store"
 )
 
@@ -367,5 +368,98 @@ func TestSFTPTestSendsSavedDestination(t *testing.T) {
 	args := h.args["backup.test"][0]
 	if args["host"] != "backup.example.com" || args["port"] != "2222" || args["username"] != "zx_backup" || args["path"] != "/backups/zenex" {
 		t.Fatalf("backup.test args = %v", args)
+	}
+	if _, has := args["password"]; has {
+		t.Fatalf("key auth sent a password: %v", args)
+	}
+}
+
+const testPassword = "pw-S3cret-42"
+
+// withSFTPPassword makes the manager read the password from a fixed value, as the
+// real hook does from the encrypted setting.
+func withSFTPPassword(m *Manager, value string) {
+	m.SFTPPassword = func(context.Context) (string, error) {
+		if value == "" {
+			return "", store.ErrNotFound
+		}
+		return value, nil
+	}
+}
+
+func passwordDest() store.SFTPDestination {
+	d := testSFTP
+	d.Auth = store.SFTPAuthPassword
+	return d
+}
+
+func TestSFTPTestSendsPasswordOnlyForPasswordAuth(t *testing.T) {
+	m, _, h := newFeatureTest("ready")
+	withSFTPPassword(m, testPassword)
+	if err := m.TestSFTP(context.Background(), passwordDest()); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.args["backup.test"][0]["password"]; got != testPassword {
+		t.Fatalf("password arg = %q", got)
+	}
+	if err := m.TestSFTP(context.Background(), testSFTP); err != nil {
+		t.Fatal(err)
+	}
+	if _, has := h.args["backup.test"][1]["password"]; has {
+		t.Fatalf("key auth sent a password: %v", h.args["backup.test"][1])
+	}
+}
+
+func TestSFTPPasswordMissingStopsBeforeHelper(t *testing.T) {
+	m, _, h := newFeatureTest("ready")
+	withSFTPPassword(m, "")
+	if err := m.TestSFTP(context.Background(), passwordDest()); err == nil {
+		t.Fatal("test ran without a saved password")
+	}
+	if len(h.calls) != 0 {
+		t.Fatalf("helper called: %v", h.calls)
+	}
+}
+
+func TestBackupUploadAndRemoteDeleteCarryPasswordOnlyForPasswordAuth(t *testing.T) {
+	m, st, h := newFeatureTest("ready")
+	withSFTPPassword(m, testPassword)
+	st.settings = sftpSettings()
+	st.settings.Destination.SFTP.Auth = store.SFTPAuthPassword
+	local := BackupRoot + "/zx_shop/20261009-030000.tar.gz"
+	h.outputs["backup.create"] = local + " 4096"
+	site := store.Site{ID: "s1", NodeID: "n1", LinuxUser: "zx_shop", State: "ready", Domain: "shop.example.com"}
+
+	m.runBackup(context.Background(), site, "job-1", "u1")
+
+	if got := h.args["backup.upload"][0]["password"]; got != testPassword {
+		t.Fatalf("upload password arg = %q", got)
+	}
+	if del := h.args["backup.delete"][0]; len(del) != 1 || del["path"] != local {
+		t.Fatalf("local delete carried extra arguments: %v", del)
+	}
+
+	now := time.Date(2026, 10, 9, 3, 0, 0, 0, time.UTC)
+	st.backups = []store.Backup{{ID: 5, CreatedAt: now.AddDate(0, 0, -10), Path: "sftp://backup.example.com/backups/zenex/old.tar.gz"}}
+	m.PruneBackups(context.Background(), now, 7)
+	remoteDel := h.args["backup.delete"][1]
+	if remoteDel["remote"] != "1" || remoteDel["password"] != testPassword {
+		t.Fatalf("remote delete args = %v", remoteDel)
+	}
+}
+
+func TestPasswordErrorsAreRedacted(t *testing.T) {
+	m, _, h := newFeatureTest("ready")
+	withSFTPPassword(m, testPassword)
+	h.fail["backup.test"] = &helperclient.Error{Message: "login with " + testPassword + " refused"}
+	err := m.TestSFTP(context.Background(), passwordDest())
+	var helperErr *helperclient.Error
+	if !errors.As(err, &helperErr) || strings.Contains(err.Error(), testPassword) || !strings.Contains(err.Error(), "[redacted]") {
+		t.Fatalf("error = %v", err)
+	}
+
+	h.fail["backup.test"] = errors.New("dial failed for " + testPassword)
+	if err := m.TestSFTP(context.Background(), passwordDest()); err == nil || strings.Contains(err.Error(), testPassword) {
+		t.Fatalf("plain error = %v", err)
 	}
 }

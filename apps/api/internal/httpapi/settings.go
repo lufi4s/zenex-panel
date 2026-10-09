@@ -105,6 +105,49 @@ var (
 
 const maxSFTPPathLen = 200
 
+// backupSettingsDoc is the backup settings document as the client sends and receives it.
+// Password is write-only: empty keeps the saved one, and it is never returned.
+// PasswordSet is read-only and ignored on input.
+type backupSettingsDoc struct {
+	ScheduleHour  int            `json:"schedule_hour"`
+	RetentionDays int            `json:"retention_days"`
+	Destination   destinationDoc `json:"destination"`
+}
+
+type destinationDoc struct {
+	Type string  `json:"type"`
+	SFTP sftpDoc `json:"sftp"`
+}
+
+type sftpDoc struct {
+	store.SFTPDestination
+	Password    string `json:"password,omitempty"`
+	PasswordSet bool   `json:"password_set"`
+}
+
+// settings returns the stored form of the document. The password is not part of it.
+func (doc backupSettingsDoc) settings() store.BackupSettings {
+	return store.BackupSettings{
+		ScheduleHour:  doc.ScheduleHour,
+		RetentionDays: doc.RetentionDays,
+		Destination: store.BackupDestination{
+			Type: doc.Destination.Type,
+			SFTP: doc.Destination.SFTP.SFTPDestination,
+		},
+	}
+}
+
+func newBackupSettingsDoc(cfg store.BackupSettings, passwordSet bool) backupSettingsDoc {
+	return backupSettingsDoc{
+		ScheduleHour:  cfg.ScheduleHour,
+		RetentionDays: cfg.RetentionDays,
+		Destination: destinationDoc{
+			Type: cfg.Destination.Type,
+			SFTP: sftpDoc{SFTPDestination: cfg.Destination.SFTP, PasswordSet: passwordSet},
+		},
+	}
+}
+
 // validBackupSettings checks the hour (0-23), retention (1-90 days) and the destination.
 // It returns a trimmed copy, with the SFTP folder cleaned.
 func validBackupSettings(in store.BackupSettings) (store.BackupSettings, string) {
@@ -118,6 +161,14 @@ func validBackupSettings(in store.BackupSettings) (store.BackupSettings, string)
 	dest.Type = strings.ToLower(strings.TrimSpace(dest.Type))
 	if dest.Type == "" {
 		dest.Type = store.BackupDestLocal
+	}
+	switch strings.ToLower(strings.TrimSpace(dest.SFTP.Auth)) {
+	case "", store.SFTPAuthKey:
+		dest.SFTP.Auth = store.SFTPAuthKey
+	case store.SFTPAuthPassword:
+		dest.SFTP.Auth = store.SFTPAuthPassword
+	default:
+		return in, "Choose key or password as the SFTP sign-in method."
 	}
 	switch dest.Type {
 	case store.BackupDestLocal:
@@ -213,6 +264,23 @@ func (d Deps) handleCreateSFTPKey(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"public_key": key})
 }
 
+// sftpPasswordSet reports whether an SFTP password is saved.
+func (d Deps) sftpPasswordSet(ctx context.Context) (bool, error) {
+	_, err := d.Sites.GetSealedSFTPPassword(ctx)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+// sealSFTPPassword encrypts the SFTP password with the server secret, the same way SMTP passwords are stored.
+func (d Deps) sealSFTPPassword(plain string) (string, error) {
+	if len(d.Site.SecretKey) == 0 {
+		return "", alerts.ErrNoSecretKey
+	}
+	return alerts.Seal(alerts.DeriveKey(string(d.Site.SecretKey)), plain)
+}
+
 // handleTestSFTP checks the saved SFTP destination. Failures are returned as 502 with a short message.
 func (d Deps) handleTestSFTP(w http.ResponseWriter, r *http.Request) {
 	if _, ok := d.requireAdminUser(w, r); !ok {
@@ -227,7 +295,12 @@ func (d Deps) handleTestSFTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, requestIDFrom(r), APIError{Status: http.StatusBadRequest, Code: "sftp_not_configured", Message: "Save an SFTP destination before testing it."})
 		return
 	}
-	if err := d.Manage.TestSFTP(r.Context(), settings.Destination.SFTP); err != nil {
+	err = d.Manage.TestSFTP(r.Context(), settings.Destination.SFTP)
+	if errors.Is(err, alerts.ErrNoSecretKey) {
+		writeError(w, requestIDFrom(r), ErrSecretKeyMissing)
+		return
+	}
+	if err != nil {
 		msg := "the SFTP server could not be reached with the saved settings; check the host, port, username and folder, and that the panel key is installed"
 		var helperErr *helperclient.Error
 		if errors.As(err, &helperErr) && helperErr.Message != "" {
@@ -251,7 +324,12 @@ func (d Deps) handleGetBackupSettings(w http.ResponseWriter, r *http.Request) {
 		d.internal(w, r, "settings.backups.get", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, cfg)
+	passwordSet, err := d.sftpPasswordSet(r.Context())
+	if err != nil {
+		d.internal(w, r, "settings.backups.password_set", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, newBackupSettingsDoc(cfg, passwordSet))
 }
 
 func (d Deps) handlePutBackupSettings(w http.ResponseWriter, r *http.Request) {
@@ -259,22 +337,52 @@ func (d Deps) handlePutBackupSettings(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	var in store.BackupSettings
+	var in backupSettingsDoc
 	if err := decodeJSON(r, &in); err != nil {
 		writeError(w, requestIDFrom(r), ErrInvalidRequest)
 		return
 	}
-	cfg, problem := validBackupSettings(in)
+	cfg, problem := validBackupSettings(in.settings())
 	if problem != "" {
 		writeError(w, requestIDFrom(r), APIError{Status: http.StatusBadRequest, Code: "invalid_backup_settings", Message: problem})
 		return
+	}
+	password := in.Destination.SFTP.Password
+	if err := alerts.ValidateSecret(password); err != nil {
+		writeError(w, requestIDFrom(r), APIError{Status: http.StatusBadRequest, Code: "invalid_backup_settings", Message: err.Error()})
+		return
+	}
+	saved, err := d.sftpPasswordSet(r.Context())
+	if err != nil {
+		d.internal(w, r, "settings.backups.password_set", err)
+		return
+	}
+	passwordSet := saved || password != ""
+	if cfg.Destination.SFTP.Auth == store.SFTPAuthPassword && !passwordSet {
+		writeError(w, requestIDFrom(r), APIError{Status: http.StatusBadRequest, Code: "sftp_password_required", Message: "Enter the SFTP password to sign in with a password."})
+		return
+	}
+	if password != "" {
+		sealed, err := d.sealSFTPPassword(password)
+		if errors.Is(err, alerts.ErrNoSecretKey) {
+			writeError(w, requestIDFrom(r), ErrSecretKeyMissing)
+			return
+		}
+		if err != nil {
+			d.internal(w, r, "settings.backups.sftp_password.seal", err)
+			return
+		}
+		if err := d.Sites.SetSealedSFTPPassword(r.Context(), user.ID, sealed); err != nil {
+			d.internal(w, r, "settings.backups.sftp_password.set", err)
+			return
+		}
 	}
 	if err := d.Sites.SetBackupSettings(r.Context(), user.ID, cfg); err != nil {
 		d.internal(w, r, "settings.backups.set", err)
 		return
 	}
 	d.audit(r.Context(), r, store.AuditEntry{ActorUserID: user.ID, ActorRole: primaryRole(user), Action: "settings.backups.update", TargetType: "settings", TargetID: "backup_settings", Result: "success"})
-	writeJSON(w, http.StatusOK, cfg)
+	writeJSON(w, http.StatusOK, newBackupSettingsDoc(cfg, passwordSet))
 }
 
 // ---------------------------------------------------------------------------

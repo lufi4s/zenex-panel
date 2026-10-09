@@ -109,6 +109,16 @@ func serve(cfg config.Config, log *slog.Logger) error {
 	helpers := helperclient.New(cfg.HelperSocket)
 	prov := provision.New(s, helpers, []byte(cfg.SecretKey), log)
 	manager := manage.New(s, helpers, log)
+	manager.SFTPPassword = func(ctx context.Context) (string, error) {
+		sealed, err := s.GetSealedSFTPPassword(ctx)
+		if err != nil {
+			return "", err
+		}
+		if cfg.SecretKey == "" {
+			return "", alerts.ErrNoSecretKey
+		}
+		return alerts.Open(alerts.DeriveKey(cfg.SecretKey), sealed)
+	}
 	startJob := func(jobID string) {
 		go func() {
 			if err := prov.Run(context.Background(), jobID); err != nil {

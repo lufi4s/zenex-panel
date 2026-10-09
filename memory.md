@@ -350,3 +350,17 @@ Removed every UI/animation/data/routing library from apps/panel. Only React, Rea
 - Email: "Send test email" uses the saved settings. Gmail: smtp.gmail.com:587, from equal to the login address, App Password required. Messages are multipart with a plain text part.
 - Branding: logo and favicon upload (PNG, JPEG, WebP, ICO; magic bytes checked; 256 KB limit). Public GET endpoints; the favicon link updates at runtime.
 - Verified: Go vet and tests (API and helper, helper also for Linux), frontend 44/44, tsc, lint. Not yet deployed or tested with real SMTP or SFTP.
+
+## 29. SFTP backup sign-in: key or password (apps/api)
+
+- Backup destination SFTP object has `auth`: `key` (default when missing/empty) or `password`; anything else is 400 invalid_backup_settings.
+- Password is stored encrypted (alerts.Seal, key derived from ZENEX_SECRET_KEY) under system_settings `sftp_password`; never in backup_settings. GET returns `password_set`; PUT accepts optional `password` (empty keeps saved). auth=password without a saved password: 400 sftp_password_required. No secret key: 409 secret_key_missing.
+- Helper args: `password` added only when auth=password, for backup.test, backup.upload and backup.delete (remote). Decrypted just before the call via `manage.Manager.SFTPPassword` (wired in cmd/api/main.go). Errors are redacted.
+- Files: apps/api/internal/store/settings.go, store/settings_test.go, httpapi/settings.go, httpapi/sites.go, httpapi/settings_test.go, httpapi/settings_backup_test.go, manage/manage.go, manage/features.go, manage/features_test.go, cmd/api/main.go.
+- Verified: gofmt, go vet (Windows and GOOS=linux), go test ./... in apps/api all pass. Not tested against a real SFTP server; the helper (services/agent) must accept the `password` arg.
+
+## 29. SFTP password sign-in
+
+- Backups can sign in to the SFTP server with a password or the panel's key (Settings > Backups > Sign in with). The password is stored encrypted (system_settings "sftp_password") and passed to sshpass through its environment variable only.
+- install.sh installs the sshpass package.
+- Verified by unit tests and builds only; not yet tested with a real SFTP server.

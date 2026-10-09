@@ -37,6 +37,7 @@ const (
 	binTar         = "/usr/bin/tar"
 	binSSHKeygen   = "/usr/bin/ssh-keygen"
 	binSFTP        = "/usr/bin/sftp"
+	binSSHPass     = "/usr/bin/sshpass"
 )
 
 // Exit codes of env(1) when it cannot start the program (127) or the program is
@@ -92,6 +93,7 @@ type Result struct {
 type commandRunner interface {
 	Run(ctx context.Context, bin string, args []string, timeout time.Duration) (executor.Result, error)
 	RunInput(ctx context.Context, bin string, args []string, stdin string, timeout time.Duration) (executor.Result, error)
+	RunEnv(ctx context.Context, bin string, args []string, env []string, timeout time.Duration) (executor.Result, error)
 }
 
 // Ops executes validated operations. All operations are serialized by one lock,
@@ -652,7 +654,7 @@ func trim(s string) string {
 // AllowedBinaries lists every program the helper may execute. phpFPM is the
 // set of PHP-FPM binaries installed on the server, discovered at startup.
 func AllowedBinaries(phpFPM []string) []string {
-	base := []string{binUseradd, binUserdel, binRunuser, binEnv, binMariadb, binMariadbDump, binTar, binSystemctl, binWP, binGit, binSystemdRun, binBash, binSSHKeygen, binSFTP}
+	base := []string{binUseradd, binUserdel, binRunuser, binEnv, binMariadb, binMariadbDump, binTar, binSystemctl, binWP, binGit, binSystemdRun, binBash, binSSHKeygen, binSFTP, binSSHPass}
 	base = append(base, caddy.AllowedBinaries...)
 	return append(base, phpFPM...)
 }

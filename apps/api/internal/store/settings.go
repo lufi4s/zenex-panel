@@ -33,13 +33,22 @@ type BackupDestination struct {
 	SFTP SFTPDestination `json:"sftp"`
 }
 
-// SFTPDestination is a remote SFTP server. The panel's backup key must be installed
-// for Username on that server (see POST /api/v1/settings/backups/sftp-key).
+// SFTP sign-in methods. "key" uses the panel's backup key; "password" uses a password
+// stored encrypted in system_settings (see sftpPasswordSetting).
+const (
+	SFTPAuthKey      = "key"
+	SFTPAuthPassword = "password"
+)
+
+// SFTPDestination is a remote SFTP server. With auth "key" the panel's backup key must
+// be installed for Username on that server (see POST /api/v1/settings/backups/sftp-key).
+// The password itself is never part of this document.
 type SFTPDestination struct {
 	Host     string `json:"host"`
 	Port     int    `json:"port"`
 	Username string `json:"username"`
 	Path     string `json:"path"`
+	Auth     string `json:"auth"`
 }
 
 // DefaultBackupSettings is used until an administrator changes them.
@@ -49,7 +58,7 @@ func DefaultBackupSettings() BackupSettings {
 		RetentionDays: 7,
 		Destination: BackupDestination{
 			Type: BackupDestLocal,
-			SFTP: SFTPDestination{Port: 22, Path: "/backups/zenex"},
+			SFTP: SFTPDestination{Port: 22, Path: "/backups/zenex", Auth: SFTPAuthKey},
 		},
 	}
 }
@@ -115,6 +124,7 @@ func (s *Store) GetBackupSettings(ctx context.Context) (BackupSettings, error) {
 
 // decodeBackupSettings reads a stored backup_settings value. Missing keys keep their
 // defaults, and a value saved before SFTP support (no destination) means local storage.
+// A value saved before password support has no SFTP auth, which means key.
 func decodeBackupSettings(raw []byte) (BackupSettings, error) {
 	b := DefaultBackupSettings()
 	if err := json.Unmarshal(raw, &b); err != nil {
@@ -122,6 +132,9 @@ func decodeBackupSettings(raw []byte) (BackupSettings, error) {
 	}
 	if b.Destination.Type == "" {
 		b.Destination.Type = BackupDestLocal
+	}
+	if b.Destination.SFTP.Auth == "" {
+		b.Destination.SFTP.Auth = SFTPAuthKey
 	}
 	return b, nil
 }
@@ -173,4 +186,26 @@ func (s *Store) GetSFTPPublicKey(ctx context.Context) (string, error) {
 // SetSFTPPublicKey records the public key the helper generated.
 func (s *Store) SetSFTPPublicKey(ctx context.Context, userID, key string) error {
 	return s.PutSetting(ctx, sftpPublicKeySetting, key, userID)
+}
+
+// sftpPasswordSetting holds the SFTP password encrypted with the server secret. The value
+// is the base64(nonce || ciphertext) string produced by alerts.Seal.
+const sftpPasswordSetting = "sftp_password"
+
+// GetSealedSFTPPassword returns the encrypted SFTP password, or ErrNotFound when none is saved.
+func (s *Store) GetSealedSFTPPassword(ctx context.Context) (string, error) {
+	raw, err := s.GetSetting(ctx, sftpPasswordSetting)
+	if err != nil {
+		return "", err
+	}
+	var sealed string
+	if err := json.Unmarshal(raw, &sealed); err != nil {
+		return "", err
+	}
+	return sealed, nil
+}
+
+// SetSealedSFTPPassword stores the encrypted SFTP password and records who changed it.
+func (s *Store) SetSealedSFTPPassword(ctx context.Context, userID, sealed string) error {
+	return s.PutSetting(ctx, sftpPasswordSetting, sealed, userID)
 }

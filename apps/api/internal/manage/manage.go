@@ -59,6 +59,9 @@ type Manager struct {
 	BackupTimeout time.Duration
 	// UpdateTimeout bounds one WordPress update.
 	UpdateTimeout time.Duration
+	// SFTPPassword returns the saved SFTP password in plain text. It is called only for
+	// SFTP destinations that sign in with a password, just before the helper runs.
+	SFTPPassword func(ctx context.Context) (string, error)
 }
 
 func New(s Store, h Helper, log *slog.Logger) *Manager {

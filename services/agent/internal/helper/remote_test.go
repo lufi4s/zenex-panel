@@ -19,6 +19,7 @@ const testPubKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKeyOnlyForTests zen
 type recCall struct {
 	bin       string
 	args      []string
+	env       []string // extra NAME=VALUE entries passed with RunEnv; nil for Run
 	timeout   time.Duration
 	batch     string
 	batchMode os.FileMode
@@ -31,7 +32,15 @@ type recExec struct {
 }
 
 func (r *recExec) Run(_ context.Context, bin string, args []string, timeout time.Duration) (executor.Result, error) {
-	c := recCall{bin: bin, args: append([]string(nil), args...), timeout: timeout}
+	return r.record(bin, args, nil, timeout)
+}
+
+func (r *recExec) RunEnv(_ context.Context, bin string, args []string, env []string, timeout time.Duration) (executor.Result, error) {
+	return r.record(bin, args, env, timeout)
+}
+
+func (r *recExec) record(bin string, args []string, env []string, timeout time.Duration) (executor.Result, error) {
+	c := recCall{bin: bin, args: append([]string(nil), args...), env: append([]string(nil), env...), timeout: timeout}
 	if i := indexOfArg(args, "-b"); i >= 0 && i+1 < len(args) {
 		if info, err := os.Stat(args[i+1]); err == nil {
 			c.batchMode = info.Mode().Perm()
@@ -621,7 +630,7 @@ func TestBackupDeleteRejectsUnknownRemoteFlag(t *testing.T) {
 
 func TestAllowedBinariesIncludeSSHTools(t *testing.T) {
 	allowed := AllowedBinaries(nil)
-	for _, want := range []string{binSSHKeygen, binSFTP} {
+	for _, want := range []string{binSSHKeygen, binSFTP, binSSHPass} {
 		found := false
 		for _, a := range allowed {
 			if a == want {
@@ -631,5 +640,285 @@ func TestAllowedBinariesIncludeSSHTools(t *testing.T) {
 		if !found {
 			t.Errorf("%s missing from allowlist", want)
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Password authentication (sshpass)
+// ---------------------------------------------------------------------------
+
+const testPassword = "Zx-test-Pass_w0rd!"
+
+// assertPasswordRun checks that a run used sshpass with the password only in its environment.
+func assertPasswordRun(t *testing.T, c recCall, password string) {
+	t.Helper()
+	if c.bin != binSSHPass {
+		t.Fatalf("bin = %s, want %s", c.bin, binSSHPass)
+	}
+	if len(c.args) < 2 || c.args[0] != "-e" || c.args[1] != binSFTP {
+		t.Fatalf("argv must start with -e %s, got %v", binSFTP, c.args)
+	}
+	if strings.Contains(strings.Join(c.args, "\x00"), password) {
+		t.Fatal("password found in argv")
+	}
+	if len(c.env) != 1 || c.env[0] != "SSHPASS="+password {
+		t.Fatalf("env = %v, want only SSHPASS for this run", c.env)
+	}
+	for _, banned := range []string{"-i", "BatchMode=yes"} {
+		if indexOfArg(c.args, banned) >= 0 {
+			t.Fatalf("password mode must not pass %q: %v", banned, c.args)
+		}
+	}
+}
+
+func TestBackupTestPasswordModeArgvAndEnv(t *testing.T) {
+	ex := &recExec{}
+	o, keyDir := remoteOps(t, ex)
+	withKey(t, keyDir)
+
+	if _, err := o.Do(context.Background(), "backup.test", sftpTargetArgs(map[string]string{"password": testPassword})); err != nil {
+		t.Fatal(err)
+	}
+	if len(ex.calls) != 1 {
+		t.Fatalf("expected one run, got %d", len(ex.calls))
+	}
+	c := ex.calls[0]
+	assertPasswordRun(t, c, testPassword)
+	if c.timeout != sftpTestTime {
+		t.Fatalf("timeout = %v", c.timeout)
+	}
+	if c.batch != "cd /home/backup/zenex\nls\n" {
+		t.Fatalf("batch = %q", c.batch)
+	}
+
+	kh := filepath.Join(keyDir, knownHostsName)
+	want := []string{
+		"-e", binSFTP,
+		"-P", "22",
+		"-o", "PubkeyAuthentication=no",
+		"-o", "PreferredAuthentications=password",
+		"-o", "NumberOfPasswordPrompts=1",
+		"-o", "BatchMode=no",
+		"-o", "StrictHostKeyChecking=accept-new",
+		"-o", "UserKnownHostsFile=" + kh,
+		"-o", "ConnectTimeout=10",
+		"-b", "", // batch path, checked separately
+		"backup@files.example.com",
+	}
+	if len(c.args) != len(want) {
+		t.Fatalf("argv length = %d, want %d: %v", len(c.args), len(want), c.args)
+	}
+	for i, w := range want {
+		if w == "" {
+			if !strings.HasPrefix(c.args[i], keyDir) {
+				t.Fatalf("batch file outside key folder: %s", c.args[i])
+			}
+			continue
+		}
+		if c.args[i] != w {
+			t.Fatalf("argv[%d] = %q, want %q", i, c.args[i], w)
+		}
+	}
+	entries, err := os.ReadDir(keyDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if e.Name() != backupKeyName {
+			t.Fatalf("temporary file left behind: %s", e.Name())
+		}
+	}
+}
+
+func TestBackupPasswordModeDoesNotNeedKeyFile(t *testing.T) {
+	ex := &recExec{}
+	o, keyDir := remoteOps(t, ex)
+	if err := os.MkdirAll(keyDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := o.Do(context.Background(), "backup.test", sftpTargetArgs(map[string]string{"password": testPassword})); err != nil {
+		t.Fatalf("password run without key pair failed: %v", err)
+	}
+	if len(ex.calls) != 1 {
+		t.Fatalf("expected one run, got %d", len(ex.calls))
+	}
+}
+
+func TestEmptyPasswordUsesKeyMode(t *testing.T) {
+	ex := &recExec{}
+	o, keyDir := remoteOps(t, ex)
+	withKey(t, keyDir)
+	if _, err := o.Do(context.Background(), "backup.test", sftpTargetArgs(map[string]string{"password": ""})); err != nil {
+		t.Fatal(err)
+	}
+	if len(ex.calls) != 1 || ex.calls[0].bin != binSFTP || ex.calls[0].env != nil {
+		t.Fatalf("empty password did not use key mode: %+v", ex.calls)
+	}
+	if indexOfArg(ex.calls[0].args, "-i") < 0 || indexOfArg(ex.calls[0].args, "BatchMode=yes") < 0 {
+		t.Fatalf("key options missing: %v", ex.calls[0].args)
+	}
+}
+
+func TestPasswordIsNotInheritedByLaterRuns(t *testing.T) {
+	ex := &recExec{}
+	o, keyDir := remoteOps(t, ex)
+	withKey(t, keyDir)
+
+	if _, err := o.Do(context.Background(), "backup.test", sftpTargetArgs(map[string]string{"password": testPassword})); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := o.Do(context.Background(), "backup.test", sftpTargetArgs(nil)); err != nil {
+		t.Fatal(err)
+	}
+	if len(ex.calls) != 2 {
+		t.Fatalf("expected two runs, got %d", len(ex.calls))
+	}
+	if ex.calls[1].bin != binSFTP || ex.calls[1].env != nil {
+		t.Fatalf("key run carried environment: %+v", ex.calls[1])
+	}
+}
+
+func TestPasswordModeAcrossOperations(t *testing.T) {
+	ex := &recExec{}
+	o, keyDir := remoteOps(t, ex)
+	withKey(t, keyDir)
+	local := writeArchive(t, o)
+
+	if _, err := o.Do(context.Background(), "backup.upload", uploadArgs(o, map[string]string{"password": testPassword})); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(local); err != nil {
+		t.Fatalf("local archive removed by upload: %v", err)
+	}
+	if _, err := o.Do(context.Background(), "backup.delete", remoteDeleteArgs(map[string]string{"password": testPassword})); err != nil {
+		t.Fatal(err)
+	}
+	if len(ex.calls) != 2 {
+		t.Fatalf("expected two runs, got %d", len(ex.calls))
+	}
+	upload, del := ex.calls[0], ex.calls[1]
+	assertPasswordRun(t, upload, testPassword)
+	if upload.timeout != sftpUploadTime {
+		t.Fatalf("upload timeout = %v", upload.timeout)
+	}
+	if !strings.Contains(upload.batch, "put "+local+" shop-1.tar.gz.part\n") {
+		t.Fatalf("upload batch = %q", upload.batch)
+	}
+	assertPasswordRun(t, del, testPassword)
+	if del.batch != "rm /home/backup/zenex/zx_shop/shop-1.tar.gz\n" {
+		t.Fatalf("delete batch = %q", del.batch)
+	}
+	if del.timeout != sftpDeleteTime {
+		t.Fatalf("delete timeout = %v", del.timeout)
+	}
+}
+
+func TestInvalidPasswordRejectedBeforeAnyRun(t *testing.T) {
+	bad := map[string]string{
+		"too long":         strings.Repeat("a", maxPassword+1),
+		"embedded LF":      "pass\nword",
+		"embedded CR":      "pass\rword",
+		"embedded NUL":     "pass\x00word",
+		"trailing newline": "password\n",
+	}
+	ops := map[string]func(o *Ops, pw string) map[string]string{
+		"backup.test": func(o *Ops, pw string) map[string]string {
+			return sftpTargetArgs(map[string]string{"password": pw})
+		},
+		"backup.upload": func(o *Ops, pw string) map[string]string {
+			return uploadArgs(o, map[string]string{"password": pw})
+		},
+		"backup.delete": func(o *Ops, pw string) map[string]string {
+			return remoteDeleteArgs(map[string]string{"password": pw})
+		},
+	}
+	for opName, build := range ops {
+		for name, pw := range bad {
+			t.Run(opName+"/"+name, func(t *testing.T) {
+				ex := &recExec{}
+				o, keyDir := remoteOps(t, ex)
+				withKey(t, keyDir)
+				writeArchive(t, o)
+				_, err := o.Do(context.Background(), opName, build(o, pw))
+				if err == nil {
+					t.Fatal("invalid password accepted")
+				}
+				if err.Error() != "invalid password" {
+					t.Fatalf("error = %q", err.Error())
+				}
+				if len(ex.calls) != 0 {
+					t.Fatalf("command ran despite invalid password: %+v", ex.calls)
+				}
+			})
+		}
+	}
+}
+
+func TestPasswordLengthBoundary(t *testing.T) {
+	ex := &recExec{}
+	o, keyDir := remoteOps(t, ex)
+	withKey(t, keyDir)
+	pw := strings.Repeat("a", maxPassword)
+	if _, err := o.Do(context.Background(), "backup.test", sftpTargetArgs(map[string]string{"password": pw})); err != nil {
+		t.Fatalf("512-byte password rejected: %v", err)
+	}
+	if len(ex.calls) != 1 || len(ex.calls[0].env) != 1 || ex.calls[0].env[0] != "SSHPASS="+pw {
+		t.Fatalf("512-byte password not passed through env")
+	}
+}
+
+func TestPasswordModeErrorMapping(t *testing.T) {
+	cases := []struct {
+		name   string
+		exit   int
+		stderr string
+		want   string
+	}{
+		{"sshpass wrong password", sshpassWrongPassword, "", msgAuth},
+		{"ssh permission denied retry", 255, "Permission denied, please try again.", msgAuth},
+		{"ssh permission denied list", 255, "Permission denied (password).", msgAuth},
+		{"host key unknown", sshpassHostKeyUnknown, "", msgConnect},
+		{"host key changed", sshpassHostKeyChanged, "", msgConnect},
+		{"connection refused", 255, "connect to host files.example.com port 22: Connection refused", msgConnect},
+		{"unknown failure", 3, "internal /secret/path " + testPassword, msgTestFailed},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ex := &recExec{onRun: func(string, []string) (executor.Result, error) {
+				return executor.Result{ExitCode: tc.exit, Stderr: tc.stderr}, nil
+			}}
+			o, keyDir := remoteOps(t, ex)
+			withKey(t, keyDir)
+			_, err := o.Do(context.Background(), "backup.test", sftpTargetArgs(map[string]string{"password": testPassword}))
+			if err == nil || err.Error() != tc.want {
+				t.Fatalf("error = %v, want %q", err, tc.want)
+			}
+			if strings.Contains(err.Error(), testPassword) || strings.Contains(err.Error(), "/secret") {
+				t.Fatal("secret or raw stderr leaked into the error")
+			}
+		})
+	}
+}
+
+func TestPasswordModeAuthFailureOnDelete(t *testing.T) {
+	ex := &recExec{onRun: func(string, []string) (executor.Result, error) {
+		return executor.Result{ExitCode: sshpassWrongPassword}, nil
+	}}
+	o, keyDir := remoteOps(t, ex)
+	withKey(t, keyDir)
+	_, err := o.Do(context.Background(), "backup.delete", remoteDeleteArgs(map[string]string{"password": testPassword}))
+	if err == nil || err.Error() != msgAuth {
+		t.Fatalf("error = %v, want %q", err, msgAuth)
+	}
+}
+
+func TestPasswordModeMissingRemoteFileIsNotAnError(t *testing.T) {
+	ex := &recExec{onRun: func(string, []string) (executor.Result, error) {
+		return executor.Result{ExitCode: 1, Stderr: "Couldn't stat remote file: No such file or directory"}, nil
+	}}
+	o, keyDir := remoteOps(t, ex)
+	withKey(t, keyDir)
+	if _, err := o.Do(context.Background(), "backup.delete", remoteDeleteArgs(map[string]string{"password": testPassword})); err != nil {
+		t.Fatalf("missing remote file reported as error: %v", err)
 	}
 }

@@ -200,7 +200,14 @@ function mockApi(options: {
         retention_days: 7,
         destination: {
           type: "local",
-          sftp: { host: "", port: 22, username: "", path: "/backups/zenex" },
+          sftp: {
+            host: "",
+            port: 22,
+            username: "",
+            path: "/backups/zenex",
+            auth: "key",
+            password_set: false,
+          },
         },
       });
     }
@@ -509,6 +516,35 @@ describe("settings", () => {
 
     fireEvent.click(screen.getByRole("radio", { name: "This server" }));
     await waitFor(() => expect(screen.queryByLabelText("Host")).toBeNull());
+  });
+
+  it("asks for the SFTP password when Password is chosen and none is saved", async () => {
+    const fetchMock = mockApi({ signedIn: true });
+    vi.stubGlobal("fetch", fetchMock);
+    renderAt("/settings");
+    await screen.findByLabelText("Daily backup hour (0 to 23)");
+
+    fireEvent.click(screen.getByRole("radio", { name: "Remote server (SFTP)" }));
+    const host = (await screen.findByLabelText("Host")) as HTMLInputElement;
+    fireEvent.input(host, { target: { value: "sftp.example.com" } });
+    const username = document.getElementById("backup-sftp-username") as HTMLInputElement;
+    fireEvent.input(username, { target: { value: "backup" } });
+
+    expect(screen.queryByLabelText("SFTP password")).toBeNull();
+    fireEvent.click(screen.getByRole("radio", { name: "Password" }));
+    const password = (await screen.findByLabelText("SFTP password")) as HTMLInputElement;
+    expect(password.type).toBe("password");
+    expect(password.getAttribute("autocomplete")).toBe("new-password");
+
+    // Save with no saved password and nothing typed: inline message, no API call.
+    fireEvent.submit(username.closest("form") as HTMLFormElement);
+    expect(await screen.findByText("Enter the SFTP password.")).toBeTruthy();
+    const put = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        String(url).endsWith("/api/v1/settings/backups") &&
+        (init as RequestInit | undefined)?.method === "PUT",
+    );
+    expect(put).toBeUndefined();
   });
 });
 

@@ -204,11 +204,18 @@ export interface SiteDefaults {
   php_version: string;
 }
 
+export type SftpAuth = "key" | "password";
+
 export interface SftpSettings {
   host: string;
   port: number;
   username: string;
   path: string;
+  auth: SftpAuth;
+  /** True when a password is saved on the server. The saved password is never returned. */
+  password_set: boolean;
+  /** Only sent on save, and only when a new password was typed. Empty means keep the saved one. */
+  password?: string;
 }
 
 export interface BackupDestination {

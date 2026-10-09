@@ -22,9 +22,21 @@ type settingsSites struct {
 	defaults   store.SiteDefaults
 	backup     store.BackupSettings
 	sftpKey    string
+	sealed     string
 	created    *store.NewSite
 	autoUpdate map[string]bool
 	siteState  string
+}
+
+func (s *settingsSites) GetSealedSFTPPassword(context.Context) (string, error) {
+	if s.sealed == "" {
+		return "", store.ErrNotFound
+	}
+	return s.sealed, nil
+}
+func (s *settingsSites) SetSealedSFTPPassword(_ context.Context, _ string, sealed string) error {
+	s.sealed = sealed
+	return nil
 }
 
 func (s *settingsSites) GetSiteDefaults(context.Context) (store.SiteDefaults, error) {
@@ -113,7 +125,15 @@ type settingsEnv struct {
 	alert  *fakeAlerts
 }
 
+// testServerSecret stands in for ZENEX_SECRET_KEY in settings tests.
+const testServerSecret = "0123456789abcdef0123456789abcdef-test"
+
 func newSettingsEnv(t *testing.T) settingsEnv {
+	t.Helper()
+	return newSettingsEnvWithSecret(t, testServerSecret)
+}
+
+func newSettingsEnvWithSecret(t *testing.T, secret string) settingsEnv {
 	t.Helper()
 	fs := newFakeStore(t, testEmail, testPassword)
 	hash, err := auth.HashPassword(testPassword)
@@ -136,7 +156,7 @@ func newSettingsEnv(t *testing.T) settingsEnv {
 		Sites:  env.sites,
 		Manage: env.manage,
 		Alerts: env.alert,
-		Site:   SiteSettings{NodeID: "node-1", PHPVersion: "8.3", StartJob: func(string) {}},
+		Site:   SiteSettings{NodeID: "node-1", PHPVersion: "8.3", SecretKey: []byte(secret), StartJob: func(string) {}},
 	})
 	return env
 }
