@@ -342,3 +342,11 @@ Removed every UI/animation/data/routing library from apps/panel. Only React, Rea
 - Frontend (apps/panel): Settings cards for site defaults, backups and alerts; Overview toggles for maintenance mode and daily WordPress updates; Settings tab backup list with Back up now.
 - Verified: go vet and tests (API and helper, helper also for Linux), frontend 40/40, lint, build. Migrations 0001-0006 applied to a fresh PostgreSQL 16 database.
 - Not verified on the VPS yet. Alert delivery (SMTP and Telegram) needs real credentials to test.
+
+## 28. Backup destination, test email, branding assets, update log
+
+- Update log hidden once the update finishes (shown only while running).
+- Backups: local or SFTP destination. The panel makes an ed25519 key (kept under /etc/zenex/backup); the public key is shown to copy into the remote account's authorized_keys. Test connection, upload after each backup (.part then rename), remote retention.
+- Email: "Send test email" uses the saved settings. Gmail: smtp.gmail.com:587, from equal to the login address, App Password required. Messages are multipart with a plain text part.
+- Branding: logo and favicon upload (PNG, JPEG, WebP, ICO; magic bytes checked; 256 KB limit). Public GET endpoints; the favicon link updates at runtime.
+- Verified: Go vet and tests (API and helper, helper also for Linux), frontend 44/44, tsc, lint. Not yet deployed or tested with real SMTP or SFTP.

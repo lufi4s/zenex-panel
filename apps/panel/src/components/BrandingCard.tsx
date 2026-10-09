@@ -1,17 +1,41 @@
-import { createSignal, For, Show } from "solid-js";
+import { createSignal, For, Show, type JSX } from "solid-js";
 import { Check } from "@/components/icons";
-import { useBranding, useSaveBranding } from "@/api/queries";
+import {
+  useBranding,
+  useRemoveBrandImage,
+  useSaveBranding,
+  useSetBrandImage,
+  type BrandImageKind,
+} from "@/api/queries";
 import { describeError } from "@/api/client";
-import type { Branding } from "@/api/types";
+import type { Branding, BrandingInput } from "@/api/types";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ACCENT_PRESETS, foregroundFor } from "@/lib/brand";
+import { ACCENT_PRESETS, brandAssetVersion, foregroundFor } from "@/lib/brand";
 import { cn } from "@/lib/utils";
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
+const MAX_IMAGE_BYTES = 256 * 1024;
+const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/x-icon"];
+
+/** The fields the form edits. The has_* flags come from the server and are not saved. */
+const editable = (b: Branding | BrandingInput): BrandingInput => ({
+  name: b.name,
+  tagline: b.tagline,
+  primary_color: b.primary_color,
+});
+
+function readAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(",")[1] ?? "");
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
 
 /** Administrators choose the panel's name, tagline and accent colour. */
 export function BrandingCard() {
@@ -20,11 +44,18 @@ export function BrandingCard() {
   const [draft, setDraft] = createSignal<Branding | null>(null);
 
   const value = (): Branding =>
-    draft() ?? branding.data ?? { name: "", tagline: "", primary_color: "#3b6fd4" };
+    draft() ??
+    branding.data ?? {
+      name: "",
+      tagline: "",
+      primary_color: "#3b6fd4",
+      has_logo: false,
+      has_favicon: false,
+    };
   const dirty = () =>
     draft() !== null &&
     branding.data !== undefined &&
-    JSON.stringify(draft()) !== JSON.stringify(branding.data);
+    JSON.stringify(editable(draft() as Branding)) !== JSON.stringify(editable(branding.data));
   const colorValid = () => HEX.test(value().primary_color);
   const nameValid = () => value().name.trim().length >= 2 && value().name.trim().length <= 40;
   const previewColor = () => (colorValid() ? value().primary_color : "#3b6fd4");
@@ -36,7 +67,7 @@ export function BrandingCard() {
     if (!dirty() || !colorValid() || !nameValid()) return;
     const v = value();
     save.mutate(
-      { ...v, name: v.name.trim(), tagline: v.tagline.trim() },
+      { ...editable(v), name: v.name.trim(), tagline: v.tagline.trim() },
       { onSuccess: () => setDraft(null) },
     );
   };
@@ -120,6 +151,19 @@ export function BrandingCard() {
               </div>
             </div>
 
+            <BrandImageField
+              kind="logo"
+              label="Logo"
+              hint="Shown in the sidebar instead of the letter tile. PNG, JPEG, WebP or ICO, up to 256 KB."
+              has={branding.data?.has_logo === true}
+            />
+            <BrandImageField
+              kind="favicon"
+              label="Favicon"
+              hint="The small icon in the browser tab. PNG, JPEG, WebP or ICO, up to 256 KB."
+              has={branding.data?.has_favicon === true}
+            />
+
             <Show when={save.isError}>
               <Alert variant="destructive">
                 <AlertDescription>{describeError(save.error)}</AlertDescription>
@@ -179,5 +223,90 @@ export function BrandingCard() {
         </form>
       </CardContent>
     </Card>
+  );
+}
+
+/** Uploads, previews and removes the logo or the favicon. */
+function BrandImageField(props: {
+  kind: BrandImageKind;
+  label: string;
+  hint: string;
+  has: boolean;
+}): JSX.Element {
+  const upload = useSetBrandImage(props.kind);
+  const remove = useRemoveBrandImage(props.kind);
+  const [localError, setLocalError] = createSignal<string | null>(null);
+  const inputId = `brand-${props.kind}-file`;
+  const src = () => `/api/v1/branding/${props.kind}?v=${brandAssetVersion()}`;
+  const busy = () => upload.isPending || remove.isPending;
+
+  const onPick = async (event: Event & { currentTarget: HTMLInputElement }) => {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    input.value = "";
+    if (!file) return;
+    if (!IMAGE_TYPES.includes(file.type)) {
+      setLocalError("Choose a PNG, JPEG, WebP or ICO image.");
+      return;
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      setLocalError("This image is larger than 256 KB. Choose a smaller file.");
+      return;
+    }
+    setLocalError(null);
+    const data = await readAsBase64(file);
+    upload.mutate({ mime: file.type, data });
+  };
+
+  return (
+    <div class="space-y-2">
+      <Label for={inputId}>{props.label}</Label>
+      <p class="text-xs text-muted-foreground">{props.hint}</p>
+      <div class="flex flex-wrap items-center gap-3">
+        <Show when={props.has}>
+          <img
+            src={src()}
+            alt={`${props.label} preview`}
+            class="size-10 rounded-md border border-border bg-background object-contain p-1"
+          />
+        </Show>
+        <input
+          id={inputId}
+          type="file"
+          accept={IMAGE_TYPES.join(",")}
+          disabled={busy()}
+          onChange={onPick}
+          class="text-sm file:mr-3 file:rounded-md file:border file:border-border file:bg-background file:px-3 file:py-1.5"
+        />
+        <Show when={props.has}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={busy()}
+            onClick={() => remove.mutate(undefined)}
+          >
+            Remove {props.label.toLowerCase()}
+          </Button>
+        </Show>
+      </div>
+      <Show when={localError()}>
+        {(message) => (
+          <Alert variant="destructive">
+            <AlertDescription>{message()}</AlertDescription>
+          </Alert>
+        )}
+      </Show>
+      <Show when={upload.isError}>
+        <Alert variant="destructive">
+          <AlertDescription>{describeError(upload.error)}</AlertDescription>
+        </Alert>
+      </Show>
+      <Show when={remove.isError}>
+        <Alert variant="destructive">
+          <AlertDescription>{describeError(remove.error)}</AlertDescription>
+        </Alert>
+      </Show>
+    </div>
   );
 }

@@ -1,12 +1,16 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "./query";
-import { apiRequest, newIdempotencyKey } from "./client";
+import { ApiError, apiRequest, newIdempotencyKey } from "./client";
 import { toast } from "../lib/toast";
+import { touchBrandAssets } from "../lib/brand";
 import type {
   ActivityPage,
   AlertSettings,
   AlertSettingsInput,
   BackupSettings,
   Branding,
+  BrandingInput,
+  BrandImageInput,
+  SftpSettings,
   ActivityResult,
   SiteBackup,
   SiteDefaults,
@@ -409,12 +413,43 @@ export function useBranding() {
 export function useSaveBranding() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: Branding) =>
-      apiRequest<Branding>("/api/v1/branding", { method: "PUT", body: input }),
+    mutationFn: (input: BrandingInput) =>
+      apiRequest<Branding | void>("/api/v1/branding", { method: "PUT", body: input }),
     meta: { silent: true },
-    onSuccess: (saved) => {
-      qc.setQueryData(["branding"], saved);
+    onSuccess: () => {
+      // Refetch so the has_logo and has_favicon flags come from the server.
+      void qc.invalidateQueries({ queryKey: ["branding"] });
       toast.success("Branding saved");
+    },
+  });
+}
+
+export type BrandImageKind = "logo" | "favicon";
+
+/** Uploads the logo or favicon. Cached copies are busted by touching the asset version. */
+export function useSetBrandImage(kind: BrandImageKind) {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { silent: true },
+    mutationFn: (input: BrandImageInput) =>
+      apiRequest<void>(`/api/v1/branding/${kind}`, { method: "PUT", body: input }),
+    onSuccess: () => {
+      touchBrandAssets();
+      void qc.invalidateQueries({ queryKey: ["branding"] });
+      toast.success(kind === "logo" ? "Logo uploaded" : "Favicon uploaded");
+    },
+  });
+}
+
+export function useRemoveBrandImage(kind: BrandImageKind) {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { silent: true },
+    mutationFn: () => apiRequest<void>(`/api/v1/branding/${kind}`, { method: "DELETE" }),
+    onSuccess: () => {
+      touchBrandAssets();
+      void qc.invalidateQueries({ queryKey: ["branding"] });
+      toast.success(kind === "logo" ? "Logo removed" : "Favicon removed");
     },
   });
 }
@@ -527,6 +562,49 @@ export function useSaveBackups() {
       qc.setQueryData(["settings", "backups"], saved ?? input);
       toast.success("Backup settings saved");
     },
+  });
+}
+
+/** The SFTP public key the backups use. A 404 means no key has been generated yet. */
+export function useSftpKey() {
+  return useQuery({
+    queryKey: ["settings", "sftp-key"],
+    queryFn: () => apiRequest<{ public_key: string }>("/api/v1/settings/backups/sftp-key"),
+    retry: false,
+  });
+}
+
+/** Generates the SFTP key if needed and returns it. */
+export function useSftpPublicKey() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { silent: true },
+    mutationFn: () =>
+      apiRequest<{ public_key: string }>("/api/v1/settings/backups/sftp-key", { method: "POST" }),
+    onSuccess: (saved) => qc.setQueryData(["settings", "sftp-key"], saved),
+  });
+}
+
+/** Checks that the panel can log in to the SFTP server with the current fields. */
+export function useTestSftp() {
+  return useMutation({
+    meta: { silent: true },
+    mutationFn: (input: SftpSettings) =>
+      apiRequest<{ ok: boolean }>("/api/v1/settings/backups/sftp-test", {
+        method: "POST",
+        body: input,
+      }).then((result) => {
+        if (result?.ok !== true) throw new ApiError(502, "sftp_failed", "Connection failed.");
+        return result;
+      }),
+  });
+}
+
+export function useSendTestEmail() {
+  return useMutation({
+    meta: { silent: true },
+    mutationFn: () =>
+      apiRequest<{ sent: boolean }>("/api/v1/settings/alerts/test-email", { method: "POST" }),
   });
 }
 

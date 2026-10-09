@@ -1,1 +1,0 @@
-import{ai as t,a$ as l,af as n,g as o,t as p}from"./index-CR2YVRUr.js";var m=p("<div>");function c(a){const[e,r]=t(a,["class"]);return(()=>{var s=m();return l(s,n({get class(){return o("animate-pulse rounded-md bg-muted",e.class)}},r),!1,!1),s})()}export{c as S};

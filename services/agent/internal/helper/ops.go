@@ -35,6 +35,8 @@ const (
 	binBash        = "/usr/bin/bash"
 	binMariadbDump = "/usr/bin/mariadb-dump"
 	binTar         = "/usr/bin/tar"
+	binSSHKeygen   = "/usr/bin/ssh-keygen"
+	binSFTP        = "/usr/bin/sftp"
 )
 
 // Exit codes of env(1) when it cannot start the program (127) or the program is
@@ -64,6 +66,7 @@ type Paths struct {
 	LogDir         string // /var/log/caddy
 	PHPFPMGlob     string // PHP-FPM binaries installed on the server
 	BackupDir      string // /var/backups/zenex
+	BackupKeyDir   string // /etc/zenex/backup (SSH key pair, known_hosts, sftp batch files)
 }
 
 func DefaultPaths() Paths {
@@ -75,6 +78,7 @@ func DefaultPaths() Paths {
 		LogDir:         "/var/log/caddy",
 		PHPFPMGlob:     "/usr/sbin/php-fpm[0-9]*.[0-9]*",
 		BackupDir:      "/var/backups/zenex",
+		BackupKeyDir:   "/etc/zenex/backup",
 	}
 }
 
@@ -146,8 +150,14 @@ func (o *Ops) Do(ctx context.Context, op string, args map[string]string) (Result
 		return Result{}, o.wpUpdate(ctx, args)
 	case "backup.create":
 		return o.backupCreate(ctx, args)
+	case "backup.keygen":
+		return o.backupKeygen(ctx, args)
+	case "backup.test":
+		return Result{}, o.backupTest(ctx, args)
+	case "backup.upload":
+		return Result{}, o.backupUpload(ctx, args)
 	case "backup.delete":
-		return Result{}, o.backupDelete(args)
+		return Result{}, o.backupDelete(ctx, args)
 	case "panel.version":
 		return o.panelVersion(ctx)
 	case "panel.latest":
@@ -642,7 +652,7 @@ func trim(s string) string {
 // AllowedBinaries lists every program the helper may execute. phpFPM is the
 // set of PHP-FPM binaries installed on the server, discovered at startup.
 func AllowedBinaries(phpFPM []string) []string {
-	base := []string{binUseradd, binUserdel, binRunuser, binEnv, binMariadb, binMariadbDump, binTar, binSystemctl, binWP, binGit, binSystemdRun, binBash}
+	base := []string{binUseradd, binUserdel, binRunuser, binEnv, binMariadb, binMariadbDump, binTar, binSystemctl, binWP, binGit, binSystemdRun, binBash, binSSHKeygen, binSFTP}
 	base = append(base, caddy.AllowedBinaries...)
 	return append(base, phpFPM...)
 }

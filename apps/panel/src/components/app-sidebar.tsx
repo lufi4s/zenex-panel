@@ -1,4 +1,4 @@
-import { For } from "solid-js";
+import { For, Show } from "solid-js";
 import {
   Activity,
   Globe,
@@ -10,6 +10,7 @@ import {
 } from "@/components/icons";
 import { useBranding, useLogout } from "@/api/queries";
 import type { User } from "@/api/types";
+import { brandAssetVersion } from "@/lib/brand";
 import { NavLink, useNavigate } from "@/lib/router";
 import { cn } from "@/lib/utils";
 
@@ -79,12 +80,23 @@ export function AppSidebar(props: { user: User; open: boolean; onNavigate: () =>
       )}
     >
       <div class="flex h-14 items-center gap-2.5 border-b border-border px-4">
-        <span
-          aria-hidden="true"
-          class="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary text-sm font-semibold text-primary-foreground"
+        <Show
+          when={branding.data?.has_logo}
+          fallback={
+            <span
+              aria-hidden="true"
+              class="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary text-sm font-semibold text-primary-foreground"
+            >
+              {name().trim().charAt(0).toUpperCase() || "Z"}
+            </span>
+          }
         >
-          {name().trim().charAt(0).toUpperCase() || "Z"}
-        </span>
+          <img
+            src={`/api/v1/branding/logo?v=${brandAssetVersion()}`}
+            alt=""
+            class="size-8 shrink-0 rounded-md object-contain"
+          />
+        </Show>
         <span class="truncate font-heading text-base font-semibold tracking-tight">{name()}</span>
       </div>
 

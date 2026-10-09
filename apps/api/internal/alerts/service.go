@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -150,6 +151,59 @@ func (s *Service) secret(ctx context.Context, key string) (string, error) {
 		return "", ErrNoSecretKey
 	}
 	return Open(s.key, sealed)
+}
+
+// ErrEmailNotConfigured means email alerts are off or the saved email settings are incomplete.
+var ErrEmailNotConfigured = errors.New("email alerts are not configured")
+
+// DeliveryError is a failed delivery. Its message is short and never contains the password.
+type DeliveryError struct{ Message string }
+
+func (e *DeliveryError) Error() string { return e.Message }
+
+const (
+	testEmailSubject  = "Zenex panel: test email"
+	maxDeliveryErrLen = 200
+)
+
+// SendTestEmail sends one test message with the saved email settings to the saved
+// recipients. It does not touch the stored configuration.
+func (s *Service) SendTestEmail(ctx context.Context) error {
+	cfg, err := s.Load(ctx)
+	if err != nil {
+		return err
+	}
+	email := cfg.Email
+	if !email.Enabled || email.Port < 1 || email.Port > 65535 || validateEmail(email) != nil {
+		return ErrEmailNotConfigured
+	}
+	password, err := s.secret(ctx, SMTPPasswordKey)
+	if err != nil {
+		return err
+	}
+	if email.Username != "" && password == "" {
+		return ErrEmailNotConfigured
+	}
+	body := fmt.Sprintf("This is a test message from the Zenex panel.\n\nIt was sent at %s to confirm that email alerts can be delivered.\n",
+		s.now().UTC().Format(time.RFC1123))
+	if err := s.Mail.Send(ctx, email, password, testEmailSubject, body); err != nil {
+		return &DeliveryError{Message: safeDeliveryMessage(err.Error(), password)}
+	}
+	return nil
+}
+
+// safeDeliveryMessage removes the password and limits the length of a delivery error.
+func safeDeliveryMessage(msg, password string) string {
+	if password != "" {
+		msg = strings.ReplaceAll(msg, password, "[redacted]")
+	}
+	if msg == "" {
+		msg = "the message could not be delivered"
+	}
+	if r := []rune(msg); len(r) > maxDeliveryErrLen {
+		msg = string(r[:maxDeliveryErrLen])
+	}
+	return msg
 }
 
 // Check compares one host sample with the thresholds and delivers any alerts.

@@ -1,5 +1,5 @@
 import { createSignal, Show } from "solid-js";
-import { useSaveAlerts, useSettingsAlerts } from "@/api/queries";
+import { useSaveAlerts, useSendTestEmail, useSettingsAlerts } from "@/api/queries";
 import { describeError } from "@/api/client";
 import type { AlertSettings, AlertSettingsInput } from "@/api/types";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -43,6 +43,7 @@ const FIELD_CLASS = "space-y-2";
 export function AlertSettingsCard() {
   const settings = useSettingsAlerts();
   const save = useSaveAlerts();
+  const testEmail = useSendTestEmail();
   const [draft, setDraft] = createSignal<AlertSettingsInput | null>(null);
 
   const baseline = (): AlertSettingsInput => (settings.data ? toForm(settings.data) : EMPTY);
@@ -61,6 +62,7 @@ export function AlertSettingsCard() {
 
   const setEmail = (patch: Partial<AlertSettingsInput["email"]>) =>
     setDraft({ ...value(), email: { ...value().email, ...patch } });
+  const useGmail = () => setEmail({ host: "smtp.gmail.com", port: 587 });
   const setTelegram = (patch: Partial<AlertSettingsInput["telegram"]>) =>
     setDraft({ ...value(), telegram: { ...value().telegram, ...patch } });
   const setThresholds = (patch: Partial<AlertSettingsInput["thresholds"]>) =>
@@ -135,6 +137,16 @@ export function AlertSettingsCard() {
                 />
                 Send alerts by email
               </label>
+              <p class="text-xs text-muted-foreground">
+                Use Gmail: host smtp.gmail.com, port 587, your Gmail address as the username and as
+                'From', and a Google App Password (not your normal password). Mail sent from the
+                same address lands in the inbox more reliably.
+              </p>
+              <div>
+                <Button type="button" variant="outline" size="sm" onClick={useGmail}>
+                  Use Gmail settings
+                </Button>
+              </div>
               <div class="grid gap-4 sm:grid-cols-2">
                 <div class={FIELD_CLASS}>
                   <Label for="alert-smtp-host">SMTP host</Label>
@@ -261,9 +273,27 @@ export function AlertSettingsCard() {
               </Alert>
             </Show>
 
-            <Button type="submit" disabled={!canSave()}>
-              {save.isPending ? "Saving…" : "Save"}
-            </Button>
+            <div class="flex flex-wrap items-center gap-3">
+              <Button type="submit" disabled={!canSave()}>
+                {save.isPending ? "Saving…" : "Save"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={!value().email.enabled || testEmail.isPending}
+                onClick={() => testEmail.mutate(undefined)}
+              >
+                {testEmail.isPending ? "Sending…" : "Send test email"}
+              </Button>
+              <Show when={testEmail.isSuccess}>
+                <span class="text-sm text-success">
+                  Test email sent to {settings.data?.email.to}
+                </span>
+              </Show>
+              <Show when={testEmail.isError}>
+                <span class="text-sm text-destructive">{describeError(testEmail.error)}</span>
+              </Show>
+            </div>
           </form>
         </CardContent>
       </Card>

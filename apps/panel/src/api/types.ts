@@ -183,6 +183,17 @@ export interface Branding {
   name: string;
   tagline: string;
   primary_color: string;
+  has_logo: boolean;
+  has_favicon: boolean;
+}
+
+/** The fields an administrator edits. The has_* flags are read-only. */
+export type BrandingInput = Pick<Branding, "name" | "tagline" | "primary_color">;
+
+/** A logo or favicon as the API expects it: base64 data with its MIME type. */
+export interface BrandImageInput {
+  mime: string;
+  data: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -193,9 +204,22 @@ export interface SiteDefaults {
   php_version: string;
 }
 
+export interface SftpSettings {
+  host: string;
+  port: number;
+  username: string;
+  path: string;
+}
+
+export interface BackupDestination {
+  type: "local" | "sftp";
+  sftp: SftpSettings;
+}
+
 export interface BackupSettings {
   schedule_hour: number;
   retention_days: number;
+  destination: BackupDestination;
 }
 
 export interface EmailAlertSettings {

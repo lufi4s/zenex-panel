@@ -22,6 +22,11 @@ type featureStore struct {
 	deleted     []int64
 	autoUpdate  []store.Site
 	inserted    []string
+	settings    store.BackupSettings
+}
+
+func (f *featureStore) GetBackupSettings(context.Context) (store.BackupSettings, error) {
+	return f.settings, nil
 }
 
 func (f *featureStore) SetSiteMaintenance(_ context.Context, id string, on bool) error {
@@ -220,5 +225,147 @@ func TestAutoUpdatesStopWhenCancelled(t *testing.T) {
 	m.RunAutoUpdates(ctx)
 	if len(h.calls) != 0 {
 		t.Fatal("updates ran after cancellation")
+	}
+}
+
+var testSFTP = store.SFTPDestination{Host: "backup.example.com", Port: 2222, Username: "zx_backup", Path: "/backups/zenex"}
+
+func sftpSettings() store.BackupSettings {
+	b := store.DefaultBackupSettings()
+	b.Destination = store.BackupDestination{Type: store.BackupDestSFTP, SFTP: testSFTP}
+	return b
+}
+
+func TestBackupToSFTPUploadsThenRecordsRemotePath(t *testing.T) {
+	m, st, h := newFeatureTest("ready")
+	st.settings = sftpSettings()
+	local := BackupRoot + "/zx_shop/20261009-030000.tar.gz"
+	h.outputs["backup.create"] = local + " 4096"
+	site := store.Site{ID: "s1", NodeID: "n1", LinuxUser: "zx_shop", DBName: "zx_shop", OwnerID: "u1", State: "ready", Domain: "shop.example.com"}
+
+	m.runBackup(context.Background(), site, "job-1", "u1")
+
+	if got := strings.Join(h.calls, ","); got != "backup.create,backup.upload,backup.delete" {
+		t.Fatalf("call order = %s", got)
+	}
+	up := h.args["backup.upload"][0]
+	if up["file"] != local || up["host"] != "backup.example.com" || up["port"] != "2222" ||
+		up["username"] != "zx_backup" || up["path"] != "/backups/zenex" {
+		t.Fatalf("backup.upload args = %v", up)
+	}
+	if del := h.args["backup.delete"][0]; del["path"] != local || len(del) != 1 {
+		t.Fatalf("local archive delete args = %v", del)
+	}
+	want := "s1|sftp://backup.example.com/backups/zenex/20261009-030000.tar.gz"
+	if len(st.inserted) != 1 || st.inserted[0] != want {
+		t.Fatalf("recorded %v, want %s", st.inserted, want)
+	}
+}
+
+func TestFailedSFTPUploadRecordsNothingAndRemovesLocalCopy(t *testing.T) {
+	m, st, h := newFeatureTest("ready")
+	st.settings = sftpSettings()
+	local := BackupRoot + "/zx_shop/x.tar.gz"
+	h.outputs["backup.create"] = local + " 4096"
+	h.fail["backup.upload"] = errors.New("connection refused")
+	site := store.Site{ID: "s1", NodeID: "n1", LinuxUser: "zx_shop", State: "ready", Domain: "shop.example.com"}
+
+	m.runBackup(context.Background(), site, "job-1", "u1")
+
+	if len(st.inserted) != 0 {
+		t.Fatalf("record stored after a failed upload: %v", st.inserted)
+	}
+	if len(h.args["backup.delete"]) != 1 || h.args["backup.delete"][0]["path"] != local {
+		t.Fatalf("local archive not removed: %v", h.args["backup.delete"])
+	}
+}
+
+func TestPruneRemoteArchiveUsesRemoteArguments(t *testing.T) {
+	m, st, h := newFeatureTest("ready")
+	st.settings = sftpSettings()
+	now := time.Date(2026, 10, 9, 3, 0, 0, 0, time.UTC)
+	remote := "sftp://backup.example.com/backups/zenex/old.tar.gz"
+	st.backups = []store.Backup{{ID: 5, CreatedAt: now.AddDate(0, 0, -10), Path: remote}}
+
+	m.PruneBackups(context.Background(), now, 7)
+
+	args := h.args["backup.delete"]
+	if len(args) != 1 {
+		t.Fatalf("backup.delete calls = %d", len(args))
+	}
+	want := map[string]string{"remote": "1", "host": "backup.example.com", "port": "2222", "username": "zx_backup", "path": "/backups/zenex/old.tar.gz"}
+	for k, v := range want {
+		if args[0][k] != v {
+			t.Fatalf("arg %s = %q, want %q (all: %v)", k, args[0][k], v, args[0])
+		}
+	}
+	if _, hasLocal := args[0]["file"]; hasLocal || len(args[0]) != len(want) {
+		t.Fatalf("unexpected arguments: %v", args[0])
+	}
+	if len(st.deleted) != 1 || st.deleted[0] != 5 {
+		t.Fatalf("deleted records = %v", st.deleted)
+	}
+}
+
+func TestFailedRemoteDeleteKeepsRecordForRetry(t *testing.T) {
+	m, st, h := newFeatureTest("ready")
+	st.settings = sftpSettings()
+	now := time.Date(2026, 10, 9, 3, 0, 0, 0, time.UTC)
+	st.backups = []store.Backup{{ID: 9, CreatedAt: now.AddDate(0, 0, -30), Path: "sftp://backup.example.com/backups/zenex/x.tar.gz"}}
+	h.fail["backup.delete"] = errors.New("sftp: no such file")
+	m.PruneBackups(context.Background(), now, 7)
+	if len(st.deleted) != 0 {
+		t.Fatal("record removed although the remote archive may still exist")
+	}
+}
+
+func TestMalformedRemoteRecordIsNotDeletedAsLocal(t *testing.T) {
+	m, st, h := newFeatureTest("ready")
+	now := time.Date(2026, 10, 9, 3, 0, 0, 0, time.UTC)
+	st.backups = []store.Backup{{ID: 3, CreatedAt: now.AddDate(0, 0, -30), Path: "sftp://backup.example.com"}}
+	m.PruneBackups(context.Background(), now, 7)
+	if len(h.args["backup.delete"]) != 0 || len(st.deleted) != 0 {
+		t.Fatalf("malformed remote record was acted on: %v %v", h.args, st.deleted)
+	}
+}
+
+func TestParseRemoteBackupPath(t *testing.T) {
+	host, file, remote, err := parseRemoteBackupPath("sftp://backup.example.com/backups/zenex/a.tar.gz")
+	if err != nil || !remote || host != "backup.example.com" || file != "/backups/zenex/a.tar.gz" {
+		t.Fatalf("parse = %q %q %v %v", host, file, remote, err)
+	}
+	if _, _, remote, err := parseRemoteBackupPath(BackupRoot + "/zx_a/x.tar.gz"); remote || err != nil {
+		t.Fatalf("local path treated as remote: %v %v", remote, err)
+	}
+	for _, bad := range []string{"sftp://", "sftp:///x", "sftp://host", "sftp://host/a/../../etc"} {
+		if _, _, _, err := parseRemoteBackupPath(bad); err == nil {
+			t.Errorf("accepted %q", bad)
+		}
+	}
+}
+
+func TestSFTPPublicKeyComesFromHelperAndIsChecked(t *testing.T) {
+	m, _, h := newFeatureTest("ready")
+	h.outputs["backup.keygen"] = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl zenex-backup\n"
+	key, err := m.SFTPPublicKey(context.Background())
+	if err != nil || !strings.HasPrefix(key, "ssh-ed25519 AAAA") || strings.Contains(key, "\n") {
+		t.Fatalf("key = %q %v", key, err)
+	}
+	for _, bad := range []string{"", "ssh-rsa AAAAB3NzaC1yc2E zenex", "ssh-ed25519 AAAA!!!! zenex", "ssh-ed25519 AAAAC3 a\nssh-ed25519 AAAAC3 b"} {
+		h.outputs["backup.keygen"] = bad
+		if _, err := m.SFTPPublicKey(context.Background()); err == nil {
+			t.Errorf("accepted helper output %q", bad)
+		}
+	}
+}
+
+func TestSFTPTestSendsSavedDestination(t *testing.T) {
+	m, _, h := newFeatureTest("ready")
+	if err := m.TestSFTP(context.Background(), testSFTP); err != nil {
+		t.Fatal(err)
+	}
+	args := h.args["backup.test"][0]
+	if args["host"] != "backup.example.com" || args["port"] != "2222" || args["username"] != "zx_backup" || args["path"] != "/backups/zenex" {
+		t.Fatalf("backup.test args = %v", args)
 	}
 }

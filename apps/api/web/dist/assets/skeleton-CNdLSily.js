@@ -1,0 +1,1 @@
+import{aq as t,b6 as n,an as l,g as o,t as p}from"./index-N67DFPkP.js";var m=p("<div>");function c(e){const[a,r]=t(e,["class"]);return(()=>{var s=m();return n(s,l({get class(){return o("animate-pulse rounded-md bg-muted",a.class)}},r),!1,!1),s})()}export{c as S};

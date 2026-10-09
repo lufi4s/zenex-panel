@@ -128,14 +128,7 @@ export function UpdateCard() {
             </DialogContent>
           </Dialog>
 
-          <Show
-            when={
-              (running() ||
-                status.data?.state === "failed" ||
-                status.data?.state === "succeeded") &&
-              logLines().length > 0
-            }
-          >
+          <Show when={status.data?.state === "running" && logLines().length > 0}>
             <Terminal
               title="update log"
               emptyText="No output yet."

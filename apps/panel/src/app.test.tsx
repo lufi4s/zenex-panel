@@ -6,7 +6,11 @@ import { App } from "./App";
 import { resetQueryCache } from "./api/query";
 
 // Answers the API calls the panel makes, using the same JSON shapes as the server.
-function mockApi(options: { signedIn: boolean }) {
+function mockApi(options: {
+  signedIn: boolean;
+  update?: { state: string; log: string };
+  emailEnabled?: boolean;
+}) {
   const json = (body: unknown, status = 200) =>
     Promise.resolve(
       new Response(JSON.stringify(body), {
@@ -62,7 +66,13 @@ function mockApi(options: { signedIn: boolean }) {
     }
     if (url.endsWith("/api/v1/auth/login") && method === "POST") return json(user);
     if (url.endsWith("/api/v1/branding")) {
-      return json({ name: "Zenex Panel", tagline: "", primary_color: "#0f766e" });
+      return json({
+        name: "Zenex Panel",
+        tagline: "",
+        primary_color: "#0f766e",
+        has_logo: false,
+        has_favicon: false,
+      });
     }
     if (url.endsWith("/api/v1/system/metrics")) return json(metrics);
     if (url.endsWith("/api/v1/domains")) return json(domains);
@@ -178,24 +188,40 @@ function mockApi(options: { signedIn: boolean }) {
         current: "f781dd8",
         latest: "532a16c",
         update_available: true,
-        state: "idle",
-        log: "",
+        state: options.update?.state ?? "idle",
+        log: options.update?.log ?? "",
       });
     }
     if (url.endsWith("/api/v1/php-versions")) return json({ versions: ["8.3"] });
     if (url.endsWith("/api/v1/settings/defaults")) return json({ php_version: "8.3" });
     if (url.endsWith("/api/v1/settings/backups")) {
-      return json({ schedule_hour: 3, retention_days: 7 });
+      return json({
+        schedule_hour: 3,
+        retention_days: 7,
+        destination: {
+          type: "local",
+          sftp: { host: "", port: 22, username: "", path: "/backups/zenex" },
+        },
+      });
+    }
+    if (url.endsWith("/api/v1/settings/backups/sftp-key")) {
+      return json({ error: { code: "not_found", message: "not found" } }, 404);
+    }
+    if (url.endsWith("/api/v1/settings/backups/sftp-test") && method === "POST") {
+      return json({ ok: true });
+    }
+    if (url.endsWith("/api/v1/settings/alerts/test-email") && method === "POST") {
+      return json({ sent: true });
     }
     if (url.endsWith("/api/v1/settings/alerts")) {
       return json({
         email: {
-          enabled: false,
+          enabled: options.emailEnabled ?? false,
           host: "",
           port: 587,
           username: "",
           from: "",
-          to: "",
+          to: "ops@example.com",
           password_set: false,
         },
         telegram: { enabled: false, chat_id: "", token_set: false },
@@ -421,6 +447,68 @@ describe("navigation", () => {
     vi.stubGlobal("fetch", mockApi({ signedIn: true }));
     renderAt("/does-not-exist");
     expect(await screen.findByText("Page not found")).toBeTruthy();
+  });
+});
+
+describe("settings", () => {
+  it("hides the update log once the update has succeeded", async () => {
+    vi.stubGlobal(
+      "fetch",
+      mockApi({
+        signedIn: true,
+        update: { state: "succeeded", log: "Pulling new version\nRestarting panel" },
+      }),
+    );
+    renderAt("/settings");
+    expect(await screen.findByText("The last update finished successfully.")).toBeTruthy();
+    expect(screen.queryByText("update log")).toBeNull();
+    expect(screen.queryByText("Restarting panel")).toBeNull();
+  });
+
+  it("shows the update log while an update is running", async () => {
+    vi.stubGlobal(
+      "fetch",
+      mockApi({
+        signedIn: true,
+        update: { state: "running", log: "Pulling new version" },
+      }),
+    );
+    renderAt("/settings");
+    expect(await screen.findByText("update log")).toBeTruthy();
+    expect(screen.getByText("Pulling new version")).toBeTruthy();
+  });
+
+  it("sends a test email and shows that it was sent", async () => {
+    const fetchMock = mockApi({ signedIn: true, emailEnabled: true });
+    vi.stubGlobal("fetch", fetchMock);
+    renderAt("/settings");
+    const button = (await screen.findByRole("button", {
+      name: "Send test email",
+    })) as HTMLButtonElement;
+    await waitFor(() => expect(button.disabled).toBe(false));
+    fireEvent.click(button);
+    expect(await screen.findByText("Test email sent to ops@example.com")).toBeTruthy();
+    const call = fetchMock.mock.calls.find(([url]) =>
+      String(url).endsWith("/api/v1/settings/alerts/test-email"),
+    );
+    expect((call?.[1] as RequestInit | undefined)?.method).toBe("POST");
+  });
+
+  it("shows the SFTP fields only when SFTP is chosen", async () => {
+    vi.stubGlobal("fetch", mockApi({ signedIn: true }));
+    renderAt("/settings");
+    await screen.findByLabelText("Daily backup hour (0 to 23)");
+    expect(screen.queryByLabelText("Host")).toBeNull();
+
+    fireEvent.click(screen.getByRole("radio", { name: "Remote server (SFTP)" }));
+    expect(await screen.findByLabelText("Host")).toBeTruthy();
+    expect((screen.getByLabelText("Port") as HTMLInputElement).value).toBe("22");
+    expect((screen.getByLabelText("Remote folder") as HTMLInputElement).value).toBe(
+      "/backups/zenex",
+    );
+
+    fireEvent.click(screen.getByRole("radio", { name: "This server" }));
+    await waitFor(() => expect(screen.queryByLabelText("Host")).toBeNull());
   });
 });
 

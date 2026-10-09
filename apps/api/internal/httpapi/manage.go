@@ -23,6 +23,8 @@ type SiteManager interface {
 	Files(ctx context.Context, site store.Site, op, path, content string) (string, error)
 	SetMaintenance(ctx context.Context, site store.Site, enabled bool) error
 	StartBackup(ctx context.Context, site store.Site, actorID string) (string, error)
+	SFTPPublicKey(ctx context.Context) (string, error)
+	TestSFTP(ctx context.Context, dest store.SFTPDestination) error
 }
 
 // manageError maps an operation failure to a response. Refusals carry a message

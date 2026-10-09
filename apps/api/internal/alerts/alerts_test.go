@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/mail"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -491,5 +493,132 @@ func TestTelegramErrorsDoNotContainTheToken(t *testing.T) {
 	netErr := (&HTTPTelegram{Client: &http.Client{Timeout: time.Second}, BaseURL: "http://127.0.0.1:1"}).Send(context.Background(), token, "1", "x")
 	if netErr == nil || strings.Contains(netErr.Error(), token) {
 		t.Fatalf("network error = %v", netErr)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Test email and message format
+// ---------------------------------------------------------------------------
+
+type failingMailer struct{ err error }
+
+func (f *failingMailer) Send(context.Context, EmailSettings, string, string, string) error {
+	return f.err
+}
+
+func TestSendTestEmailUsesSavedSettings(t *testing.T) {
+	st := newFakeStore("admin-1")
+	svc, mail, _ := newService(t, st)
+	if err := svc.Update(context.Background(), "admin-1", enabledInput()); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SendTestEmail(context.Background()); err != nil {
+		t.Fatalf("SendTestEmail = %v", err)
+	}
+	if len(mail.msgs) != 1 || !strings.HasPrefix(mail.msgs[0], "Zenex panel: test email\n") {
+		t.Fatalf("messages = %q", mail.msgs)
+	}
+	if !strings.Contains(mail.msgs[0], "test message from the Zenex panel") {
+		t.Fatalf("body = %q", mail.msgs[0])
+	}
+	if mail.passwords[0] != "smtp-pass-123" {
+		t.Fatalf("password not taken from the store: %q", mail.passwords[0])
+	}
+}
+
+func TestSendTestEmailNeedsCompleteEnabledSettings(t *testing.T) {
+	st := newFakeStore("admin-1")
+	svc, mail, _ := newService(t, st)
+	ctx := context.Background()
+
+	if err := svc.SendTestEmail(ctx); !errors.Is(err, ErrEmailNotConfigured) {
+		t.Fatalf("nothing saved: err = %v", err)
+	}
+	in := enabledInput()
+	in.Email.Enabled = false
+	if err := svc.Update(ctx, "admin-1", in); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SendTestEmail(ctx); !errors.Is(err, ErrEmailNotConfigured) {
+		t.Fatalf("disabled: err = %v", err)
+	}
+	in = enabledInput()
+	in.Email.Password = ""
+	st.settings = map[string]json.RawMessage{}
+	if err := svc.Update(ctx, "admin-1", in); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SendTestEmail(ctx); !errors.Is(err, ErrEmailNotConfigured) {
+		t.Fatalf("username without password: err = %v", err)
+	}
+	if len(mail.msgs) != 0 {
+		t.Fatal("mail sent although email is not configured")
+	}
+}
+
+func TestSendTestEmailFailureHidesPassword(t *testing.T) {
+	st := newFakeStore("admin-1")
+	svc, _, _ := newService(t, st)
+	ctx := context.Background()
+	if err := svc.Update(ctx, "admin-1", enabledInput()); err != nil {
+		t.Fatal(err)
+	}
+	svc.Mail = &failingMailer{err: errors.New("SMTP sign-in with smtp-pass-123 was refused " + strings.Repeat("x", 500))}
+	err := svc.SendTestEmail(ctx)
+	var derr *DeliveryError
+	if !errors.As(err, &derr) {
+		t.Fatalf("err = %v, want DeliveryError", err)
+	}
+	if strings.Contains(derr.Message, "smtp-pass-123") || len(derr.Message) > maxDeliveryErrLen {
+		t.Fatalf("unsafe or long message: %q", derr.Message)
+	}
+}
+
+func TestBuildMessageHeadersAndAlternatives(t *testing.T) {
+	from, err := mail.ParseAddress("Zenex <alerts@example.com>")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)
+	raw, err := buildMessage(from, []string{"ops@example.com"}, "Zenex panel: test email\r\nBcc: evil@example.com", "Line one <b>\nLine two", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg := string(raw)
+	headers, _, ok := strings.Cut(msg, "\r\n\r\n")
+	if !ok {
+		t.Fatal("no header/body separator")
+	}
+	for _, want := range []string{
+		"From: \"Zenex\" <alerts@example.com>\r\n",
+		"Reply-To: \"Zenex\" <alerts@example.com>\r\n",
+		"Date: Fri, 09 Oct 2026 12:00:00 +0000\r\n",
+		"MIME-Version: 1.0\r\n",
+		"Content-Type: multipart/alternative; boundary=",
+	} {
+		if !strings.Contains(headers, want) {
+			t.Errorf("missing header %q", want)
+		}
+	}
+	if !regexp.MustCompile(`Message-ID: <[0-9a-f]{32}@example\.com>`).MatchString(headers) {
+		t.Errorf("Message-ID not on the sender domain: %s", headers)
+	}
+	if strings.Contains(headers, "\r\nBcc:") {
+		t.Error("subject injected a header")
+	}
+	if !strings.Contains(msg, "Content-Type: text/plain; charset=UTF-8\r\n") ||
+		!strings.Contains(msg, "Content-Type: text/html; charset=UTF-8\r\n") {
+		t.Error("plain-text or HTML part missing")
+	}
+	if !strings.Contains(msg, "&lt;b&gt;") {
+		t.Error("HTML part is not escaped")
+	}
+	if strings.Count(msg, "\n") != strings.Count(msg, "\r\n") {
+		t.Fatal("message contains bare LF line endings")
+	}
+	for _, line := range strings.Split(msg, "\r\n") {
+		if len(line) > 998 {
+			t.Fatalf("line longer than 998 bytes")
+		}
 	}
 }

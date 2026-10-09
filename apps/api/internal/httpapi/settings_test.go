@@ -21,6 +21,7 @@ type settingsSites struct {
 	SiteStore
 	defaults   store.SiteDefaults
 	backup     store.BackupSettings
+	sftpKey    string
 	created    *store.NewSite
 	autoUpdate map[string]bool
 	siteState  string
@@ -66,6 +67,8 @@ type settingsManage struct {
 	SiteManager
 	installed   []string
 	maintenance *bool
+	tested      []store.SFTPDestination
+	testErr     error
 }
 
 func (m *settingsManage) PHPVersions(context.Context) ([]string, error) {
@@ -80,7 +83,16 @@ func (m *settingsManage) StartBackup(context.Context, store.Site, string) (strin
 }
 
 // fakeAlerts validates like the real service but keeps nothing.
-type fakeAlerts struct{ saved *alerts.Input }
+type fakeAlerts struct {
+	saved    *alerts.Input
+	testErr  error
+	testSent int
+}
+
+func (f *fakeAlerts) SendTestEmail(context.Context) error {
+	f.testSent++
+	return f.testErr
+}
 
 func (f *fakeAlerts) View(context.Context) (alerts.View, error) {
 	return alerts.View{Thresholds: alerts.Thresholds{CPU: 85, Memory: 90, Disk: 90}}, nil
@@ -265,7 +277,7 @@ func TestBackupSettingsEndpointsAreAdminOnly(t *testing.T) {
 		t.Fatalf("invalid hour = %d %s", rec.Code, rec.Body.String())
 	}
 	rec = e.call(t, http.MethodPut, "/api/v1/settings/backups", `{"schedule_hour":2,"retention_days":30}`, admin, true)
-	if rec.Code != http.StatusOK || e.sites.backup != (store.BackupSettings{ScheduleHour: 2, RetentionDays: 30}) {
+	if rec.Code != http.StatusOK || e.sites.backup.ScheduleHour != 2 || e.sites.backup.RetentionDays != 30 || e.sites.backup.Destination.Type != store.BackupDestLocal {
 		t.Fatalf("valid save = %d, stored %+v", rec.Code, e.sites.backup)
 	}
 }
@@ -339,3 +351,57 @@ func TestStartBackupReturnsAccepted(t *testing.T) {
 
 var _ AlertManager = (*fakeAlerts)(nil)
 var _ SiteManager = (*settingsManage)(nil)
+
+func TestAlertTestEmailStatusCodes(t *testing.T) {
+	e := newSettingsEnv(t)
+	admin := e.login(t, testEmail)
+	customer := e.login(t, "customer@example.com")
+	const path = "/api/v1/settings/alerts/test-email"
+
+	if rec := e.call(t, http.MethodPost, path, "", admin, false); rec.Code != http.StatusForbidden {
+		t.Fatalf("without CSRF = %d, want 403", rec.Code)
+	}
+	if rec := e.call(t, http.MethodPost, path, "", customer, true); rec.Code != http.StatusForbidden {
+		t.Fatalf("as customer = %d, want 403", rec.Code)
+	}
+	if rec := e.call(t, http.MethodPost, path, "", admin, true); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"sent":true`) {
+		t.Fatalf("success = %d %s", rec.Code, rec.Body.String())
+	}
+
+	e.alert.testErr = alerts.ErrEmailNotConfigured
+	if rec := e.call(t, http.MethodPost, path, "", admin, true); rec.Code != http.StatusBadRequest || errorCode(t, rec) != "email_not_configured" {
+		t.Fatalf("not configured = %d %s", rec.Code, rec.Body.String())
+	}
+
+	e.alert.testErr = &alerts.DeliveryError{Message: "SMTP server refused the sender address"}
+	rec := e.call(t, http.MethodPost, path, "", admin, true)
+	if rec.Code != http.StatusBadGateway || errorCode(t, rec) != "email_failed" || strings.Contains(rec.Body.String(), "smtp-pass") {
+		t.Fatalf("delivery failure = %d %s", rec.Code, rec.Body.String())
+	}
+	if e.alert.testSent != 3 {
+		t.Fatalf("sends = %d, want 3", e.alert.testSent)
+	}
+	last := e.fs.audits[len(e.fs.audits)-1]
+	if last.Action != "alerts.test_email" || last.Result != "failure" || last.ErrorCode != "email_failed" {
+		t.Fatalf("audit = %+v", last)
+	}
+}
+
+func (s *settingsSites) GetSFTPPublicKey(context.Context) (string, error) {
+	if s.sftpKey == "" {
+		return "", store.ErrNotFound
+	}
+	return s.sftpKey, nil
+}
+func (s *settingsSites) SetSFTPPublicKey(_ context.Context, _, key string) error {
+	s.sftpKey = key
+	return nil
+}
+
+func (m *settingsManage) SFTPPublicKey(context.Context) (string, error) {
+	return "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl zenex-backup", nil
+}
+func (m *settingsManage) TestSFTP(_ context.Context, dest store.SFTPDestination) error {
+	m.tested = append(m.tested, dest)
+	return m.testErr
+}

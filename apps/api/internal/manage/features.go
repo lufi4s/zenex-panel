@@ -2,7 +2,9 @@ package manage
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -99,6 +101,10 @@ func (m *Manager) runBackup(ctx context.Context, site store.Site, jobID, actorID
 }
 
 func (m *Manager) backupSite(ctx context.Context, site store.Site, jobID string) error {
+	settings, err := m.Store.GetBackupSettings(ctx)
+	if err != nil {
+		return err
+	}
 	output := BackupRoot + "/" + site.LinuxUser + "/" + time.Now().UTC().Format("20060102-150405") + ".tar.gz"
 	_ = m.Store.AppendJobLog(ctx, jobID, "info", "creating backup of files and database")
 	out, err := m.Helper.Output(ctx, "backup.create", map[string]string{
@@ -107,11 +113,43 @@ func (m *Manager) backupSite(ctx context.Context, site store.Site, jobID string)
 	if err != nil {
 		return err
 	}
-	path, size, err := parseBackupOutput(out)
+	archive, size, err := parseBackupOutput(out)
 	if err != nil {
 		return err
 	}
-	return m.Store.InsertBackup(ctx, site.ID, size, path)
+	if settings.Destination.Type != store.BackupDestSFTP {
+		return m.Store.InsertBackup(ctx, site.ID, size, archive)
+	}
+	remote, err := m.sendToSFTP(ctx, jobID, archive, settings.Destination.SFTP)
+	if err != nil {
+		return err
+	}
+	return m.Store.InsertBackup(ctx, site.ID, size, remote)
+}
+
+// sendToSFTP uploads the local archive and then removes the local copy. It returns
+// the remote location, which is what the backup record stores. When the upload
+// fails, the local archive is removed too, because no record would point to it.
+func (m *Manager) sendToSFTP(ctx context.Context, jobID, local string, dest store.SFTPDestination) (string, error) {
+	remoteDir := path.Clean(dest.Path)
+	_ = m.Store.AppendJobLog(ctx, jobID, "info", "sending the archive to the SFTP server")
+	args := sftpArgs(dest, remoteDir)
+	args["file"] = local
+	if _, err := m.Helper.Do(ctx, "backup.upload", args); err != nil {
+		m.removeLocalArchive(ctx, jobID, local)
+		return "", err
+	}
+	m.removeLocalArchive(ctx, jobID, local)
+	return remoteBackupPath(dest.Host, path.Join(remoteDir, path.Base(local))), nil
+}
+
+// removeLocalArchive deletes a local archive. A failure is logged to the job only:
+// the backup itself is already stored elsewhere or has failed.
+func (m *Manager) removeLocalArchive(ctx context.Context, jobID, local string) {
+	if _, err := m.Helper.Do(ctx, "backup.delete", map[string]string{"path": local}); err != nil {
+		m.Log.Warn("removing local archive after SFTP step failed", "error", err)
+		_ = m.Store.AppendJobLog(ctx, jobID, "warning", "the local copy of the archive could not be removed")
+	}
 }
 
 // parseBackupOutput reads the helper's "<path> <size_bytes>" reply. The path is
@@ -169,8 +207,14 @@ func (m *Manager) PruneBackups(ctx context.Context, now time.Time, retentionDays
 		m.Log.Warn("listing expired backups failed", "error", err)
 		return
 	}
+	settings, settingsErr := m.Store.GetBackupSettings(ctx)
 	for _, b := range expired {
-		if _, err := m.Helper.Do(ctx, "backup.delete", map[string]string{"path": b.Path}); err != nil {
+		args, err := deleteArgs(b.Path, settings, settingsErr)
+		if err != nil {
+			m.Log.Warn("expired backup skipped", "backup_id", b.ID, "error", err)
+			continue
+		}
+		if _, err := m.Helper.Do(ctx, "backup.delete", args); err != nil {
 			m.Log.Warn("deleting expired backup failed", "backup_id", b.ID, "error", err)
 			continue
 		}
@@ -203,4 +247,87 @@ func (m *Manager) RunAutoUpdates(ctx context.Context) {
 				"The automatic update did not finish. Check the website and update it by hand if needed.")
 		}
 	}
+}
+
+// remotePrefix marks a backup record whose archive is on an SFTP server.
+// The form is "sftp://<host><absolute remote path>".
+const remotePrefix = "sftp://"
+
+// remoteBackupPath is the record path for an archive stored on an SFTP server.
+func remoteBackupPath(host, remoteFile string) string {
+	return remotePrefix + host + remoteFile
+}
+
+// parseRemoteBackupPath splits a remote record path. It reports false for local paths.
+func parseRemoteBackupPath(p string) (host, remoteFile string, remote bool, err error) {
+	rest, ok := strings.CutPrefix(p, remotePrefix)
+	if !ok {
+		return "", "", false, nil
+	}
+	host, file, ok := strings.Cut(rest, "/")
+	if !ok || host == "" || file == "" || strings.Contains(file, "..") {
+		return "", "", true, errors.New("a remote backup record has an invalid location")
+	}
+	return host, "/" + file, true, nil
+}
+
+// deleteArgs returns the backup.delete arguments for an archive. Remote archives
+// use the SFTP host from the record and the port and username from the saved settings.
+func deleteArgs(backupPath string, settings store.BackupSettings, settingsErr error) (map[string]string, error) {
+	host, remoteFile, remote, err := parseRemoteBackupPath(backupPath)
+	if err != nil {
+		return nil, err
+	}
+	if !remote {
+		return map[string]string{"path": backupPath}, nil
+	}
+	if settingsErr != nil {
+		return nil, settingsErr
+	}
+	dest := settings.Destination.SFTP
+	dest.Host = host
+	args := sftpArgs(dest, remoteFile)
+	args["remote"] = "1"
+	return args, nil
+}
+
+// sftpArgs are the connection fields the helper needs. path is the remote directory
+// for uploads and tests, or the remote file for deletes.
+func sftpArgs(dest store.SFTPDestination, remotePath string) map[string]string {
+	return map[string]string{
+		"host":     dest.Host,
+		"port":     strconv.Itoa(dest.Port),
+		"username": dest.Username,
+		"path":     remotePath,
+	}
+}
+
+// SFTPPublicKey creates the backup key pair on this server if it does not exist yet
+// and returns the public key line to install in the remote account's authorized_keys.
+func (m *Manager) SFTPPublicKey(ctx context.Context) (string, error) {
+	out, err := m.Helper.Output(ctx, "backup.keygen", map[string]string{})
+	if err != nil {
+		return "", err
+	}
+	key := strings.TrimSpace(out)
+	if !validPublicKey(key) {
+		return "", errors.New("the backup helper sent an unexpected public key")
+	}
+	return key, nil
+}
+
+// validPublicKey accepts one ed25519 public key line with a comment.
+func validPublicKey(key string) bool {
+	fields := strings.Fields(key)
+	if len(fields) != 3 || len(key) > 1024 || fields[0] != "ssh-ed25519" || !strings.HasPrefix(fields[1], "AAAA") {
+		return false
+	}
+	_, err := base64.StdEncoding.DecodeString(fields[1])
+	return err == nil
+}
+
+// TestSFTP checks that the panel can sign in to the SFTP server and reach the path.
+func (m *Manager) TestSFTP(ctx context.Context, dest store.SFTPDestination) error {
+	_, err := m.Helper.Do(ctx, "backup.test", sftpArgs(dest, dest.Path))
+	return err
 }

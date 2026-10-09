@@ -2,9 +2,14 @@ package alerts
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/tls"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"html"
+	"mime"
+	"mime/quotedprintable"
 	"net"
 	"net/http"
 	"net/mail"
@@ -65,7 +70,11 @@ func (m SMTPMailer) Send(ctx context.Context, cfg EmailSettings, password, subje
 			return errors.New("SMTP sign-in was refused; check the username and password")
 		}
 	}
-	return sendMessage(c, from.Address, recipients, buildMessage(from.String(), recipients, subject, body))
+	msg, err := buildMessage(from, recipients, subject, body, time.Now())
+	if err != nil {
+		return errors.New("could not build the message")
+	}
+	return sendMessage(c, from.Address, recipients, msg)
 }
 
 func (m SMTPMailer) connect(ctx context.Context, cfg EmailSettings, timeout time.Duration) (net.Conn, error) {
@@ -149,20 +158,86 @@ func parseRecipients(to string) ([]string, error) {
 	return out, nil
 }
 
-// buildMessage writes RFC 5322 headers and the body. CR and LF are removed from
-// the subject so it cannot inject headers.
-func buildMessage(from string, to []string, subject, body string) []byte {
+// buildMessage writes an RFC 5322 message: a plain-text part with a short HTML
+// alternative, From and Reply-To set to the configured sender, Date, a Message-ID
+// on the sender's domain and MIME headers. CR and LF are removed from the subject
+// so it cannot inject headers.
+//
+// Deliverability: Gmail and most providers only accept a From address equal to
+// the SMTP login address (or a verified "send as" alias). Set the alert "from"
+// setting to the same address as the SMTP username, or mail may be rejected or
+// marked as spam.
+func buildMessage(from *mail.Address, to []string, subject, body string, now time.Time) ([]byte, error) {
 	subject = strings.NewReplacer("\r", " ", "\n", " ").Replace(subject)
+	domain := from.Address[strings.LastIndex(from.Address, "@")+1:]
+	msgID, err := randomToken(16)
+	if err != nil {
+		return nil, err
+	}
+	boundary, err := randomToken(12)
+	if err != nil {
+		return nil, err
+	}
+	text, err := quotedPrintable(strings.ReplaceAll(body, "\r\n", "\n"))
+	if err != nil {
+		return nil, err
+	}
+	html, err := quotedPrintable(htmlBody(body))
+	if err != nil {
+		return nil, err
+	}
+
 	var b strings.Builder
-	b.WriteString("From: " + from + "\r\n")
+	b.WriteString("From: " + from.String() + "\r\n")
+	b.WriteString("Reply-To: " + from.String() + "\r\n")
 	b.WriteString("To: " + strings.Join(to, ", ") + "\r\n")
-	b.WriteString("Subject: " + subject + "\r\n")
-	b.WriteString("Date: " + time.Now().Format(time.RFC1123Z) + "\r\n")
+	b.WriteString("Subject: " + mime.QEncoding.Encode("UTF-8", subject) + "\r\n")
+	b.WriteString("Date: " + now.Format(time.RFC1123Z) + "\r\n")
+	b.WriteString("Message-ID: <" + msgID + "@" + domain + ">\r\n")
 	b.WriteString("MIME-Version: 1.0\r\n")
-	b.WriteString("Content-Type: text/plain; charset=UTF-8\r\n\r\n")
-	b.WriteString(strings.ReplaceAll(body, "\n", "\r\n"))
-	b.WriteString("\r\n")
-	return []byte(b.String())
+	b.WriteString("Content-Type: multipart/alternative; boundary=\"" + boundary + "\"\r\n\r\n")
+	b.WriteString("--" + boundary + "\r\n")
+	b.WriteString("Content-Type: text/plain; charset=UTF-8\r\n")
+	b.WriteString("Content-Transfer-Encoding: quoted-printable\r\n\r\n")
+	b.WriteString(text + "\r\n")
+	b.WriteString("--" + boundary + "\r\n")
+	b.WriteString("Content-Type: text/html; charset=UTF-8\r\n")
+	b.WriteString("Content-Transfer-Encoding: quoted-printable\r\n\r\n")
+	b.WriteString(html + "\r\n")
+	b.WriteString("--" + boundary + "--\r\n")
+	return []byte(b.String()), nil
+}
+
+// htmlBody wraps each line of the plain text in a paragraph. Every character is escaped.
+func htmlBody(text string) string {
+	var b strings.Builder
+	b.WriteString("<!DOCTYPE html><html><body style=\"font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#222\">")
+	for _, line := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
+		b.WriteString("<p style=\"margin:0 0 8px\">" + html.EscapeString(line) + "</p>")
+	}
+	b.WriteString("</body></html>")
+	return b.String()
+}
+
+// quotedPrintable keeps lines short and 7-bit safe for every relay.
+func quotedPrintable(s string) (string, error) {
+	var b strings.Builder
+	w := quotedprintable.NewWriter(&b)
+	if _, err := w.Write([]byte(s)); err != nil {
+		return "", err
+	}
+	if err := w.Close(); err != nil {
+		return "", err
+	}
+	return b.String(), nil
+}
+
+func randomToken(n int) (string, error) {
+	buf := make([]byte, n)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(buf), nil
 }
 
 // HTTPTelegram posts messages through the Telegram Bot API over HTTPS.

@@ -52,6 +52,10 @@ type SiteStore interface {
 	SetBackupSettings(ctx context.Context, userID string, v store.BackupSettings) error
 	SetSiteAutoUpdate(ctx context.Context, siteID string, enabled bool) error
 	ListBackups(ctx context.Context, siteID string) ([]store.Backup, error)
+	GetBrandingAssets(ctx context.Context) (store.BrandingAssets, error)
+	UpdateBrandingAssets(ctx context.Context, userID string, change func(*store.BrandingAssets)) error
+	GetSFTPPublicKey(ctx context.Context) (string, error)
+	SetSFTPPublicKey(ctx context.Context, userID, key string) error
 }
 
 // SiteSettings are the server-level values the site handlers need.

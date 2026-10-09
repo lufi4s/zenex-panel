@@ -13,15 +13,45 @@ type SiteDefaults struct {
 	PHPVersion string `json:"php_version"`
 }
 
-// BackupSettings control the daily backup run and how long backups are kept.
+// Backup destination types.
+const (
+	BackupDestLocal = "local"
+	BackupDestSFTP  = "sftp"
+)
+
+// BackupSettings control the daily backup run, how long backups are kept and where
+// they are sent. A stored value without a destination means local storage.
 type BackupSettings struct {
-	ScheduleHour  int `json:"schedule_hour"`
-	RetentionDays int `json:"retention_days"`
+	ScheduleHour  int               `json:"schedule_hour"`
+	RetentionDays int               `json:"retention_days"`
+	Destination   BackupDestination `json:"destination"`
+}
+
+// BackupDestination is where archives are kept: "local" (this server) or "sftp".
+type BackupDestination struct {
+	Type string          `json:"type"`
+	SFTP SFTPDestination `json:"sftp"`
+}
+
+// SFTPDestination is a remote SFTP server. The panel's backup key must be installed
+// for Username on that server (see POST /api/v1/settings/backups/sftp-key).
+type SFTPDestination struct {
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	Username string `json:"username"`
+	Path     string `json:"path"`
 }
 
 // DefaultBackupSettings is used until an administrator changes them.
 func DefaultBackupSettings() BackupSettings {
-	return BackupSettings{ScheduleHour: 3, RetentionDays: 7}
+	return BackupSettings{
+		ScheduleHour:  3,
+		RetentionDays: 7,
+		Destination: BackupDestination{
+			Type: BackupDestLocal,
+			SFTP: SFTPDestination{Port: 22, Path: "/backups/zenex"},
+		},
+	}
 }
 
 // GetSetting returns the raw JSON stored under key, or ErrNotFound.
@@ -80,7 +110,20 @@ func (s *Store) GetBackupSettings(ctx context.Context) (BackupSettings, error) {
 	if err != nil {
 		return b, err
 	}
-	return b, json.Unmarshal(raw, &b)
+	return decodeBackupSettings(raw)
+}
+
+// decodeBackupSettings reads a stored backup_settings value. Missing keys keep their
+// defaults, and a value saved before SFTP support (no destination) means local storage.
+func decodeBackupSettings(raw []byte) (BackupSettings, error) {
+	b := DefaultBackupSettings()
+	if err := json.Unmarshal(raw, &b); err != nil {
+		return b, err
+	}
+	if b.Destination.Type == "" {
+		b.Destination.Type = BackupDestLocal
+	}
+	return b, nil
 }
 
 // SetBackupSettings saves the backup schedule and retention.
@@ -109,4 +152,25 @@ func (s *Store) AdministratorIDs(ctx context.Context) ([]string, error) {
 		ids = append(ids, id)
 	}
 	return ids, rows.Err()
+}
+
+// sftpPublicKeySetting holds the public half of the backup key. It is not secret.
+const sftpPublicKeySetting = "backup_sftp_public_key"
+
+// GetSFTPPublicKey returns the saved backup public key, or ErrNotFound when none was created.
+func (s *Store) GetSFTPPublicKey(ctx context.Context) (string, error) {
+	raw, err := s.GetSetting(ctx, sftpPublicKeySetting)
+	if err != nil {
+		return "", err
+	}
+	var key string
+	if err := json.Unmarshal(raw, &key); err != nil {
+		return "", err
+	}
+	return key, nil
+}
+
+// SetSFTPPublicKey records the public key the helper generated.
+func (s *Store) SetSFTPPublicKey(ctx context.Context, userID, key string) error {
+	return s.PutSetting(ctx, sftpPublicKeySetting, key, userID)
 }

@@ -116,7 +116,15 @@ func (o *Ops) backupCreate(ctx context.Context, args map[string]string) (Result,
 }
 
 // backupDelete removes one archive. A file that is already gone is not an error.
-func (o *Ops) backupDelete(args map[string]string) error {
+// With remote="1" the archive is removed from the off-server backup target instead.
+func (o *Ops) backupDelete(ctx context.Context, args map[string]string) error {
+	switch args["remote"] {
+	case "1":
+		return o.backupDeleteRemote(ctx, args)
+	case "", "0":
+	default:
+		return errors.New("invalid remote flag")
+	}
 	p, err := o.backupPath(args["path"])
 	if err != nil {
 		return err
