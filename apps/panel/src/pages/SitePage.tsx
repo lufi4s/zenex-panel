@@ -64,15 +64,15 @@ function WordPressAccess(props: { site: Site }) {
   const submitLogin = (c: SiteCredentials) => {
     const form = document.createElement("form");
     form.method = "POST";
-    form.action = `${siteUrl(props.site.domain)}/wp-login.php`;
+    // Post straight to https: the site redirects plain http, which can drop the form.
+    form.action = `https://${props.site.domain}/wp-login.php`;
     form.target = "_blank";
     form.style.display = "none";
     const fields: Record<string, string> = {
       log: c.username,
       pwd: c.password,
       "wp-submit": "Log In",
-      redirect_to: `${siteUrl(props.site.domain)}/wp-admin/`,
-      testcookie: "1",
+      redirect_to: `https://${props.site.domain}/wp-admin/`,
     };
     for (const [name, value] of Object.entries(fields)) {
       const input = document.createElement("input");
