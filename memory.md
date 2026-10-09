@@ -522,3 +522,7 @@ Other changes in this step:
 NOT verified (no cPanel server available here): a real SSH sign-in, real wp-config variants, mysqldump on a real host, a real large transfer, Caddy/ACME behaviour before the DNS switch. It must be tried on the VPS with a test cPanel account first. "Without any error" cannot be promised; the design is to fail early with clear messages and never change the source.
 Limits: needs SSH enabled on the cPanel account and password sign-in; one website per run (a loop in the UI is not built); sites on the bare apex or on www both work as long as the domain is connected under Domains, but no www/apex redirect or alias is created; WordPress only; DB must be reachable from the cPanel shell (DB_HOST local or reachable); `--single-transaction` does not make MyISAM tables consistent on a busy site (put it in maintenance first); custom wp-config that reads DB settings from the environment is refused; backup-file (cpanel backup .tar.gz) upload is not built.
 Pending next: try on a real account; optional bulk migration; optional www alias in the Caddy vhost.
+
+## 39. Pushed to GitHub
+
+- Commit 08da8d0 on main (origin lufi4s/zenex-panel) contains sections 33-38 (restore, remote restore, upload, Open admin, stability pass, cPanel migration). VPS is not updated yet; deploy with update.sh/install.sh and test sections 33-38 live.
