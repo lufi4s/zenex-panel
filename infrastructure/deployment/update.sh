@@ -8,6 +8,14 @@ set -Eeuo pipefail
 readonly REPO="/opt/zenex/src"
 readonly UPDATE_LOG="/var/log/zenex/update.log"
 
+# The transient unit starts with a bare environment. The installer's Go build needs
+# HOME (for the module cache), and the usual Go and system paths.
+export HOME=/root
+export GOPATH=/root/go
+export GOMODCACHE=/root/go/pkg/mod
+export GOCACHE=/root/.cache/go-build
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/go/bin
+
 mkdir -p "$(dirname "$UPDATE_LOG")"
 exec >"$UPDATE_LOG" 2>&1
 
