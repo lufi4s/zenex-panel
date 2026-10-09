@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"unicode"
 
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/alerts"
@@ -109,7 +110,9 @@ const maxSFTPPathLen = 200
 // Password is write-only: empty keeps the saved one, and it is never returned.
 // PasswordSet is read-only and ignored on input.
 type backupSettingsDoc struct {
+	Frequency     string         `json:"frequency"`
 	ScheduleHour  int            `json:"schedule_hour"`
+	Weekday       int            `json:"weekday"`
 	RetentionDays int            `json:"retention_days"`
 	Destination   destinationDoc `json:"destination"`
 }
@@ -128,7 +131,9 @@ type sftpDoc struct {
 // settings returns the stored form of the document. The password is not part of it.
 func (doc backupSettingsDoc) settings() store.BackupSettings {
 	return store.BackupSettings{
+		Frequency:     doc.Frequency,
 		ScheduleHour:  doc.ScheduleHour,
+		Weekday:       doc.Weekday,
 		RetentionDays: doc.RetentionDays,
 		Destination: store.BackupDestination{
 			Type: doc.Destination.Type,
@@ -139,7 +144,9 @@ func (doc backupSettingsDoc) settings() store.BackupSettings {
 
 func newBackupSettingsDoc(cfg store.BackupSettings, passwordSet bool) backupSettingsDoc {
 	return backupSettingsDoc{
+		Frequency:     cfg.Frequency,
 		ScheduleHour:  cfg.ScheduleHour,
+		Weekday:       cfg.Weekday,
 		RetentionDays: cfg.RetentionDays,
 		Destination: destinationDoc{
 			Type: cfg.Destination.Type,
@@ -148,11 +155,23 @@ func newBackupSettingsDoc(cfg store.BackupSettings, passwordSet bool) backupSett
 	}
 }
 
-// validBackupSettings checks the hour (0-23), retention (1-90 days) and the destination.
-// It returns a trimmed copy, with the SFTP folder cleaned.
+// validBackupSettings checks the frequency (hourly, daily or weekly), the hour (0-23),
+// the weekday (0-6, Sunday = 0), retention (1-90 days) and the destination. A missing
+// frequency means daily. It returns a trimmed copy, with the SFTP folder cleaned.
 func validBackupSettings(in store.BackupSettings) (store.BackupSettings, string) {
+	in.Frequency = strings.ToLower(strings.TrimSpace(in.Frequency))
+	switch in.Frequency {
+	case "":
+		in.Frequency = store.BackupFrequencyDaily
+	case store.BackupFrequencyHourly, store.BackupFrequencyDaily, store.BackupFrequencyWeekly:
+	default:
+		return in, "Choose hourly, daily or weekly as the backup frequency."
+	}
 	if in.ScheduleHour < 0 || in.ScheduleHour > 23 {
 		return in, "The backup hour must be between 0 and 23."
+	}
+	if in.Weekday < 0 || in.Weekday > 6 {
+		return in, "The backup weekday must be between 0 (Sunday) and 6 (Saturday)."
 	}
 	if in.RetentionDays < 1 || in.RetentionDays > 90 {
 		return in, "Keep backups for between 1 and 90 days."
@@ -383,6 +402,66 @@ func (d Deps) handlePutBackupSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	d.audit(r.Context(), r, store.AuditEntry{ActorUserID: user.ID, ActorRole: primaryRole(user), Action: "settings.backups.update", TargetType: "settings", TargetID: "backup_settings", Result: "success"})
 	writeJSON(w, http.StatusOK, newBackupSettingsDoc(cfg, passwordSet))
+}
+
+// runNowMu allows one "run now" request at a time. A second request while the first
+// is still starting jobs gets 409 instead of queuing duplicates.
+var runNowMu sync.Mutex
+
+// backupRunNowResult counts the sites a "run now" request started and skipped.
+type backupRunNowResult struct {
+	Started int `json:"started"`
+	Skipped int `json:"skipped"`
+}
+
+// handleRunBackupsNow starts a backup job for every ready website. Sites that already
+// have a backup queued or running are skipped, and so are sites whose job could not be
+// started. The jobs run in the background like POST /api/v1/sites/{id}/backup.
+func (d Deps) handleRunBackupsNow(w http.ResponseWriter, r *http.Request) {
+	user, ok := d.requireAdminUser(w, r)
+	if !ok {
+		return
+	}
+	if !runNowMu.TryLock() {
+		writeError(w, requestIDFrom(r), APIError{Status: http.StatusConflict, Code: "backup_run_in_progress", Message: "A backup run is already starting. Wait a moment and try again."})
+		return
+	}
+	defer runNowMu.Unlock()
+
+	sites, err := d.Sites.ListSites(r.Context(), "")
+	if err != nil {
+		d.internal(w, r, "settings.backups.run_now.sites", err)
+		return
+	}
+	busy, err := d.Sites.SitesWithActiveBackup(r.Context())
+	if err != nil {
+		d.internal(w, r, "settings.backups.run_now.active", err)
+		return
+	}
+	active := make(map[string]bool, len(busy))
+	for _, id := range busy {
+		active[id] = true
+	}
+
+	var res backupRunNowResult
+	for _, site := range sites {
+		if site.State != "ready" {
+			continue
+		}
+		if active[site.ID] {
+			res.Skipped++
+			continue
+		}
+		if _, err := d.Manage.StartBackup(r.Context(), site, user.ID); err != nil {
+			d.Log.Warn("run-now backup not started", "site_id", site.ID, "error", err)
+			res.Skipped++
+			continue
+		}
+		active[site.ID] = true
+		res.Started++
+	}
+	d.audit(r.Context(), r, store.AuditEntry{ActorUserID: user.ID, ActorRole: primaryRole(user), Action: "backup.run_now", TargetType: "settings", TargetID: "backup_settings", Result: "success"})
+	writeJSON(w, http.StatusAccepted, res)
 }
 
 // ---------------------------------------------------------------------------

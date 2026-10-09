@@ -136,7 +136,7 @@ func serve(cfg config.Config, log *slog.Logger) error {
 	mon := monitor.New(s, log)
 	mon.Alerts = alertSvc
 	go mon.Run(ctx)
-	startDailyTasks(ctx, s, manager, log)
+	startScheduledTasks(ctx, s, manager, log)
 
 	pending, err := s.UnfinishedProvisionJobs(ctx)
 	if err != nil {
@@ -197,24 +197,26 @@ func serve(cfg config.Config, log *slog.Logger) error {
 	return srv.Shutdown(shutdownCtx)
 }
 
-// startDailyTasks runs WordPress auto-updates at 04:00 and backups at the hour
-// set in the backup settings, both in server time.
-func startDailyTasks(ctx context.Context, s *store.Store, manager *manage.Manager, log *slog.Logger) {
+// startScheduledTasks runs WordPress auto-updates daily at 04:00 and backups at the
+// frequency set in the backup settings (hourly, daily or weekly), all in server time.
+func startScheduledTasks(ctx context.Context, s *store.Store, manager *manage.Manager, log *slog.Logger) {
 	sched := schedule.New(log)
 	sched.Add(schedule.Task{
 		Name: "wordpress-updates",
-		Hour: func(context.Context) int { return 4 },
-		Run:  manager.RunAutoUpdates,
+		Plan: func(context.Context) schedule.Plan {
+			return schedule.Plan{Frequency: schedule.FrequencyDaily, Hour: 4}
+		},
+		Run: manager.RunAutoUpdates,
 	})
 	sched.Add(schedule.Task{
 		Name: "backups",
-		Hour: func(ctx context.Context) int {
+		Plan: func(ctx context.Context) schedule.Plan {
 			cfg, err := s.GetBackupSettings(ctx)
 			if err != nil {
-				log.Warn("backup schedule unavailable; skipping today", "error", err)
-				return -1
+				log.Warn("backup schedule unavailable; skipping this check", "error", err)
+				return schedule.Plan{Hour: -1}
 			}
-			return cfg.ScheduleHour
+			return schedule.Plan{Frequency: cfg.Frequency, Hour: cfg.ScheduleHour, Weekday: cfg.Weekday}
 		},
 		Run: manager.RunScheduledBackups,
 	})

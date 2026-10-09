@@ -565,6 +565,22 @@ export function useSaveBackups() {
   });
 }
 
+/** Starts a backup of every site now. Answers how many sites were started and how many were already running. */
+export function useRunBackupsNow() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiRequest<{ started: number; skipped: number }>("/api/v1/settings/backups/run-now", {
+        method: "POST",
+      }),
+    meta: { silent: true },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: keys.sites });
+      void qc.invalidateQueries({ queryKey: ["backups"] });
+    },
+  });
+}
+
 /** The SFTP public key the backups use. A 404 means no key has been generated yet. */
 export function useSftpKey() {
   return useQuery({

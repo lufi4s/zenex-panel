@@ -1,5 +1,6 @@
-import { createSignal, Show } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 import {
+  useRunBackupsNow,
   useSaveBackups,
   useSettingsBackups,
   useSftpKey,
@@ -7,7 +8,7 @@ import {
   useTestSftp,
 } from "@/api/queries";
 import { ApiError, describeError } from "@/api/client";
-import type { BackupSettings, SftpAuth, SftpSettings } from "@/api/types";
+import type { BackupFrequency, BackupSettings, SftpAuth, SftpSettings } from "@/api/types";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,15 +26,26 @@ const DEFAULT_SFTP: SftpSettings = {
   password_set: false,
 };
 const DEFAULTS: BackupSettings = {
+  frequency: "daily",
   schedule_hour: 3,
+  weekday: 0,
   retention_days: 7,
   destination: { type: "local", sftp: DEFAULT_SFTP },
 };
 
+const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
+const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const SELECT_CLASS =
+  "flex h-10 w-full rounded-md border border-input bg-card px-3 text-base sm:h-9 sm:text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30";
+/** Hourly backups above this many days of retention get a space warning. */
+const HOURLY_RETENTION_WARNING_DAYS = 14;
+
 /** Fills in fields an older API response may not include. */
 function withDefaults(s: BackupSettings): BackupSettings {
   return {
+    frequency: s.frequency ?? DEFAULTS.frequency,
     schedule_hour: s.schedule_hour,
+    weekday: s.weekday ?? DEFAULTS.weekday,
     retention_days: s.retention_days,
     destination: {
       type: s.destination?.type === "sftp" ? "sftp" : "local",
@@ -63,6 +75,7 @@ function cleanSftp(s: SftpSettings): SftpSettings {
 export function BackupSettingsCard() {
   const settings = useSettingsBackups();
   const save = useSaveBackups();
+  const runNow = useRunBackupsNow();
   const sftpKey = useSftpKey();
   const generateKey = useSftpPublicKey();
   const testSftp = useTestSftp();
@@ -75,6 +88,8 @@ export function BackupSettingsCard() {
   const dirty = () =>
     settings.data !== undefined && JSON.stringify(value()) !== JSON.stringify(baseline());
   const hourValid = () => inRange(value().schedule_hour, 0, 23);
+  const frequency = () => value().frequency;
+  const setFrequency = (next: BackupFrequency) => set({ frequency: next });
   const retentionValid = () => inRange(value().retention_days, 1, 90);
   const isSftp = () => value().destination.type === "sftp";
 
@@ -110,7 +125,21 @@ export function BackupSettingsCard() {
     setPasswordError(false);
     setSftp({ password });
   };
-  const clock = () => (hourValid() ? `${String(value().schedule_hour).padStart(2, "0")}:00` : "—");
+  const timeText = () => `${String(value().schedule_hour).padStart(2, "0")}:00`;
+  /** Plain-words description of the next run, shown under the schedule fields. */
+  const nextRunText = () => {
+    if (frequency() === "hourly") return "Next backup: every hour, on the hour.";
+    if (frequency() === "weekly") {
+      return `Next backup: every ${WEEKDAYS[value().weekday] ?? WEEKDAYS[0]} at ${timeText()}.`;
+    }
+    return `Next backup: every day at ${timeText()}.`;
+  };
+  const runNowMessage = () => {
+    const result = runNow.data;
+    if (!result) return "";
+    const skipped = result.skipped > 0 ? ` (${result.skipped} already running)` : "";
+    return `Started backups for ${result.started} sites.${skipped}`;
+  };
 
   const publicKey = () => sftpKey.data?.public_key ?? "";
   const keyMissing = () =>
@@ -130,7 +159,9 @@ export function BackupSettingsCard() {
         : cleanSftp(sftp());
     save.mutate(
       {
+        frequency: value().frequency,
         schedule_hour: value().schedule_hour,
+        weekday: value().weekday,
         retention_days: value().retention_days,
         destination: {
           type: value().destination.type,
@@ -208,8 +239,8 @@ export function BackupSettingsCard() {
         <CardHeader>
           <CardTitle>Backups</CardTitle>
           <CardDescription>
-            When websites are backed up each day, how many days of backups are kept, and where they
-            are stored.
+            When websites are backed up, how many days of backups are kept, and where they are
+            stored.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -220,25 +251,90 @@ export function BackupSettingsCard() {
               </Alert>
             </Show>
 
-            <div class="grid gap-5 sm:grid-cols-2">
-              <div class="space-y-2">
-                <Label for="backup-hour">Daily backup hour (0 to 23)</Label>
-                <div class="flex items-center gap-3">
-                  <Input
-                    id="backup-hour"
-                    type="number"
-                    min={0}
-                    max={23}
-                    step={1}
-                    class="w-24"
-                    value={Number.isNaN(value().schedule_hour) ? "" : value().schedule_hour}
-                    onInput={(e) => set({ schedule_hour: parseField(e.currentTarget.value) })}
-                    aria-invalid={!hourValid() || undefined}
+            <fieldset class="space-y-3">
+              <legend class="mb-2 text-sm font-medium leading-none">How often</legend>
+              <div class="flex flex-wrap gap-6">
+                <label class="flex items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name="backup-frequency"
+                    value="hourly"
+                    class="size-4 accent-primary"
+                    checked={frequency() === "hourly"}
+                    onChange={() => setFrequency("hourly")}
                   />
-                  <span class="font-mono text-sm text-muted-foreground">{clock()}</span>
-                </div>
-                <p class="text-xs text-muted-foreground">Server time.</p>
+                  Every hour
+                </label>
+                <label class="flex items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name="backup-frequency"
+                    value="daily"
+                    class="size-4 accent-primary"
+                    checked={frequency() === "daily"}
+                    onChange={() => setFrequency("daily")}
+                  />
+                  Every day
+                </label>
+                <label class="flex items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name="backup-frequency"
+                    value="weekly"
+                    class="size-4 accent-primary"
+                    checked={frequency() === "weekly"}
+                    onChange={() => setFrequency("weekly")}
+                  />
+                  Every week
+                </label>
               </div>
+            </fieldset>
+
+            <div class="grid gap-5 sm:grid-cols-2">
+              <Show when={frequency() === "hourly"}>
+                <p class="text-xs text-muted-foreground sm:col-span-2">
+                  Runs at the top of every hour.
+                </p>
+              </Show>
+
+              <Show when={frequency() === "weekly"}>
+                <div class="space-y-2">
+                  <Label for="backup-weekday">Day</Label>
+                  <select
+                    id="backup-weekday"
+                    class={SELECT_CLASS}
+                    onChange={(e) => set({ weekday: Number(e.currentTarget.value) })}
+                  >
+                    <For each={WEEKDAYS}>
+                      {(name, index) => (
+                        <option value={String(index())} selected={index() === value().weekday}>
+                          {name}
+                        </option>
+                      )}
+                    </For>
+                  </select>
+                </div>
+              </Show>
+
+              <Show when={frequency() !== "hourly"}>
+                <div class="space-y-2">
+                  <Label for="backup-hour">Time</Label>
+                  <select
+                    id="backup-hour"
+                    class={SELECT_CLASS}
+                    onChange={(e) => set({ schedule_hour: Number(e.currentTarget.value) })}
+                  >
+                    <For each={HOURS}>
+                      {(hour) => (
+                        <option value={String(hour)} selected={hour === value().schedule_hour}>
+                          {`${String(hour).padStart(2, "0")}:00`}
+                        </option>
+                      )}
+                    </For>
+                  </select>
+                  <p class="text-xs text-muted-foreground">Server time.</p>
+                </div>
+              </Show>
 
               <div class="space-y-2">
                 <Label for="backup-retention">Keep backups for (days)</Label>
@@ -254,8 +350,20 @@ export function BackupSettingsCard() {
                   aria-invalid={!retentionValid() || undefined}
                 />
                 <p class="text-xs text-muted-foreground">1 to 90 days.</p>
+                <Show
+                  when={
+                    frequency() === "hourly" &&
+                    value().retention_days > HOURLY_RETENTION_WARNING_DAYS
+                  }
+                >
+                  <p class="text-xs text-warning">
+                    Hourly backups use a lot of space. Consider a shorter retention.
+                  </p>
+                </Show>
               </div>
             </div>
+
+            <p class="text-sm text-muted-foreground">{nextRunText()}</p>
 
             <fieldset class="space-y-3">
               <legend class="mb-2 text-sm font-medium leading-none">Where to store backups</legend>
@@ -421,9 +529,25 @@ export function BackupSettingsCard() {
               </Alert>
             </Show>
 
-            <Button type="submit" disabled={!canSave()}>
-              {save.isPending ? "Saving…" : "Save"}
-            </Button>
+            <div class="flex flex-wrap items-center gap-3">
+              <Button type="submit" disabled={!canSave()}>
+                {save.isPending ? "Saving…" : "Save"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={runNow.isPending}
+                onClick={() => runNow.mutate(undefined)}
+              >
+                {runNow.isPending ? "Starting…" : "Back up now"}
+              </Button>
+              <Show when={runNow.isSuccess}>
+                <span class="text-sm text-success">{runNowMessage()}</span>
+              </Show>
+              <Show when={runNow.isError}>
+                <span class="text-sm text-destructive">{describeError(runNow.error)}</span>
+              </Show>
+            </div>
           </form>
         </CardContent>
       </Card>

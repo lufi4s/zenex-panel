@@ -1,0 +1,1 @@
+import{ar as t,b7 as n,ao as l,g as o,i,t as c}from"./index-NehW0Bdb.js";var m=c("<label>");function u(r){const[s,a]=t(r,["class","children"]);return(()=>{var e=m();return n(e,l({get class(){return o("text-sm font-medium leading-none",s.class)}},a),!1,!0),i(e,()=>s.children),e})()}export{u as L};

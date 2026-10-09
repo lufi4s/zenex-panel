@@ -364,3 +364,9 @@ Removed every UI/animation/data/routing library from apps/panel. Only React, Rea
 - Backups can sign in to the SFTP server with a password or the panel's key (Settings > Backups > Sign in with). The password is stored encrypted (system_settings "sftp_password") and passed to sshpass through its environment variable only.
 - install.sh installs the sshpass package.
 - Verified by unit tests and builds only; not yet tested with a real SFTP server.
+
+## 30. Backup frequency and run-now
+
+- Backup schedule: hourly, daily (time) or weekly (day and time). Settings keep frequency, schedule_hour and weekday; default daily.
+- POST /api/v1/settings/backups/run-now starts a backup for every ready site (skips sites already backing up). Only one run-now at a time.
+- Known gap: a backup job left "running" after a crash blocks that site until its row is changed (only site.provision jobs are reset at startup).

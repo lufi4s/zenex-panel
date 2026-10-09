@@ -68,3 +68,23 @@ func (s *Store) DeleteBackup(ctx context.Context, id int64) error {
 	_, err := s.pool.Exec(ctx, `DELETE FROM backups WHERE id = $1`, id)
 	return err
 }
+
+// SitesWithActiveBackup returns the IDs of sites that have a backup job queued or running.
+func (s *Store) SitesWithActiveBackup(ctx context.Context) ([]string, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT DISTINCT site_id::text FROM jobs
+		WHERE type = 'site.backup' AND status IN ('queued', 'running') AND site_id IS NOT NULL`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}

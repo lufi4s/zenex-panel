@@ -92,6 +92,7 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("GET /api/v1/settings/backups/sftp-key", d.requireSession(d.handleGetSFTPKey))
 	mux.Handle("POST /api/v1/settings/backups/sftp-key", requireCSRF(d.requireSession(d.handleCreateSFTPKey)))
 	mux.Handle("POST /api/v1/settings/backups/sftp-test", requireCSRF(d.requireSession(d.handleTestSFTP)))
+	mux.Handle("POST /api/v1/settings/backups/run-now", requireCSRF(d.requireSession(d.handleRunBackupsNow)))
 	mux.Handle("GET /api/v1/settings/alerts", d.requireSession(d.handleGetAlerts))
 	mux.Handle("PUT /api/v1/settings/alerts", requireCSRF(d.requireSession(d.handlePutAlerts)))
 	mux.Handle("POST /api/v1/settings/alerts/test-email", requireCSRF(d.requireSession(d.handleTestAlertEmail)))

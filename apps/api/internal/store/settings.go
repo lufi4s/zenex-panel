@@ -19,10 +19,21 @@ const (
 	BackupDestSFTP  = "sftp"
 )
 
-// BackupSettings control the daily backup run, how long backups are kept and where
-// they are sent. A stored value without a destination means local storage.
+// Backup schedule frequencies.
+const (
+	BackupFrequencyHourly = "hourly"
+	BackupFrequencyDaily  = "daily"
+	BackupFrequencyWeekly = "weekly"
+)
+
+// BackupSettings control how often the backup run starts, how long backups are kept
+// and where they are sent. ScheduleHour (0-23) is used by daily and weekly runs;
+// Weekday (0-6, Sunday = 0) is used by weekly runs. A stored value without a
+// frequency means daily, and one without a destination means local storage.
 type BackupSettings struct {
+	Frequency     string            `json:"frequency"`
 	ScheduleHour  int               `json:"schedule_hour"`
+	Weekday       int               `json:"weekday"`
 	RetentionDays int               `json:"retention_days"`
 	Destination   BackupDestination `json:"destination"`
 }
@@ -54,7 +65,9 @@ type SFTPDestination struct {
 // DefaultBackupSettings is used until an administrator changes them.
 func DefaultBackupSettings() BackupSettings {
 	return BackupSettings{
+		Frequency:     BackupFrequencyDaily,
 		ScheduleHour:  3,
+		Weekday:       0,
 		RetentionDays: 7,
 		Destination: BackupDestination{
 			Type: BackupDestLocal,
@@ -130,6 +143,9 @@ func decodeBackupSettings(raw []byte) (BackupSettings, error) {
 	if err := json.Unmarshal(raw, &b); err != nil {
 		return b, err
 	}
+	if b.Frequency == "" {
+		b.Frequency = BackupFrequencyDaily
+	}
 	if b.Destination.Type == "" {
 		b.Destination.Type = BackupDestLocal
 	}
@@ -139,7 +155,7 @@ func decodeBackupSettings(raw []byte) (BackupSettings, error) {
 	return b, nil
 }
 
-// SetBackupSettings saves the backup schedule and retention.
+// SetBackupSettings saves the backup schedule, retention and destination.
 func (s *Store) SetBackupSettings(ctx context.Context, userID string, b BackupSettings) error {
 	return s.PutSetting(ctx, "backup_settings", b, userID)
 }

@@ -26,6 +26,15 @@ type settingsSites struct {
 	created    *store.NewSite
 	autoUpdate map[string]bool
 	siteState  string
+	sites      []store.Site
+	active     []string
+}
+
+func (s *settingsSites) ListSites(context.Context, string) ([]store.Site, error) {
+	return s.sites, nil
+}
+func (s *settingsSites) SitesWithActiveBackup(context.Context) ([]string, error) {
+	return s.active, nil
 }
 
 func (s *settingsSites) GetSealedSFTPPassword(context.Context) (string, error) {
@@ -81,6 +90,8 @@ type settingsManage struct {
 	maintenance *bool
 	tested      []store.SFTPDestination
 	testErr     error
+	started     []string         // site IDs given a backup job, in order
+	startErr    map[string]error // site ID -> error from StartBackup
 }
 
 func (m *settingsManage) PHPVersions(context.Context) ([]string, error) {
@@ -90,7 +101,11 @@ func (m *settingsManage) SetMaintenance(_ context.Context, _ store.Site, on bool
 	m.maintenance = &on
 	return nil
 }
-func (m *settingsManage) StartBackup(context.Context, store.Site, string) (string, error) {
+func (m *settingsManage) StartBackup(_ context.Context, site store.Site, _ string) (string, error) {
+	if err := m.startErr[site.ID]; err != nil {
+		return "", err
+	}
+	m.started = append(m.started, site.ID)
 	return "job-9", nil
 }
 

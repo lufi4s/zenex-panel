@@ -223,8 +223,14 @@ export interface BackupDestination {
   sftp: SftpSettings;
 }
 
+export type BackupFrequency = "hourly" | "daily" | "weekly";
+
 export interface BackupSettings {
+  frequency: BackupFrequency;
+  /** 0 to 23. Ignored for hourly backups. */
   schedule_hour: number;
+  /** 0 to 6, Sunday = 0. Only used for weekly backups. */
+  weekday: number;
   retention_days: number;
   destination: BackupDestination;
 }

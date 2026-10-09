@@ -196,7 +196,9 @@ function mockApi(options: {
     if (url.endsWith("/api/v1/settings/defaults")) return json({ php_version: "8.3" });
     if (url.endsWith("/api/v1/settings/backups")) {
       return json({
+        frequency: "daily",
         schedule_hour: 3,
+        weekday: 0,
         retention_days: 7,
         destination: {
           type: "local",
@@ -216,6 +218,9 @@ function mockApi(options: {
     }
     if (url.endsWith("/api/v1/settings/backups/sftp-test") && method === "POST") {
       return json({ ok: true });
+    }
+    if (url.endsWith("/api/v1/settings/backups/run-now") && method === "POST") {
+      return json({ started: 2, skipped: 1 }, 202);
     }
     if (url.endsWith("/api/v1/settings/alerts/test-email") && method === "POST") {
       return json({ sent: true });
@@ -434,7 +439,7 @@ describe("navigation", () => {
     expect(await screen.findByText("Site defaults")).toBeTruthy();
     expect(screen.getByText("Backups")).toBeTruthy();
     expect(screen.getByText("Alerts")).toBeTruthy();
-    expect(await screen.findByLabelText("Daily backup hour (0 to 23)")).toBeTruthy();
+    expect(await screen.findByLabelText("Keep backups for (days)")).toBeTruthy();
     expect(screen.getByText("03:00")).toBeTruthy();
     expect(screen.getByText("Send alerts by email")).toBeTruthy();
   });
@@ -501,10 +506,50 @@ describe("settings", () => {
     expect((call?.[1] as RequestInit | undefined)?.method).toBe("POST");
   });
 
+  it("shows the day and time choices when every week is chosen", async () => {
+    vi.stubGlobal("fetch", mockApi({ signedIn: true }));
+    renderAt("/settings");
+    await screen.findByLabelText("Keep backups for (days)");
+    expect(screen.getByLabelText("Time")).toBeTruthy();
+    expect(screen.queryByLabelText("Day")).toBeNull();
+
+    fireEvent.click(screen.getByRole("radio", { name: "Every week" }));
+    const day = (await screen.findByLabelText("Day")) as HTMLSelectElement;
+    expect(day.querySelectorAll("option").length).toBe(7);
+    expect(screen.getByLabelText("Time")).toBeTruthy();
+  });
+
+  it("hides the time choice when every hour is chosen", async () => {
+    vi.stubGlobal("fetch", mockApi({ signedIn: true }));
+    renderAt("/settings");
+    await screen.findByLabelText("Keep backups for (days)");
+
+    fireEvent.click(screen.getByRole("radio", { name: "Every hour" }));
+    expect(await screen.findByText("Runs at the top of every hour.")).toBeTruthy();
+    expect(screen.queryByLabelText("Time")).toBeNull();
+    expect(screen.queryByLabelText("Day")).toBeNull();
+  });
+
+  it("starts backups now and reports how many started and were already running", async () => {
+    const fetchMock = mockApi({ signedIn: true });
+    vi.stubGlobal("fetch", fetchMock);
+    renderAt("/settings");
+    await screen.findByLabelText("Keep backups for (days)");
+
+    fireEvent.click(screen.getByRole("button", { name: "Back up now" }));
+    expect(
+      await screen.findByText("Started backups for 2 sites. (1 already running)"),
+    ).toBeTruthy();
+    const call = fetchMock.mock.calls.find(([url]) =>
+      String(url).endsWith("/api/v1/settings/backups/run-now"),
+    );
+    expect((call?.[1] as RequestInit | undefined)?.method).toBe("POST");
+  });
+
   it("shows the SFTP fields only when SFTP is chosen", async () => {
     vi.stubGlobal("fetch", mockApi({ signedIn: true }));
     renderAt("/settings");
-    await screen.findByLabelText("Daily backup hour (0 to 23)");
+    await screen.findByLabelText("Keep backups for (days)");
     expect(screen.queryByLabelText("Host")).toBeNull();
 
     fireEvent.click(screen.getByRole("radio", { name: "Remote server (SFTP)" }));
@@ -522,7 +567,7 @@ describe("settings", () => {
     const fetchMock = mockApi({ signedIn: true });
     vi.stubGlobal("fetch", fetchMock);
     renderAt("/settings");
-    await screen.findByLabelText("Daily backup hour (0 to 23)");
+    await screen.findByLabelText("Keep backups for (days)");
 
     fireEvent.click(screen.getByRole("radio", { name: "Remote server (SFTP)" }));
     const host = (await screen.findByLabelText("Host")) as HTMLInputElement;
