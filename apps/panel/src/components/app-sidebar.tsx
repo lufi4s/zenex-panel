@@ -5,7 +5,7 @@ import {
   Layers,
   LayoutDashboard,
   LogOut,
-  Palette,
+  Settings,
   Server,
 } from "@/components/icons";
 import { useBranding, useLogout } from "@/api/queries";
@@ -94,7 +94,7 @@ export function AppSidebar(props: { user: User; open: boolean; onNavigate: () =>
         {isAdmin() && (
           <Group
             label="Administration"
-            items={[{ to: "/settings", label: "Settings", icon: Palette, end: false }]}
+            items={[{ to: "/settings", label: "Settings", icon: Settings, end: false }]}
             onNavigate={props.onNavigate}
           />
         )}

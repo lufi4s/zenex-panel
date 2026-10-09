@@ -170,16 +170,6 @@ export const MemoryStick = icon(
     <path d="M6 6V3M10 6V3M14 6V3M18 6V3" />
   </>,
 );
-export const Palette = icon(
-  "Palette",
-  <>
-    <circle cx="12" cy="12" r="10" />
-    <circle cx="8" cy="10" r="1.2" />
-    <circle cx="12" cy="7" r="1.2" />
-    <circle cx="16" cy="10" r="1.2" />
-    <circle cx="10" cy="15" r="1.2" />
-  </>,
-);
 export const Pause = icon("Pause", <path d="M6 4h4v16H6zM14 4h4v16h-4z" />);
 export const Pencil = icon(
   "Pencil",
@@ -232,4 +222,9 @@ export const XCircle = icon(
     <path d="m15 9-6 6M9 9l6 6" />
   </>,
 );
-export const XIcon = X;
+
+/** Sliders: the settings icon (the palette icon suggests theming, not settings). */
+export const Settings = icon(
+  "Settings",
+  <path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6" />,
+);

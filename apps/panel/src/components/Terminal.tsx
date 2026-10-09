@@ -114,7 +114,7 @@ export function Terminal(props: TerminalProps) {
             <Show when={follow()} fallback={<Play class="size-3" aria-hidden="true" />}>
               <Pause class="size-3" aria-hidden="true" />
             </Show>
-            {follow() ? "Follow" : "Paused"}
+            {follow() ? "Following" : "Paused"}
           </button>
           <button
             type="button"
