@@ -133,6 +133,8 @@ func (o *Ops) Do(ctx context.Context, op string, args map[string]string) (Result
 		return Result{}, o.poolWrite(ctx, args)
 	case "vhost.write":
 		return Result{}, o.vhostWrite(ctx, args)
+	case "usage.sites":
+		return o.sitesUsage(ctx)
 	case "sftp.enable":
 		return Result{}, o.sftpEnable(ctx, args)
 	case "sftp.disable":

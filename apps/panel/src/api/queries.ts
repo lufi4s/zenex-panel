@@ -38,6 +38,7 @@ import type {
   TimeRange,
   User,
   SiteAccess,
+  StorageReport,
 } from "./types";
 
 const keys = {
@@ -262,6 +263,13 @@ export function useSiteHealth(range: TimeRange) {
     queryKey: ["monitoring", "sites", range],
     queryFn: () => apiRequest<SiteHealth[]>(`/api/v1/monitoring/sites?range=${range}`),
     refetchInterval: 60_000,
+  });
+}
+
+export function useStorage() {
+  return useQuery({
+    queryKey: ["storage"],
+    queryFn: () => apiRequest<StorageReport>("/api/v1/storage"),
   });
 }
 

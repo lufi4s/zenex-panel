@@ -25,6 +25,7 @@ type SiteManager interface {
 	SetMaintenance(ctx context.Context, site store.Site, enabled bool) error
 	SetSFTP(ctx context.Context, site store.Site, enable, reset bool) error
 	PrepareDBAdmin(ctx context.Context, site store.Site) error
+	SiteUsages(ctx context.Context) (map[string]manage.SiteUsage, error)
 	StartBackup(ctx context.Context, site store.Site, actorID string) (string, error)
 	StartRestore(ctx context.Context, site store.Site, backup store.Backup, sourceDomain string, actorID string) (string, error)
 	ListRemoteBackups(ctx context.Context) ([]manage.RemoteBackup, error)

@@ -85,6 +85,22 @@ function mockApi(options: {
   return vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     const method = init?.method ?? "GET";
+    if (url.endsWith("/api/v1/storage")) {
+      const GiB = 1024 ** 3;
+      return json({
+        ...(options.customer ? {} : { disk: { total_bytes: 20 * GiB, used_bytes: 7.5 * GiB } }),
+        sites: [
+          {
+            site_id: "s1",
+            domain: "shop.ozima.cloud",
+            files_bytes: 100 * 1024 * 1024,
+            database_bytes: 2 * 1024 * 1024,
+            backup_bytes: 0,
+            total_bytes: 102 * 1024 * 1024,
+          },
+        ],
+      });
+    }
     if (url.endsWith("/api/v1/sites/s1/access") && method === "GET") return json(accessView());
     if (url.includes("/api/v1/sites/s1/access/sftp") && method === "PUT") {
       sftpOn = true;
@@ -1102,5 +1118,24 @@ describe("database and SFTP access", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Open phpMyAdmin" }));
     expect(open).toHaveBeenCalledWith("about:blank", "_blank");
     await waitFor(() => expect(tab.location.href).toBe("https://shop.ozima.cloud/zenex-dbadmin/"));
+  });
+});
+
+describe("storage", () => {
+  it("shows what each website uses, and the server disk to an administrator", async () => {
+    vi.stubGlobal("fetch", mockApi({ signedIn: true }));
+    renderAt("/websites");
+    expect(await screen.findByText("Storage")).toBeTruthy();
+    expect(await screen.findByText("Server disk")).toBeTruthy();
+    expect(screen.getByText("7.5 GB of 20.0 GB used")).toBeTruthy();
+    expect(screen.getByText("All websites")).toBeTruthy();
+    expect(screen.getAllByText("100.0 MB").length).toBe(2); // the Files column and the total row
+  });
+
+  it("does not show the server disk to a customer", async () => {
+    vi.stubGlobal("fetch", mockApi({ signedIn: true, customer: true }));
+    renderAt("/websites");
+    expect(await screen.findByText("Storage")).toBeTruthy();
+    expect(screen.queryByText("Server disk")).toBeNull();
   });
 });

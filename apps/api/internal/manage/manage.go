@@ -56,6 +56,8 @@ type Manager struct {
 	Store  Store
 	Helper Helper
 	Log    *slog.Logger
+	// usage remembers the last disk measurement of every website (see storage.go).
+	usage usageCache
 	// DeleteTimeout bounds the background deletion.
 	DeleteTimeout time.Duration
 	// BackupTimeout bounds one website backup.

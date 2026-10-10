@@ -1,1 +1,0 @@
-import{aE as t,bm as n,aB as l,g as o,i,t as m}from"./index-BDU0mSm0.js";var c=m("<label>");function u(a){const[s,r]=t(a,["class","children"]);return(()=>{var e=c();return n(e,l({get class(){return o("text-sm font-medium leading-none",s.class)}},r),!1,!0),i(e,()=>s.children),e})()}export{u as L};

@@ -18,7 +18,7 @@ import (
 //   - backup, restore and cPanel copies: they work on one website's files and database, and on
 //     the backup folders; the panel never runs two of them for the same website at once
 var unlockedOps = map[string]bool{
-	"files.list": true, "files.read": true, "logs.tail": true, "services.status": true,
+	"files.list": true, "files.read": true, "logs.tail": true, "services.status": true, "usage.sites": true,
 	"php.versions": true, "panel.version": true, "panel.latest": true, "panel.update-status": true,
 	"backup.create": true, "backup.restore": true, "backup.upload": true, "backup.download": true,
 	"backup.delete": true, "backup.discover": true, "backup.test": true,

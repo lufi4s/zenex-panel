@@ -411,6 +411,22 @@ export interface SecurityStatus {
   quarantine: QuarantineItem[];
 }
 
+/** Disk use of one website: files, database and backups. */
+export interface SiteStorage {
+  site_id: string;
+  domain: string;
+  files_bytes: number;
+  database_bytes: number;
+  backup_bytes: number;
+  total_bytes: number;
+}
+
+/** The storage report. disk is only sent to administrators. */
+export interface StorageReport {
+  disk?: { total_bytes: number; used_bytes: number };
+  sites: SiteStorage[];
+}
+
 /** Logins for managing a website's database and files. */
 export interface SiteAccess {
   database: { host: string; name: string; user: string; password: string };

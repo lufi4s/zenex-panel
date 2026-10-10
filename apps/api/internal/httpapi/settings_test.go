@@ -12,6 +12,7 @@ import (
 
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/alerts"
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/auth"
+	"github.com/zenexcloud/zenex-panel/apps/api/internal/manage"
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/store"
 )
 
@@ -114,6 +115,12 @@ func (m *settingsManage) SetSFTP(_ context.Context, _ store.Site, enable, reset 
 		m.sftp = append(m.sftp, "enable")
 	}
 	return nil
+}
+
+func (m *settingsManage) SiteUsages(context.Context) (map[string]manage.SiteUsage, error) {
+	return map[string]manage.SiteUsage{
+		"zx_shop": {User: "zx_shop", FilesBytes: 3000, DatabaseBytes: 2000, BackupBytes: 1000},
+	}, nil
 }
 
 func (m *settingsManage) PrepareDBAdmin(context.Context, store.Site) error {

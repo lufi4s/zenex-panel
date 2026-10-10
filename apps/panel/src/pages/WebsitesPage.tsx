@@ -18,6 +18,7 @@ import { CardSkeleton } from "@/components/CardSkeleton";
 import { JobProgress } from "@/components/JobProgress";
 import { NewWebsiteCard } from "@/components/NewWebsiteCard";
 import { MigrateFromCpanel } from "@/components/MigrateFromCpanel";
+import { StorageCard } from "@/components/StorageCard";
 import { PageHeader } from "@/components/PageHeader";
 import { badgeTone } from "@/lib/badge";
 import { describeError } from "@/api/client";
@@ -207,6 +208,7 @@ export function WebsitesPage() {
       </Show>
       <Show when={(sites.data?.length ?? 0) > 0}>
         <WebsiteTable sites={sites.data ?? []} uptime={uptime()} activity={activityBySite()} />
+        <StorageCard />
       </Show>
       {newWebsiteDialog}
     </>

@@ -68,6 +68,7 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("GET /api/v1/sites/{id}", d.requireSession(d.handleGetSite))
 	mux.Handle("GET /api/v1/sites/{id}/credentials", d.requireSession(d.handleSiteCredentials))
 	mux.Handle("GET /api/v1/sites/{id}/access", d.requireSession(d.handleSiteAccess))
+	mux.Handle("GET /api/v1/storage", d.requireSession(d.handleStorage))
 	mux.Handle("PUT /api/v1/sites/{id}/access/sftp", requireCSRF(d.requireSession(d.handleEnableSFTP)))
 	mux.Handle("DELETE /api/v1/sites/{id}/access/sftp", requireCSRF(d.requireSession(d.handleDisableSFTP)))
 	mux.Handle("POST /api/v1/sites/{id}/access/phpmyadmin", requireCSRF(d.requireSession(d.handleOpenPhpMyAdmin)))
