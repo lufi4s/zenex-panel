@@ -27,6 +27,16 @@ compromised website can reach, and to keep the panel itself small and hard to mi
 - The one-click WordPress sign-in uses a signed link (HMAC with a per-site key, valid 90 seconds, single use). The key is
   in a file readable only by that website's account.
 
+**Malware scanner** (Security tab of a website)
+- The helper walks the website folder without following links and checks: code signatures (hidden `eval`, code run from the
+  web request, known web shells, miners, `auto_prepend_file`), file places and names (PHP in `wp-content/uploads`, `x.jpg.php`,
+  hidden PHP names, picture files holding PHP, links leading outside the site), and `wp core` / `wp plugin verify-checksums`.
+- A finding holds a rule, a line number and a plain message, never file text, so a scan cannot be used to read file contents.
+- Quarantine moves one file (rename, so the checked file is the moved file) to `/var/lib/zenex/quarantine/<account>` (root only,
+  mode 0700). Restore never replaces an existing file. WordPress top-level core files cannot be quarantined.
+- Scans run in the background, one per website, outside the helper's global lock. Limit: the scan reads files that the website
+  can change while it runs, as root; a folder swapped for a link during the scan is a theoretical race (reads only, no output of text).
+
 **Secrets**
 - Website database and admin passwords are derived from the master key and the site ID; they are not stored.
 - Saved SMTP, Telegram and SFTP secrets are encrypted with AES-GCM, key derived from `ZENEX_SECRET_KEY`.
@@ -45,7 +55,7 @@ compromised website can reach, and to keep the panel itself small and hard to mi
 ## Not implemented yet
 
 - Two-factor sign-in, password reset by email, a list of active sessions.
-- Malware scanning (ClamAV, YARA), WordPress checksum verification, quarantine.
+- Scheduled scans, ClamAV/YARA rules, scan notifications, an "ignore this finding" list, database scanning.
 - PHP function restrictions per website; per-website resource limits.
 - Per-user upload quota (a customer could fill the disk with uploads on their own website).
 - Key rotation for the master secret.

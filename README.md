@@ -38,6 +38,7 @@ create WordPress sites in a few clicks, back them up, restore them, and move sit
 - Per site: restart PHP, take offline / bring online, maintenance page, daily WordPress core updates, change PHP version,
   access log, delete with typed confirmation.
 - **Live status on the Websites list:** "Backing up · 45%", "Backup complete", "Restoring", "Migrating", "Building"…
+- **Malware scanner** (website page > Security) looks for web shells, backdoors, hidden PHP in uploads, picture files that hold PHP, and changed WordPress core and plugin files. Suspicious files can be moved to quarantine and restored.
 - **Open admin** signs you in to the WordPress dashboard with one click (a one-time link that works once for 90 seconds).
 
 **Files**
@@ -321,7 +322,7 @@ docs/                     architecture.md, security.md
 - WordPress only.
 - Websites are created as `name.yourdomain.com`. A website on the bare domain is possible only through cPanel migration.
 - No password reset by email, no two-factor sign-in, no list of active sessions yet.
-- The malware scanner (ClamAV / YARA) and the separate security engine described in early plans are **not built**.
+- The malware scanner is built into the helper (signatures, file locations, WordPress checksums). It is not ClamAV or YARA, it is run by hand (no schedule yet) and it cannot clean infected database content. The separate security engine described in early plans is **not built**.
 - Backups, restores and migrations run inside the panel process; if the panel restarts they stop and are marked failed
   (start them again).
 - The cPanel migration needs SSH access with a password and cannot yet import a cPanel backup file.

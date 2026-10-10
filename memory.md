@@ -555,3 +555,109 @@ Pending next: try on a real account; optional bulk migration; optional www alias
 - Real PostgreSQL integration tests: apps/api/internal/store/integration_test.go, run with ZENEX_TEST_DATABASE_URL (skipped otherwise). A scratch cluster was used in the scratchpad (port 55433, now stopped).
 - Bugs fixed: (1) EnsureLocalNode/create-admin failed with empty ZENEX_PUBLIC_IP (now stores 127.0.0.1); (2) upload and remote-list requests hit the server's 15 s read / 30 s write timeouts (allowSlowRequest in httpapi/upload.go, proved by upload_deadline_test.go); (3) helper global lock blocked everything during a backup or restore (unlockedOps in helper/verify.go, test lock_test.go); (4) helper not running returned 500, now 503 helper_unavailable (helperclient.ErrUnreachable).
 - Open items (see tech_report.txt section 5): HIGH Go toolchain on the VPS is Ubuntu's golang-go 1.22 (known stdlib issues) and pgx 5.9.2 / x/text 0.41 need Go 1.25, so the installer must install an official Go first, then bump deps (tried: go.mod goes to 1.25.0, reverted); HIGH decision: customers can see /monitoring/metrics and /services; MEDIUM: wp-cli gets the DB password in argv, no upload quota, jobs not resumable, tests/security empty, new helper ops never run on Linux.
+
+## 43. Malware scanner (latest, NOT committed)
+
+Per-website scanner in the Security tab of a website (visible when the site is ready or suspended). Built into the helper, no ClamAV.
+- Helper (services/agent/internal/helper): malware_rules.go (signature rules, location rules, file kinds), malware.go (scan, WordPress checksums, report, quarantine). Ops: malware.scan, malware.report, malware.list, malware.quarantine, malware.restore, malware.purge (all in unlockedOps). Paths.QuarantineDir = /var/lib/zenex/quarantine (root 0700, per account: last-scan.json, <id>.quar + <id>.json). sitePurge removes the quarantine folder.
+- Checks: ~19 signature rules (eval of decoded text, code from the request, request include/write, preg /e, hex names, known shells, chr chains, long payloads, hidden iframes, miners, JS obfuscation, auto_prepend in .user.ini/.htaccess, handler tricks), PHP tag in picture files, PHP in wp-content/uploads (WordPress "Silence is golden" index.php allowed), double extensions, hidden PHP names, symlinks leaving the site, `wp core verify-checksums` (extra PHP in wp-admin/wp-includes = high) and `wp plugin verify-checksums --all --format=json`. Findings never hold file text. Limits: 150000 files, 500 findings, 1 MiB head + 1 MiB tail of big files.
+- Quarantine: rename (copy fallback), refuses WordPress top-level core files and non-files; restore uses exclusive create and never replaces a file; purge deletes.
+- API: manage/security.go (StartScan in a goroutine, one per site, in-memory running/failed state; SecurityStatus = running + last report + quarantine list; Quarantine, RestoreQuarantined, DeleteQuarantined) and httpapi/security.go. Routes: GET /sites/{id}/security, POST .../security/scan (202), POST .../security/quarantine {path, rule}, POST .../security/quarantine/{item}/restore, DELETE .../security/quarantine/{item}. Session + CSRF + owner check (loadSiteForUser); audit actions site.malware_scan / _quarantine / _restore / _delete.
+- UI: components/SecurityTab.tsx (Scan now, summary badge, findings with severity, Quarantine button, quarantine list with Restore and two-step Delete; core/plugin-modified findings have no Quarantine button), queries useSecurity (polls 2 s while running), useStartScan, useQuarantineFile, useRestoreQuarantined, useDeleteQuarantined; types ScanReport etc.
+- Tests: helper malware_test.go, manage/security_test.go, httpapi/security_test.go, app.test.tsx (7 UI tests). Verified: go vet + go test (agent, api, GOOS=linux vet), tsc, vp check, vitest 65/65, vite build (dist rebuilt).
+- Test note: Windows Defender deletes files that contain web-shell samples. helper tests build samples from placeholders at run time (sampleWords) and file-based tests use benign content (create_function, PHP in uploads). Do not put real shell strings in source files.
+- NOT verified on Linux: the real `wp core/plugin verify-checksums` output (parsers are tested on sample text), runuser path, chown on restore.
+- Python edit scripts on Windows: open files in binary (utf-8); text mode used cp1252 and broke non-ASCII text once.
+- Next: scheduled scans + alert on findings, "ignore finding" list, ClamAV/YARA option, scan all websites, repair button (reinstall core), customers/admin split for the Server page still open.
+
+## 44. Web UI polish pass (latest, NOT committed)
+
+- Visual review of every page at desktop (1360 px) and phone (390 px) width in headless Chrome, using a mock API server (scratchpad, built to a scratch folder, not the project dist). Layout is sound on all pages; no horizontal overflow.
+- Fixes (apps/panel/src): SitePage Overview: maintenance and daily-updates cards now share one row (empty grid cell removed); components/ServicesCard.tsx: "1 service needs attention" grammar; components/ActivityCard.tsx: result badge capitalised, reason shown as readable text (invalid_credentials -> "Invalid credentials").
+- Checks: tsc clean, vitest 65/65, vp check clean, vite build (apps/api/web/dist rebuilt).
+- Note: headless Chrome cannot go below ~500 px window width; test phone width by putting the page in a 390 px iframe.
+- Not covered: Security tab and dialogs visually, login page, light theme.
+
+## 45. Customers no longer see server data; first-run checklist (latest, NOT committed)
+
+Approved by the user (from tech_report.txt 5.2 and report.txt H2). This round touched backend code, which section 19 had restricted; the user explicitly asked for it.
+
+Backend (apps/api/internal/httpapi):
+- session.go: new requireAdmin wrapper (requireSession + administrator role, else 403 forbidden "Only administrators can see server details.").
+- router.go: GET /api/v1/system/metrics, /monitoring/metrics and /monitoring/services now use requireAdmin. /monitoring/sites stays for customers (already filtered to their own sites).
+- router_test.go: TestServerMetricsAreAdminOnly (customer gets 403 on all three).
+
+Frontend (apps/panel/src):
+- components/app-sidebar.tsx: Server menu item hidden for customers.
+- pages/OverviewPage.tsx: ServerStrip and ServicesCard shown to administrators only.
+- App.tsx: /server wrapped in AdminOnly (customers are redirected to Overview).
+- components/GettingStarted.tsx (new): first-run checklist on Overview. Steps: add a domain, DNS verified, create a website, add an alert email (admin only). Each step ticks itself; the card hides when all steps are done.
+- app.test.tsx: mockApi takes `customer`; 3 new tests (checklist, customer hides server data, customer redirected from /server). 68/68 pass.
+
+Checks: go vet + go test ./... (apps/api) pass; tsc clean; vp check clean; vite build done (apps/api/web/dist rebuilt).
+
+Not verified: a real customer account on the VPS; the API returns 403 for these routes only in tests (fake store), not on the live server.
+
+Still open (from tech_report.txt and report.txt, in order): Go toolchain + pgx/x/text upgrade in install.sh (needs a test Ubuntu VPS); WP-CLI database password in argv (5.3); upload quota (5.4); real-browser tests; backup/restore/migration resumability; label backups and add delete/download (report M5).
+
+## 46. Production hardening pass (latest, NOT committed, NOT deployed)
+
+Closes tech_report.txt 5.1, 5.3, 5.4 (partly). Backend and installer changes, approved by the user ("make it production ready").
+
+Toolchain and dependencies (5.1):
+- install.sh: new install_go step. Official Go 1.27.2 from go.dev, SHA-256 pinned (ecbadb99...fe5e, checked against the tarball and go.dev's JSON). Installed to /usr/local/go; golang-go removed from the apt list. Re-running skips the download when the version already matches. Called right after install_packages.
+- apps/api/go.mod: go 1.25.0, pgx v5.9.2, x/text v0.41.0 (x/sync moved to v0.22.0 by the tidy).
+- Checks: go vet + go test ./... (apps/api, 14 packages) pass with GOTOOLCHAIN=go1.27.2; GOOS=linux vet passes; govulncheck: no vulnerabilities in apps/api.
+- NOT verified: the installer on a real Ubuntu 24.04 server (bash -n passes only). Must be run on the test VPS first.
+
+WP-CLI password (5.3):
+- services/agent/internal/helper/ops.go and restore.go: DB password (config create) and WP admin password (core install) now go to WP-CLI on stdin (--prompt=dbpass / --prompt=admin_password). New wpRunInput helper; wpRun keeps argv-only calls.
+- ops_test.go: TestWPConfigCreateSendsDBPasswordOnStdin. helper tests pass; govulncheck on services/agent: no vulnerabilities.
+
+Upload guard (5.4, partial):
+- apps/api/internal/httpapi/upload.go: at most 2 uploads at once (503 uploads_busy); refuses when the upload folder has less than 2 GiB free (507 disk_full). diskFree is a variable so tests can fake a full disk.
+- upload_guard_linux.go (syscall.Statfs) and upload_guard_other.go (no limit off Linux); upload_guard_test.go (2 tests).
+- Not done: per-site disk quota (needs a design decision).
+
+Still open: SSH host keys trust-on-first-use (5.9, needs a fingerprint confirmation UI); committed built dist (5.12, a repo decision); real-browser tests; backup/restore/migration resumability (5.5); end-to-end security tests on a Linux VM (5.6); test on a real Ubuntu server and with a real cPanel / SFTP / SMTP.
+
+## 47. Rate limit on expensive actions (latest, NOT committed)
+
+- httpapi/ratelimit.go: limitActions wrapper (inside requireSession) with Deps.ActionLimiter, default 20 per user per 10 minutes, 429 rate_limited after that.
+- Applied to: cpanel scan + migrate, security scan, run-now, backup-all, backup restore, remote restore.
+- ratelimit_test.go: TestExpensiveActionsAreRateLimitedPerUser (20 allowed, 21st 429). go vet (Windows + Linux) and go test ./... pass with go1.27.2.
+
+Remaining tech_report.txt items and why they are not done here:
+- 5.4 per-site disk quota: needs a limit decision (size per site, what happens when reached).
+- 5.5 resumable backups/restores/migrations: large change; needs its own design.
+- 5.6 end-to-end security tests and 5.7 Linux checks: need a Linux test VM (no WSL/gcc on this PC).
+- 5.9 SSH host keys trust-on-first-use: needs the admin to confirm the fingerprint (UI + storage design).
+- 5.11 go test -race: needs gcc (not installed here); run in CI or on the VM.
+- 5.12 built dist committed to git: needs a decision (build in CI/at install time requires Node on the server or a release artifact).
+
+## 48. phpMyAdmin per website, per-site SFTP, restore (latest, NOT committed, NOT deployed)
+
+User request: phpMyAdmin per website, SFTP login per website, restore from each website's backups. Decisions from the user: shared phpMyAdmin with one-click login; per-site SFTP account locked to its folder.
+
+Restore: already exists (website > Settings > Backups > Restore, section 34/35). Not changed.
+
+phpMyAdmin:
+- install.sh: install_phpmyadmin (5.2.3, SHA-256 pinned, files.phpmyadmin.net) to /usr/share/zenex-phpmyadmin; config (blowfish secret kept across re-runs, TempDir /tmp, AllowArbitraryServer false, cookie login on localhost). Called after install_go.
+- Helper: vhostConfig adds `handle_path /zenex-dbadmin*` (root PMADir, php_fastcgi of the site's pool) in normal mode only (none in maintenance). poolConfig open_basedir now includes PMADir. Existing pools/site files pick this up when rewritten: the "Open phpMyAdmin" action does that (pool.write + vhost.write).
+- Login: the site's own DB account (zx_<site>) and its derived password, shown in the panel. The DB account only has rights on its own database.
+- API: GET /api/v1/sites/{id}/access (owner/admin; database login, phpMyAdmin URL, SFTP state); POST /api/v1/sites/{id}/access/phpmyadmin (manage.PrepareDBAdmin; refuses unless ready and not in maintenance).
+
+SFTP per site:
+- Migration 0007_site_access.sql: sites.sftp_enabled, sites.sftp_generation. Password is derived (provision.SFTPPassword, 24 hex, from site ID + generation), never stored. New password = generation+1.
+- Helper ops sftp.enable (user, password; chpasswd on stdin; groupadd -f zenex-sftp; usermod -a -G; writes /etc/ssh/sshd_config.d/zenex-sftp.conf with Match Group zenex-sftp: ChrootDirectory %h, ForceCommand internal-sftp, PasswordAuthentication yes, no TTY/forwarding; sshd -t gate with rollback; reload ssh). sftp.disable (passwd -l, gpasswd -d). File services/agent/internal/helper/sftp.go; Paths.SSHDropIn.
+- install.sh creates group zenex-sftp (create_service_user).
+- API: PUT /api/v1/sites/{id}/access/sftp (?reset=1 rotates), DELETE same path (CSRF). Manager.SetSFTP (manage/access.go). Audit site.sftp.enable/reset/disable, site.phpmyadmin.open, site.access.view.
+- SFTP host = the website's domain, port 22, user = site account (zx_<site>).
+
+Panel: components/AccessCard.tsx (Settings tab, after backups): database login with show/copy, Open phpMyAdmin (pop-up safe pattern), SFTP on/new password/off with show/copy. Types SiteAccess; queries useSiteAccess, useSetSFTP, useDisableSFTP, useOpenPhpMyAdmin.
+
+Checks: go vet + go test (apps/api, services/agent) pass with go1.27.2, Linux vet passes, govulncheck no vulnerabilities; tsc, vp check, vitest 71/71, vite build.
+New tests: helper sftp_test.go (6), dbadmin/vhost in sftp_test.go; manage/access_test.go (6); httpapi/access_test.go (4); app.test.tsx (3).
+
+NOT verified on a real server: sshd Match block + ChrootDirectory %h with the real site home (must be root-owned and not writable by group/other: /var/www/zx_<site> is root 0751); phpMyAdmin running through the site's PHP pool and Caddy route; install of phpMyAdmin by install.sh; SFTP login from an FTP client. Risk: a bad sshd drop-in would block SSH; sshd -t gates it and the old file is restored on failure. Test on the VPS first, and keep a root SSH session open while testing.
+Existing sites: the phpMyAdmin route appears after "Open phpMyAdmin" is clicked once per site (or any vhost rewrite).

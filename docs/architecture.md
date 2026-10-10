@@ -17,7 +17,7 @@ machine. This document describes what is built today.
 | Site databases | MariaDB | created by the helper | One database and user per website. |
 | Installer | Bash | `infrastructure/deployment` | `install.sh` (one command, repeatable) and `update.sh` (panel update). |
 
-Not built (early plans): a separate security engine (malware scanning), a separate migration engine, a multi-node agent
+Malware scanning is part of the helper (`malware.*` operations), not a separate engine. Not built (early plans): a separate security engine, a separate migration engine, a multi-node agent
 with mutual TLS. The `services/security-engine`, `migration-engine` and `provisioner` folders are empty.
 
 ## Process layout on the server
