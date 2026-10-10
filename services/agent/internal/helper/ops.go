@@ -610,9 +610,14 @@ func vhostConfig(name, domain, docRoot, logDir string, maintenance bool) string 
 	if !maintenance {
 		// phpMyAdmin for this website. Its own handler, so the database login page
 		// is reached only under /zenex-dbadmin and PHP runs as the site account.
+		// handle_path strips the prefix, so SCRIPT_NAME is set back to the real path:
+		// phpMyAdmin builds its redirects and links from it, and without it they point at
+		// the site root (WordPress).
 		handler = fmt.Sprintf(`handle_path /zenex-dbadmin* {
         root * %[2]s
-        php_fastcgi unix//run/php/zx-%[1]s.sock
+        php_fastcgi unix//run/php/zx-%[1]s.sock {
+            env SCRIPT_NAME /zenex-dbadmin/index.php
+        }
         file_server
     }
     %[3]s`, name, PMADir, handler)

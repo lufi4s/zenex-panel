@@ -684,3 +684,12 @@ Existing sites: the phpMyAdmin route appears after "Open phpMyAdmin" is clicked 
 - Headers: Auto-Submitted: auto-generated (automatic mail; stops auto-replies). Message-ID on the sender's domain kept.
 - Tests: alerts_test.go (sender name default and validation, From header with name and Auto-Submitted, wording; HTML escape test now decodes quoted-printable first, since QP can split an entity). app.test.tsx: sender name sent with the email save. api go test ./... and panel vitest 74/74, tsc, vp check, build pass.
 - Not verified against a real Gmail inbox or spam filter. Check the first alert in Gmail (Show original / spam score) after deploy.
+
+## 52. phpMyAdmin redirect fix (latest, NOT deployed)
+
+- Cause (confirmed in candy Caddy log): handle_path strips /zenex-dbadmin, so phpMyAdmin built its redirects from SCRIPT_NAME=/index.php. After login it went to / (WordPress).
+- Fix: services/agent/internal/helper/ops.go vhostConfig: php_fastcgi gets `env SCRIPT_NAME /zenex-dbadmin/index.php`. Generated site config validated with caddy 2.6.2 (adapt). Test assertion added in sftp_test.go.
+- Not verified on the live server: that the env override really changes SCRIPT_NAME and phpMyAdmin redirects stay under /zenex-dbadmin/.
+- To deploy: update the panel (or installer), then click Open phpMyAdmin once on each website (rewrites its site file and pool).
+- Candy site still needs the three quarantined WordPress core files restored (see zenex_security_report.md C1).
+
