@@ -262,10 +262,17 @@ export interface AlertSettings {
   thresholds: AlertThresholds;
 }
 
-/** What the API accepts. An empty secret keeps the stored one. */
+/** The form's state. Secrets typed here are sent as the body's password and token. */
 export interface AlertSettingsInput {
   email: EmailAlertSettings & { password: string };
   telegram: TelegramAlertSettings & { bot_token: string };
+  thresholds: AlertThresholds;
+}
+
+/** The body PUT /api/v1/settings/alerts reads. An empty secret keeps the stored one. */
+export interface AlertSettingsBody {
+  email: EmailAlertSettings & { password: string };
+  telegram: TelegramAlertSettings & { token: string };
   thresholds: AlertThresholds;
 }
 

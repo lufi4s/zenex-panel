@@ -661,3 +661,17 @@ New tests: helper sftp_test.go (6), dbadmin/vhost in sftp_test.go; manage/access
 
 NOT verified on a real server: sshd Match block + ChrootDirectory %h with the real site home (must be root-owned and not writable by group/other: /var/www/zx_<site> is root 0751); phpMyAdmin running through the site's PHP pool and Caddy route; install of phpMyAdmin by install.sh; SFTP login from an FTP client. Risk: a bad sshd drop-in would block SSH; sshd -t gates it and the old file is restored on failure. Test on the VPS first, and keep a root SSH session open while testing.
 Existing sites: the phpMyAdmin route appears after "Open phpMyAdmin" is clicked once per site (or any vhost rewrite).
+
+## 49. Gmail settings button (latest, NOT committed)
+
+- components/AlertSettingsCard.tsx: "Use Gmail settings" now also copies the Username (Gmail address) into From. The App Password is still typed by the administrator and never filled in by the panel.
+- Test: app.test.tsx "fills in Gmail's server and copies the Gmail address to From". vitest 72/72, tsc, vp check, build pass.
+- The Gmail App Password file on the Desktop was NOT read (access to credential files was denied). Nothing secret was written to the repo or memory.
+- Test email button ("Send test email") uses the saved settings: Save first, then send.
+
+## 50. Alert settings: "invalid request" fixed, per-section Save (latest, NOT committed)
+
+- Cause of "invalid request": the form sent the Telegram token as bot_token, but the API reads token and rejects unknown keys (DisallowUnknownFields). Every save failed. Fixed: toWire() in components/AlertSettingsCard.tsx builds the body the API reads (token; view-only flags left out). New type AlertSettingsBody (api/types.ts), used by useSaveAlerts.
+- Three sections now save on their own: Email (with Send test email), Telegram, Alert thresholds. Each has a Save button (enabled only when that section changed and is valid) and shows "Saved" with a tick for 2.5 s after it is stored. Other sections are sent as stored, so saving one never changes another. Secrets typed are cleared from the form after a successful save.
+- Test: app.test.tsx "saves Telegram with its token under the name the API reads, and only that section". vitest 73/73, tsc, vp check, build pass.
+- Not done: auto-save on change (chosen: explicit Save per section).

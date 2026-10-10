@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, screen, waitFor } from "@solidjs/testing-library";
+import { fireEvent, screen, waitFor, within } from "@solidjs/testing-library";
 import { render as renderSolid } from "solid-js/web";
 import { App } from "./App";
 import { resetQueryCache } from "./api/query";
@@ -562,6 +562,42 @@ describe("navigation", () => {
     expect(await screen.findByLabelText("Keep backups for (days)")).toBeTruthy();
     expect(screen.getByText("03:00")).toBeTruthy();
     expect(screen.getByText("Send alerts by email")).toBeTruthy();
+  });
+
+  it("fills in Gmail's server and copies the Gmail address to From", async () => {
+    vi.stubGlobal("fetch", mockApi({ signedIn: true }));
+    renderAt("/settings");
+    const username = (await screen.findByLabelText("Username")) as HTMLInputElement;
+    changeValue(username, { target: { value: "ops@gmail.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Use Gmail settings" }));
+    expect((screen.getByLabelText("SMTP host") as HTMLInputElement).value).toBe("smtp.gmail.com");
+    expect((screen.getByLabelText("SMTP port") as HTMLInputElement).value).toBe("587");
+    expect((screen.getByLabelText("From address") as HTMLInputElement).value).toBe("ops@gmail.com");
+    expect((screen.getByLabelText("Send alerts by email") as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByRole("button", { name: "Send test email" })).toBeTruthy();
+  });
+
+  it("saves Telegram with its token under the name the API reads, and only that section", async () => {
+    const fetchMock = mockApi({ signedIn: true });
+    vi.stubGlobal("fetch", fetchMock);
+    renderAt("/settings");
+    const chat = (await screen.findByLabelText("Chat ID")) as HTMLInputElement;
+    changeValue(chat, { target: { value: "-100123" } });
+    const token = screen.getByLabelText("Bot token") as HTMLInputElement;
+    changeValue(token, { target: { value: "123:abc" } });
+    const telegram = screen.getByText("Telegram").closest("fieldset") as HTMLElement;
+    fireEvent.click(within(telegram).getByRole("button", { name: "Save" }));
+    await waitFor(() => {
+      const put = fetchMock.mock.calls.find(
+        ([url, init]) => String(url).endsWith("/api/v1/settings/alerts") && init?.method === "PUT",
+      );
+      expect(put).toBeTruthy();
+      const body = JSON.parse(String(put?.[1]?.body));
+      expect(body.telegram).toEqual({ enabled: false, chat_id: "-100123", token: "123:abc" });
+      expect(body.telegram.bot_token).toBeUndefined();
+      expect(body.email.password_set).toBeUndefined();
+    });
+    expect(await screen.findByText("Saved")).toBeTruthy();
   });
 
   it("disables PHP versions that are not installed in the site defaults", async () => {

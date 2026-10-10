@@ -5,7 +5,7 @@ import { touchBrandAssets } from "../lib/brand";
 import type {
   ActivityPage,
   AlertSettings,
-  AlertSettingsInput,
+  AlertSettingsBody,
   BackupJobProgress,
   BackupSettings,
   CpanelConn,
@@ -777,7 +777,7 @@ export function useSettingsAlerts() {
 export function useSaveAlerts() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: AlertSettingsInput) =>
+    mutationFn: (input: AlertSettingsBody) =>
       apiRequest<AlertSettings | void>("/api/v1/settings/alerts", { method: "PUT", body: input }),
     meta: { silent: true },
     onSuccess: (saved) => {
