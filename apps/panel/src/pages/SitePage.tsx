@@ -23,6 +23,7 @@ import type { Site, SiteBackup } from "@/api/types";
 import { Select } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { BackupProgress } from "@/components/BackupProgress";
+import { AccessCard } from "@/components/AccessCard";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -40,6 +41,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CardSkeleton } from "@/components/CardSkeleton";
 import { FileBrowser } from "@/components/FileManager";
 import { JobProgress } from "@/components/JobProgress";
+import { SecurityTab } from "@/components/SecurityTab";
 import { PageHeader } from "@/components/PageHeader";
 import { Terminal, levelFromText } from "@/components/Terminal";
 import { badgeTone } from "@/lib/badge";
@@ -345,8 +347,10 @@ function OverviewTab(props: { site: Site }) {
       </Card>
 
       <Show when={ready()}>
-        <MaintenanceCard site={props.site} />
-        <AutoUpdateCard site={props.site} />
+        <div class="grid gap-4 sm:grid-cols-2 lg:col-span-3">
+          <MaintenanceCard site={props.site} />
+          <AutoUpdateCard site={props.site} />
+        </div>
       </Show>
 
       <Show when={ready()}>
@@ -688,6 +692,9 @@ function SettingsTab(props: { site: Site; onDeleting: () => void }) {
   return (
     <div class="grid gap-4 lg:grid-cols-2">
       <BackupsCard site={props.site} />
+      <div class="lg:col-span-2">
+        <AccessCard site={props.site} />
+      </div>
       <Card class="border-destructive/40">
         <CardHeader>
           <CardTitle class="text-destructive">Danger zone</CardTitle>
@@ -707,7 +714,7 @@ function SettingsTab(props: { site: Site; onDeleting: () => void }) {
 // The page
 // ---------------------------------------------------------------------------
 
-/** One website: its status, build progress, and tabs for overview, files, logs and settings. */
+/** One website: its status, build progress, and tabs for overview, files, security, logs and settings. */
 export function SitePage() {
   const params = useParams();
   const navigate = useNavigate();
@@ -720,7 +727,9 @@ export function SitePage() {
   };
   // The Files tab disappears when the website goes offline for a build; do not stay on it.
   createEffect(() => {
-    if (detail.data && !filesAvailable() && tab() === "files") setTab("overview");
+    if (detail.data && !filesAvailable() && (tab() === "files" || tab() === "security")) {
+      setTab("overview");
+    }
   });
 
   const notFound = () => detail.error instanceof ApiError && detail.error.status === 404;
@@ -806,6 +815,7 @@ export function SitePage() {
                   <TabsTrigger value="overview">Overview</TabsTrigger>
                   <Show when={data().site.state === "ready" || data().site.state === "suspended"}>
                     <TabsTrigger value="files">Files</TabsTrigger>
+                    <TabsTrigger value="security">Security</TabsTrigger>
                   </Show>
                   <TabsTrigger value="logs">Logs</TabsTrigger>
                   <TabsTrigger value="settings">Settings</TabsTrigger>
@@ -817,6 +827,9 @@ export function SitePage() {
                 <Show when={data().site.state === "ready" || data().site.state === "suspended"}>
                   <TabsContent value="files">
                     <FileBrowser site={data().site} />
+                  </TabsContent>
+                  <TabsContent value="security">
+                    <SecurityTab site={data().site} />
                   </TabsContent>
                 </Show>
                 <TabsContent value="logs">

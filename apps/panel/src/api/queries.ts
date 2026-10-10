@@ -17,6 +17,7 @@ import type {
   SftpSettings,
   ActivityResult,
   RemoteBackup,
+  SecurityStatus,
   SiteActivity,
   SiteBackup,
   SiteDefaults,
@@ -36,6 +37,7 @@ import type {
   SiteHealth,
   TimeRange,
   User,
+  SiteAccess,
 } from "./types";
 
 const keys = {
@@ -874,5 +876,113 @@ export function useBackupProgress(siteId: string) {
       const status = query.state.data?.status;
       return status === "queued" || status === "running" ? 2_000 : false;
     },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Malware scanner
+// ---------------------------------------------------------------------------
+
+/** The scanner state of a website. Polls every 2 seconds while a scan runs. */
+export function useSecurity(siteId: string) {
+  return useQuery({
+    queryKey: ["security", siteId],
+    queryFn: () => apiRequest<SecurityStatus>(`/api/v1/sites/${siteId}/security`),
+    refetchInterval: (query) => (query.state.data?.running ? 2_000 : false),
+  });
+}
+
+/** Starts a scan. The scan runs in the background; useSecurity shows its progress. */
+export function useStartScan(siteId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiRequest<{ status: string }>(`/api/v1/sites/${siteId}/security/scan`, { method: "POST" }),
+    meta: { silent: true },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["security", siteId] }),
+  });
+}
+
+/** Moves a file out of the website into quarantine. It can be restored later. */
+export function useQuarantineFile(siteId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { path: string; rule: string }) =>
+      apiRequest<void>(`/api/v1/sites/${siteId}/security/quarantine`, {
+        method: "POST",
+        body: input,
+      }),
+    meta: { silent: true },
+    onSuccess: () => {
+      toast.success("File moved to quarantine");
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["security", siteId] }),
+  });
+}
+
+export function useRestoreQuarantined(siteId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiRequest<void>(`/api/v1/sites/${siteId}/security/quarantine/${id}/restore`, {
+        method: "POST",
+      }),
+    meta: { silent: true },
+    onSuccess: () => {
+      toast.success("File restored");
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["security", siteId] }),
+  });
+}
+
+export function useDeleteQuarantined(siteId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiRequest<void>(`/api/v1/sites/${siteId}/security/quarantine/${id}`, { method: "DELETE" }),
+    meta: { silent: true },
+    onSuccess: () => {
+      toast.success("File deleted");
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["security", siteId] }),
+  });
+}
+
+export function useSiteAccess(siteId: string) {
+  return useQuery({
+    queryKey: ["access", siteId],
+    queryFn: () => apiRequest<SiteAccess>(`/api/v1/sites/${siteId}/access`),
+  });
+}
+
+/** Turns SFTP on for the website. reset issues a new password (the old one stops working). */
+export function useSetSFTP(siteId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (reset: boolean) =>
+      apiRequest<SiteAccess>(`/api/v1/sites/${siteId}/access/sftp${reset ? "?reset=1" : ""}`, {
+        method: "PUT",
+      }),
+    meta: { silent: true },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["access", siteId] }),
+  });
+}
+
+export function useDisableSFTP(siteId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiRequest<SiteAccess>(`/api/v1/sites/${siteId}/access/sftp`, { method: "DELETE" }),
+    meta: { silent: true },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["access", siteId] }),
+  });
+}
+
+/** Makes phpMyAdmin answer under the website's address and returns that address. */
+export function useOpenPhpMyAdmin() {
+  return useMutation({
+    mutationFn: (siteId: string) =>
+      apiRequest<{ url: string }>(`/api/v1/sites/${siteId}/access/phpmyadmin`, { method: "POST" }),
+    meta: { silent: true },
   });
 }

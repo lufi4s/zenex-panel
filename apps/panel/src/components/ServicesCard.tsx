@@ -53,7 +53,7 @@ export function ServicesCard() {
           {services.data
             ? problems() === 0
               ? "Everything is running."
-              : `${problems()} service${problems() === 1 ? "" : "s"} need attention.`
+              : `${problems()} ${problems() === 1 ? "service needs" : "services need"} attention.`
             : "Checking services…"}
         </CardDescription>
       </CardHeader>

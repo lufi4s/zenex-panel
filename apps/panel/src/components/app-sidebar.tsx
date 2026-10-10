@@ -103,7 +103,11 @@ export function AppSidebar(props: { user: User; open: boolean; onNavigate: () =>
 
       <nav class="flex-1 space-y-6 overflow-y-auto p-3">
         <Group label="Platform" items={PLATFORM} onNavigate={props.onNavigate} />
-        <Group label="Operations" items={OPERATIONS} onNavigate={props.onNavigate} />
+        <Group
+          label="Operations"
+          items={isAdmin() ? OPERATIONS : OPERATIONS.filter((i) => i.to !== "/server")}
+          onNavigate={props.onNavigate}
+        />
         {isAdmin() && (
           <Group
             label="Administration"

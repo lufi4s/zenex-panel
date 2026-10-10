@@ -19,6 +19,7 @@ import { CardSkeleton } from "@/components/CardSkeleton";
 import { PageHeader } from "@/components/PageHeader";
 import { ServerStrip } from "@/components/ServerStrip";
 import { ServicesCard } from "@/components/ServicesCard";
+import { GettingStarted } from "@/components/GettingStarted";
 import { badgeTone } from "@/lib/badge";
 import { STATE_LABEL, STATE_TONE } from "@/lib/site-status";
 
@@ -85,7 +86,10 @@ export function OverviewPage() {
           </AlertDescription>
         </Alert>
       </Show>
-      <ServerStrip />
+      <GettingStarted isAdmin={isAdmin} />
+      <Show when={isAdmin}>
+        <ServerStrip />
+      </Show>
 
       <div class="grid gap-4 lg:grid-cols-5">
         <Card class="lg:col-span-3">
@@ -109,9 +113,11 @@ export function OverviewPage() {
           </CardContent>
         </Card>
 
-        <div class="lg:col-span-2">
-          <ServicesCard />
-        </div>
+        <Show when={isAdmin}>
+          <div class="lg:col-span-2">
+            <ServicesCard />
+          </div>
+        </Show>
       </div>
     </>
   );

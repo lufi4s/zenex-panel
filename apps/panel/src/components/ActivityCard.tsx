@@ -69,12 +69,12 @@ function Row(props: { row: ActivityRow; siteNames: Map<string, string> }) {
         </Show>
       </td>
       <td class="py-2 pr-3">
-        <Badge variant="outline" class={badgeTone(RESULT_TONE[props.row.result])}>
+        <Badge variant="outline" class={`capitalize ${badgeTone(RESULT_TONE[props.row.result])}`}>
           {props.row.result}
         </Badge>
       </td>
       <td class="hidden whitespace-nowrap py-2 pr-3 text-xs text-muted-foreground md:table-cell">
-        {props.row.error_code ? props.row.error_code : ""}
+        <span class="first-letter:uppercase">{props.row.error_code?.replace(/_/g, " ") ?? ""}</span>
       </td>
       <td class="hidden whitespace-nowrap py-2 text-xs text-muted-foreground sm:table-cell">
         {props.row.ip ?? ""}

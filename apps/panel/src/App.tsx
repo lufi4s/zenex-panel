@@ -150,7 +150,14 @@ const PAGES: RouteDef[] = [
   { path: "/websites", component: () => <WebsitesPage /> },
   { path: "/websites/:id", component: () => <SitePage /> },
   { path: "/domains", component: () => <DomainsPage /> },
-  { path: "/server", component: () => <ServerPage /> },
+  {
+    path: "/server",
+    component: () => (
+      <AdminOnly>
+        <ServerPage />
+      </AdminOnly>
+    ),
+  },
   { path: "/activity", component: () => <ActivityPage /> },
   {
     path: "/settings",

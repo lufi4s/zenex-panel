@@ -356,3 +356,55 @@ export interface BackupJobProgress {
   /** The "upload" step is absent for local storage. */
   steps?: BackupStep[];
 }
+
+// ---------------------------------------------------------------------------
+// Malware scanner
+// ---------------------------------------------------------------------------
+
+export type FindingSeverity = "high" | "medium" | "low";
+
+/** One suspicious file or line. It never carries file text. */
+export interface ScanFinding {
+  path: string;
+  rule: string;
+  severity: FindingSeverity;
+  message: string;
+  line?: number;
+  source: "signature" | "location" | "checksum";
+}
+
+export interface ScanReport {
+  scanned_at: string;
+  duration_ms: number;
+  files_scanned: number;
+  findings: ScanFinding[];
+  /** Set when WordPress files could not be compared with the official ones. */
+  checksum_note?: string;
+  /** Set when the scan stopped early. */
+  truncated?: boolean;
+}
+
+export interface QuarantineItem {
+  id: string;
+  path: string;
+  rule?: string;
+  size: number;
+  sha256: string;
+  quarantined_at: string;
+}
+
+export interface SecurityStatus {
+  running: boolean;
+  started_at?: string;
+  last_error?: string;
+  /** Null until the website is scanned for the first time. */
+  report: ScanReport | null;
+  quarantine: QuarantineItem[];
+}
+
+/** Logins for managing a website's database and files. */
+export interface SiteAccess {
+  database: { host: string; name: string; user: string; password: string };
+  phpmyadmin: { url: string };
+  sftp: { enabled: boolean; host: string; port: number; user: string; password: string };
+}

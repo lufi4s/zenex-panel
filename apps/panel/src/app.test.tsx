@@ -12,6 +12,12 @@ function mockApi(options: {
   emailEnabled?: boolean;
   /** What the website list reports as each website's current job. */
   activity?: Array<Record<string, unknown>>;
+  /** What the malware scanner reports for the website. */
+  security?: Record<string, unknown>;
+  /** Signed in as a customer, not an administrator. */
+  customer?: boolean;
+  /** Whether SFTP starts on for the website. */
+  sftpEnabled?: boolean;
 }) {
   const json = (body: unknown, status = 200) =>
     Promise.resolve(
@@ -21,7 +27,11 @@ function mockApi(options: {
       }),
     );
 
-  const user = { id: "u1", email: "admin@example.com", roles: ["administrator"] };
+  const user = {
+    id: "u1",
+    email: options.customer ? "customer@example.com" : "admin@example.com",
+    roles: options.customer ? ["customer"] : ["administrator"],
+  };
   const domains = [
     {
       id: "d1",
@@ -58,9 +68,35 @@ function mockApi(options: {
     uptime_seconds: 90061,
   };
 
+  // SFTP switches on and off as the panel asks, so the card shows what the server now holds.
+  let sftpOn = options.sftpEnabled ?? false;
+  const accessView = () => ({
+    database: { host: "localhost", name: "zx_shop", user: "zx_shop", password: "aa11bb22cc33dd44" },
+    phpmyadmin: { url: "https://shop.ozima.cloud/zenex-dbadmin/" },
+    sftp: {
+      enabled: sftpOn,
+      host: "shop.ozima.cloud",
+      port: 22,
+      user: "zx_shop",
+      password: sftpOn ? "ff00ee11dd22cc33" : "",
+    },
+  });
+
   return vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     const method = init?.method ?? "GET";
+    if (url.endsWith("/api/v1/sites/s1/access") && method === "GET") return json(accessView());
+    if (url.includes("/api/v1/sites/s1/access/sftp") && method === "PUT") {
+      sftpOn = true;
+      return json(accessView());
+    }
+    if (url.includes("/api/v1/sites/s1/access/sftp") && method === "DELETE") {
+      sftpOn = false;
+      return json(accessView());
+    }
+    if (url.endsWith("/api/v1/sites/s1/access/phpmyadmin") && method === "POST") {
+      return json({ url: "https://shop.ozima.cloud/zenex-dbadmin/" });
+    }
     if (url.endsWith("/api/v1/auth/me")) {
       return options.signedIn
         ? json(user)
@@ -211,6 +247,15 @@ function mockApi(options: {
           },
         ],
       });
+    }
+    if (url.endsWith("/api/v1/sites/s1/security") && method === "GET") {
+      return json(options.security ?? { running: false, report: null, quarantine: [] });
+    }
+    if (url.endsWith("/api/v1/sites/s1/security/scan") && method === "POST") {
+      return json({ status: "running" }, 202);
+    }
+    if (url.includes("/api/v1/sites/s1/security/quarantine") && method !== "GET") {
+      return Promise.resolve(new Response(null, { status: 204 }));
     }
     if (url.includes("/files?path=")) {
       return json([
@@ -813,5 +858,196 @@ describe("website activity", () => {
     renderAt("/websites");
     expect(await screen.findByText("Restoring · 50%")).toBeTruthy();
     expect(screen.getByText("Restoring files and database")).toBeTruthy();
+  });
+});
+
+describe("malware scanner", () => {
+  const finding = (over: Record<string, unknown>) => ({
+    path: "wp-content/uploads/shell.php",
+    rule: "request-exec",
+    severity: "high",
+    message: "Runs code or a command that comes from the web request",
+    line: 3,
+    source: "signature",
+    ...over,
+  });
+  const report = (findings: unknown[]) => ({
+    scanned_at: "2026-10-10T05:00:00Z",
+    duration_ms: 4200,
+    files_scanned: 1234,
+    findings,
+  });
+
+  async function openSecurity(security?: Record<string, unknown>) {
+    vi.stubGlobal("fetch", mockApi({ signedIn: true, security }));
+    renderAt("/websites/s1");
+    await screen.findByRole("heading", { name: "shop.ozima.cloud" });
+    chooseTab("Security");
+  }
+
+  function calls(method: string, suffix: string) {
+    const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+    return fetchMock.mock.calls.filter(
+      ([url, init]) =>
+        String(url).includes(suffix) && (init as RequestInit | undefined)?.method === method,
+    );
+  }
+
+  it("says the website was never scanned and starts a scan", async () => {
+    await openSecurity();
+    expect(await screen.findByText("This website has not been scanned yet.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Scan now" }));
+    await waitFor(() => expect(calls("POST", "/security/scan")).toHaveLength(1));
+  });
+
+  it("shows a clean result", async () => {
+    await openSecurity({ running: false, report: report([]), quarantine: [] });
+    expect(await screen.findByText("No problems found")).toBeTruthy();
+    expect(screen.getByText(/1,234 files/)).toBeTruthy();
+  });
+
+  it("lists findings with their severity and quarantines a file", async () => {
+    await openSecurity({
+      running: false,
+      report: report([finding({})]),
+      quarantine: [],
+    });
+    expect(await screen.findByText("1 issue · 1 serious")).toBeTruthy();
+    expect(screen.getByText("High")).toBeTruthy();
+    expect(screen.getByText(/wp-content\/uploads\/shell.php/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Quarantine" }));
+    await waitFor(() => expect(calls("POST", "/security/quarantine")).toHaveLength(1));
+    const body = JSON.parse(
+      String((calls("POST", "/security/quarantine")[0][1] as RequestInit).body),
+    );
+    expect(body).toEqual({ path: "wp-content/uploads/shell.php", rule: "request-exec" });
+  });
+
+  it("does not offer to quarantine a WordPress core file", async () => {
+    await openSecurity({
+      running: false,
+      report: report([
+        finding({ path: "wp-includes/version.php", rule: "core-modified", severity: "medium" }),
+      ]),
+      quarantine: [],
+    });
+    expect(await screen.findByText(/belongs to WordPress or a plugin/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Quarantine" })).toBeNull();
+  });
+
+  it("lists quarantined files, restores one and asks before deleting", async () => {
+    await openSecurity({
+      running: false,
+      report: report([finding({})]),
+      quarantine: [
+        {
+          id: "a".repeat(24),
+          path: "wp-content/uploads/shell.php",
+          size: 2048,
+          sha256: "x",
+          quarantined_at: "2026-10-10T05:01:00Z",
+        },
+      ],
+    });
+    // The file in quarantine is no longer listed as a problem of the website.
+    expect(await screen.findByText("No problems found")).toBeTruthy();
+    expect(screen.getByText("Quarantine")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /Restore/ }));
+    await waitFor(() => expect(calls("POST", "/restore")).toHaveLength(1));
+
+    const del = () => screen.getByRole("button", { name: /^Delete$/ }) as HTMLButtonElement;
+    await waitFor(() => expect(del().disabled).toBe(false));
+    fireEvent.click(del());
+    expect(calls("DELETE", "/security/quarantine/")).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Delete for good" }));
+    await waitFor(() => expect(calls("DELETE", "/security/quarantine/")).toHaveLength(1));
+  });
+
+  it("shows a running scan and a failed one", async () => {
+    await openSecurity({ running: true, report: null, quarantine: [] });
+    expect(await screen.findByText(/Scanning the website's files/)).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Scanning…" }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+  });
+
+  it("shows why the last scan failed", async () => {
+    await openSecurity({
+      running: false,
+      last_error: "The scan could not be completed. Try again.",
+      report: null,
+      quarantine: [],
+    });
+    expect(await screen.findByText("The scan could not be completed. Try again.")).toBeTruthy();
+  });
+});
+
+describe("getting started and what customers see", () => {
+  it("shows the first-run checklist with the steps still left", async () => {
+    vi.stubGlobal("fetch", mockApi({ signedIn: true }));
+    renderAt("/");
+    expect(await screen.findByText("Getting started")).toBeTruthy();
+    // Domain, DNS and website are done in the fixture; only the alert email is left.
+    expect(await screen.findByText(/1 step left/)).toBeTruthy();
+    expect(screen.getByText(/Add an alert email/)).toBeTruthy();
+  });
+
+  it("keeps the server readings and the Server menu away from customers", async () => {
+    vi.stubGlobal("fetch", mockApi({ signedIn: true, customer: true }));
+    renderAt("/");
+    expect(await screen.findByRole("heading", { name: "Overview" })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Server" })).toBeNull();
+    expect(screen.queryByText("Capacity and load")).toBeNull();
+    expect(screen.queryByText("Services")).toBeNull();
+    expect(screen.queryByRole("link", { name: /Add an alert email/ })).toBeNull();
+  });
+
+  it("sends a customer who opens the Server page back to Overview", async () => {
+    vi.stubGlobal("fetch", mockApi({ signedIn: true, customer: true }));
+    renderAt("/server");
+    expect(await screen.findByRole("heading", { name: "Overview" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Server" })).toBeNull();
+  });
+});
+
+describe("database and SFTP access", () => {
+  it("shows the database login and the SFTP state on the Settings tab", async () => {
+    vi.stubGlobal("fetch", mockApi({ signedIn: true }));
+    renderAt("/websites/s1");
+    await screen.findByRole("heading", { name: "shop.ozima.cloud" });
+    chooseTab("Settings");
+    expect(await screen.findByText("Database and files")).toBeTruthy();
+    // The name is the database and the user, so it appears twice.
+    expect((await screen.findAllByText("zx_shop")).length).toBe(2);
+    expect(screen.getByRole("button", { name: "Open phpMyAdmin" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Turn on SFTP" })).toBeTruthy();
+  });
+
+  it("turns SFTP on and shows its password, hidden until asked for", async () => {
+    vi.stubGlobal("fetch", mockApi({ signedIn: true }));
+    renderAt("/websites/s1");
+    await screen.findByRole("heading", { name: "shop.ozima.cloud" });
+    chooseTab("Settings");
+    fireEvent.click(await screen.findByRole("button", { name: "Turn on SFTP" }));
+    expect(await screen.findByRole("button", { name: "New password" })).toBeTruthy();
+    expect(screen.queryByText("ff00ee11dd22cc33")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show SFTP password" }));
+    expect(await screen.findByText("ff00ee11dd22cc33")).toBeTruthy();
+  });
+
+  it("opens phpMyAdmin at the website's own address in a new tab", async () => {
+    vi.stubGlobal("fetch", mockApi({ signedIn: true }));
+    const tab = { location: { href: "about:blank" }, close: vi.fn(), opener: null as unknown };
+    const open = vi.fn(() => tab);
+    vi.stubGlobal("open", open);
+    window.open = open as unknown as typeof window.open;
+    renderAt("/websites/s1");
+    await screen.findByRole("heading", { name: "shop.ozima.cloud" });
+    chooseTab("Settings");
+    fireEvent.click(await screen.findByRole("button", { name: "Open phpMyAdmin" }));
+    expect(open).toHaveBeenCalledWith("about:blank", "_blank");
+    await waitFor(() => expect(tab.location.href).toBe("https://shop.ozima.cloud/zenex-dbadmin/"));
   });
 });
