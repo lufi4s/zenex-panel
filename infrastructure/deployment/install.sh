@@ -220,9 +220,44 @@ install_go() {
 
 # Installs the pinned phpMyAdmin release. The blowfish secret in its config is kept across
 # re-runs and upgrades, so logins survive them.
+# Writes the phpMyAdmin configuration into the directory given. The blowfish secret is taken
+# from the installed copy, so logins survive re-runs and upgrades.
+write_phpmyadmin_config() {
+    local dir="$1" secret=""
+    if [[ -f "$PMA_DIR/config.inc.php" ]]; then
+        secret="$(sed -n "s/^\$cfg\['blowfish_secret'\] = '\(.*\)';\$/\1/p" "$PMA_DIR/config.inc.php")"
+    fi
+    if [[ ${#secret} -ne 32 ]]; then
+        secret="$(openssl rand -hex 16)"
+    fi
+    # Sessions and temporary files use /tmp, which every website's PHP pool may use.
+    # PmaNoRelation_DisableWarning: the optional configuration storage (pma__ tables) is not
+    # set up, so phpMyAdmin would warn about it on every page. Bookmarks and relations are off.
+    cat >"$dir/config.inc.php" <<PHPCFG
+<?php
+// Managed by Zenex. Written by the installer.
+\$cfg['blowfish_secret'] = '${secret}';
+\$cfg['TempDir'] = '/tmp';
+\$cfg['AllowArbitraryServer'] = false;
+\$cfg['ShowPhpInfo'] = false;
+\$cfg['ShowServerInfo'] = false;
+\$cfg['LoginCookieValidity'] = 1800;
+\$cfg['PmaNoRelation_DisableWarning'] = true;
+\$cfg['Servers'][1]['auth_type'] = 'cookie';
+\$cfg['Servers'][1]['host'] = 'localhost';
+PHPCFG
+    chmod 0644 "$dir/config.inc.php"
+}
+
 install_phpmyadmin() {
-    if [[ -f "$PMA_DIR/.zenex-version" ]] && [[ "$(cat "$PMA_DIR/.zenex-version")" == "$PMA_VERSION" ]]; then
-        info "phpMyAdmin $PMA_VERSION already installed"
+    local installed=""
+    if [[ -f "$PMA_DIR/.zenex-version" ]]; then
+        installed="$(cat "$PMA_DIR/.zenex-version")"
+    fi
+    if [[ "$installed" == "$PMA_VERSION" ]]; then
+        # Same release: only refresh the configuration.
+        write_phpmyadmin_config "$PMA_DIR"
+        info "phpMyAdmin $PMA_VERSION already installed (configuration refreshed)"
         return 0
     fi
     local tmp actual new old
@@ -240,27 +275,7 @@ install_phpmyadmin() {
     tar -xzf "$tmp" -C "$new" --strip-components=1
     rm -f "$tmp"
 
-    local secret=""
-    if [[ -f "$PMA_DIR/config.inc.php" ]]; then
-        secret="$(sed -n "s/^\$cfg\['blowfish_secret'\] = '\(.*\)';\$/\1/p" "$PMA_DIR/config.inc.php")"
-    fi
-    if [[ ${#secret} -ne 32 ]]; then
-        secret="$(openssl rand -hex 16)"
-    fi
-    # Sessions and temporary files use /tmp, which every website's PHP pool may use.
-    cat >"$new/config.inc.php" <<PHPCFG
-<?php
-// Managed by Zenex. Written by the installer.
-\$cfg['blowfish_secret'] = '${secret}';
-\$cfg['TempDir'] = '/tmp';
-\$cfg['AllowArbitraryServer'] = false;
-\$cfg['ShowPhpInfo'] = false;
-\$cfg['ShowServerInfo'] = false;
-\$cfg['LoginCookieValidity'] = 1800;
-\$cfg['Servers'][1]['auth_type'] = 'cookie';
-\$cfg['Servers'][1]['host'] = 'localhost';
-PHPCFG
-    chmod 0644 "$new/config.inc.php"
+    write_phpmyadmin_config "$new"
     echo "$PMA_VERSION" >"$new/.zenex-version"
 
     rm -rf "$old"

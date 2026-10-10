@@ -693,3 +693,8 @@ Existing sites: the phpMyAdmin route appears after "Open phpMyAdmin" is clicked 
 - To deploy: update the panel (or installer), then click Open phpMyAdmin once on each website (rewrites its site file and pool).
 - Candy site still needs the three quarantined WordPress core files restored (see zenex_security_report.md C1).
 
+## 53. Storage card; phpMyAdmin configuration-storage warning
+
+- Storage: helper op usage.sites (read-only, unlocked), manage.SiteUsages (5-minute cache), GET /api/v1/storage (admin also gets server disk), Websites page StorageCard. Tests in helper usage_test.go, manage storage_test.go, httpapi storage_test.go, app.test.tsx (2). Pushed fc29bd8.
+- phpMyAdmin warning "configuration storage is not completely configured": the optional pma__ tables are not set up. Config now sets $cfg['PmaNoRelation_DisableWarning'] = true. install.sh: write_phpmyadmin_config runs on every install/update, so an existing install gets it without a version change. Not deployed yet.
+
