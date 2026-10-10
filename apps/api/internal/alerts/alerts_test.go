@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"mime/quotedprintable"
 	"net/http"
 	"net/http/httptest"
 	"net/mail"
@@ -449,7 +450,7 @@ func TestCheckSkipsDisabledChannels(t *testing.T) {
 }
 
 func TestDescribe(t *testing.T) {
-	subject, body := Describe(Event{Metric: MetricDisk, Value: 93.25, Limit: 90}, "node-1")
+	subject, body := Describe(Event{Metric: MetricDisk, Value: 93.25, Limit: 90}, "node-1", time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC))
 	if !strings.Contains(subject, "High Disk use on node-1") || !strings.Contains(body, "93.2%") {
 		t.Fatalf("subject=%q body=%q", subject, body)
 	}
@@ -518,7 +519,7 @@ func TestSendTestEmailUsesSavedSettings(t *testing.T) {
 	if len(mail.msgs) != 1 || !strings.HasPrefix(mail.msgs[0], "Zenex panel: test email\n") {
 		t.Fatalf("messages = %q", mail.msgs)
 	}
-	if !strings.Contains(mail.msgs[0], "test message from the Zenex panel") {
+	if !strings.Contains(mail.msgs[0], "test message from your Zenex Cloud panel") {
 		t.Fatalf("body = %q", mail.msgs[0])
 	}
 	if mail.passwords[0] != "smtp-pass-123" {
@@ -610,7 +611,17 @@ func TestBuildMessageHeadersAndAlternatives(t *testing.T) {
 		!strings.Contains(msg, "Content-Type: text/html; charset=UTF-8\r\n") {
 		t.Error("plain-text or HTML part missing")
 	}
-	if !strings.Contains(msg, "&lt;b&gt;") {
+	// The HTML part is quoted-printable, which may split an entity across lines; decode it first.
+	const htmlHeader = "Content-Type: text/html; charset=UTF-8\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\n"
+	_, htmlRaw, found := strings.Cut(msg, htmlHeader)
+	if !found {
+		t.Fatal("HTML part missing")
+	}
+	decoded, err := io.ReadAll(quotedprintable.NewReader(strings.NewReader(htmlRaw)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(decoded), "Line one &lt;b&gt;") {
 		t.Error("HTML part is not escaped")
 	}
 	if strings.Count(msg, "\n") != strings.Count(msg, "\r\n") {
@@ -620,5 +631,52 @@ func TestBuildMessageHeadersAndAlternatives(t *testing.T) {
 		if len(line) > 998 {
 			t.Fatalf("line longer than 998 bytes")
 		}
+	}
+}
+
+func TestSenderNameDefaultsAndIsChecked(t *testing.T) {
+	base := Settings{Email: EmailSettings{Port: 587}, Thresholds: Thresholds{CPU: 85, Memory: 90, Disk: 90}}
+	clean, err := Validate(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if clean.Email.FromName != DefaultFromName {
+		t.Fatalf("empty sender name = %q, want %q", clean.Email.FromName, DefaultFromName)
+	}
+	for _, bad := range []string{strings.Repeat("a", maxFromNameLen+1), "Zenex\r\nBcc: x@example.com"} {
+		in := base
+		in.Email.FromName = bad
+		if _, err := Validate(in); err == nil {
+			t.Errorf("sender name %q accepted", bad)
+		}
+	}
+}
+
+func TestMessageShowsSenderNameAndIsMarkedAutomatic(t *testing.T) {
+	from := &mail.Address{Name: "Zenex Cloud", Address: "alerts@example.com"}
+	raw, err := buildMessage(from, []string{"ops@example.com"}, "[Zenex Cloud] High CPU load", "Hello,\n\n  Current:   93.2%", time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	headers, _, _ := strings.Cut(string(raw), "\r\n\r\n")
+	for _, want := range []string{`From: "Zenex Cloud" <alerts@example.com>`, "Auto-Submitted: auto-generated"} {
+		if !strings.Contains(headers, want) {
+			t.Errorf("missing header %q in %s", want, headers)
+		}
+	}
+}
+
+func TestAlertWordingIsCalmAndDetailed(t *testing.T) {
+	subject, body := Describe(Event{Metric: MetricCPU, Value: 93.2, Limit: 90}, "node-1", time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC))
+	if subject != "[Zenex Cloud] High CPU load on node-1" {
+		t.Fatalf("subject = %q", subject)
+	}
+	for _, want := range []string{"Hello,", "  Server:    node-1", "  Current:   93.2%", "  Limit:     90%", "09 Oct 2026, 12:00 UTC"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body missing %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "URGENT") || strings.Contains(body, "!!") {
+		t.Error("alert wording looks like spam")
 	}
 }

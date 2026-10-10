@@ -38,10 +38,12 @@ type SMTPMailer struct {
 
 // Send delivers one message. Errors never contain the password.
 func (m SMTPMailer) Send(ctx context.Context, cfg EmailSettings, password, subject, body string) error {
-	from, err := mail.ParseAddress(cfg.From)
+	parsed, err := mail.ParseAddress(cfg.From)
 	if err != nil {
 		return errors.New("sender address is invalid")
 	}
+	// The display name is what the recipient sees; the address is what the server checks.
+	from := &mail.Address{Name: senderName(cfg.FromName), Address: parsed.Address}
 	recipients, err := parseRecipients(cfg.To)
 	if err != nil {
 		return err
@@ -75,6 +77,14 @@ func (m SMTPMailer) Send(ctx context.Context, cfg EmailSettings, password, subje
 		return errors.New("could not build the message")
 	}
 	return sendMessage(c, from.Address, recipients, msg)
+}
+
+// senderName returns the configured display name, or the default when none is set.
+func senderName(name string) string {
+	if name == "" {
+		return DefaultFromName
+	}
+	return name
 }
 
 func (m SMTPMailer) connect(ctx context.Context, cfg EmailSettings, timeout time.Duration) (net.Conn, error) {
@@ -182,7 +192,7 @@ func buildMessage(from *mail.Address, to []string, subject, body string, now tim
 	if err != nil {
 		return nil, err
 	}
-	html, err := quotedPrintable(htmlBody(body))
+	html, err := quotedPrintable(htmlMessage(subject, body))
 	if err != nil {
 		return nil, err
 	}
@@ -195,6 +205,8 @@ func buildMessage(from *mail.Address, to []string, subject, body string, now tim
 	b.WriteString("Date: " + now.Format(time.RFC1123Z) + "\r\n")
 	b.WriteString("Message-ID: <" + msgID + "@" + domain + ">\r\n")
 	b.WriteString("MIME-Version: 1.0\r\n")
+	// Automatic mail: tells receiving servers not to answer with auto-replies.
+	b.WriteString("Auto-Submitted: auto-generated\r\n")
 	b.WriteString("Content-Type: multipart/alternative; boundary=\"" + boundary + "\"\r\n\r\n")
 	b.WriteString("--" + boundary + "\r\n")
 	b.WriteString("Content-Type: text/plain; charset=UTF-8\r\n")
@@ -208,15 +220,62 @@ func buildMessage(from *mail.Address, to []string, subject, body string, now tim
 	return []byte(b.String()), nil
 }
 
-// htmlBody wraps each line of the plain text in a paragraph. Every character is escaped.
-func htmlBody(text string) string {
-	var b strings.Builder
-	b.WriteString("<!DOCTYPE html><html><body style=\"font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#222\">")
-	for _, line := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
-		b.WriteString("<p style=\"margin:0 0 8px\">" + html.EscapeString(line) + "</p>")
+// htmlMessage renders an alert as a simple, email-safe card: a brand line, the subject as the
+// heading, the body (its indented "Name:  value" lines as a small table) and a footer. Only
+// table layout and inline styles are used, because mail clients ignore most CSS.
+// Every character from the message is escaped.
+func htmlMessage(subject, text string) string {
+	const (
+		ink    = "#1f2933"
+		muted  = "#6b7280"
+		accent = "#0f766e"
+	)
+	var rows, paras strings.Builder
+	flushRows := func() {
+		if rows.Len() == 0 {
+			return
+		}
+		paras.WriteString("<table role='presentation' cellpadding='0' cellspacing='0' style='margin:12px 0;border-collapse:collapse;font-size:14px'>" + rows.String() + "</table>")
+		rows.Reset()
 	}
-	b.WriteString("</body></html>")
+	for _, line := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
+		if key, value, ok := detailLine(line); ok {
+			rows.WriteString("<tr><td style='padding:3px 16px 3px 0;color:" + muted + "'>" + html.EscapeString(key) +
+				"</td><td style='padding:3px 0;color:" + ink + ";font-weight:600'>" + html.EscapeString(value) + "</td></tr>")
+			continue
+		}
+		flushRows()
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		paras.WriteString("<p style='margin:0 0 10px;line-height:1.5'>" + html.EscapeString(line) + "</p>")
+	}
+	flushRows()
+
+	var b strings.Builder
+	b.WriteString("<!DOCTYPE html><html><body style='margin:0;padding:24px 12px;background:#f3f4f6;font-family:Arial,Helvetica,sans-serif;color:" + ink + "'>")
+	b.WriteString("<table role='presentation' width='100%' cellpadding='0' cellspacing='0'><tr><td align='center'>")
+	b.WriteString("<table role='presentation' width='100%' style='max-width:560px;background:#ffffff;border-radius:8px' cellpadding='0' cellspacing='0'>")
+	b.WriteString("<tr><td style='padding:18px 24px;border-top:4px solid " + accent + ";font-size:15px;font-weight:700;color:" + accent + "'>Zenex Cloud</td></tr>")
+	b.WriteString("<tr><td style='padding:0 24px 8px;font-size:18px;font-weight:700'>" + html.EscapeString(subject) + "</td></tr>")
+	b.WriteString("<tr><td style='padding:8px 24px 20px;font-size:14px'>" + paras.String() + "</td></tr>")
+	b.WriteString("<tr><td style='padding:14px 24px;border-top:1px solid #e5e7eb;font-size:12px;color:" + muted + "'>")
+	b.WriteString("This is an automated message from your Zenex Cloud panel. You receive it because email alerts are turned on. ")
+	b.WriteString("You can change them in the panel under Settings, Alerts.")
+	b.WriteString("</td></tr></table></td></tr></table></body></html>")
 	return b.String()
+}
+
+// detailLine reports whether a line is an indented "Name:  value" detail row.
+func detailLine(line string) (key, value string, ok bool) {
+	if !strings.HasPrefix(line, "  ") {
+		return "", "", false
+	}
+	k, v, found := strings.Cut(strings.TrimSpace(line), ":")
+	if !found {
+		return "", "", false
+	}
+	return strings.TrimSpace(k), strings.TrimSpace(v), true
 }
 
 // quotedPrintable keeps lines short and 7-bit safe for every relay.

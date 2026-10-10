@@ -675,3 +675,12 @@ Existing sites: the phpMyAdmin route appears after "Open phpMyAdmin" is clicked 
 - Three sections now save on their own: Email (with Send test email), Telegram, Alert thresholds. Each has a Save button (enabled only when that section changed and is valid) and shows "Saved" with a tick for 2.5 s after it is stored. Other sections are sent as stored, so saving one never changes another. Secrets typed are cleared from the form after a successful save.
 - Test: app.test.tsx "saves Telegram with its token under the name the API reads, and only that section". vitest 73/73, tsc, vp check, build pass.
 - Not done: auto-save on change (chosen: explicit Save per section).
+
+## 51. Alert emails: sender name, professional layout (latest, NOT committed)
+
+- Sender name: EmailSettings.FromName (json from_name), default "Zenex Cloud" (DefaultFromName). Max 64 chars, no control characters (Validate). The From header is `"Zenex Cloud" <address>`; the address is still what the server checks (Gmail rule unchanged). Panel: "Sender name" field in the Email section, sent with the Email Save.
+- Alert text (alerts/service.go Describe, now takes the time): subject "[Zenex Cloud] High CPU load on node-1" / "... is back to normal"; body: greeting, one sentence, indented details (Server, Measure, Current, Limit, Time), next step. Test email body reworded to match.
+- HTML part (alerts/senders.go htmlMessage): email-safe card (table layout, inline styles, single quotes in attributes), brand line, subject heading, detail rows as a small table, footer saying why the message is received. Every character is escaped.
+- Headers: Auto-Submitted: auto-generated (automatic mail; stops auto-replies). Message-ID on the sender's domain kept.
+- Tests: alerts_test.go (sender name default and validation, From header with name and Auto-Submitted, wording; HTML escape test now decodes quoted-printable first, since QP can split an entity). app.test.tsx: sender name sent with the email save. api go test ./... and panel vitest 74/74, tsc, vp check, build pass.
+- Not verified against a real Gmail inbox or spam filter. Check the first alert in Gmail (Show original / spam score) after deploy.

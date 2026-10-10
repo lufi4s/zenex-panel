@@ -241,6 +241,8 @@ export interface EmailAlertSettings {
   port: number;
   username: string;
   from: string;
+  /** The name shown with the From address. Empty means "Zenex Cloud". */
+  from_name: string;
   to: string;
 }
 

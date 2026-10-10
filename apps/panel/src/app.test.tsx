@@ -600,6 +600,23 @@ describe("navigation", () => {
     expect(await screen.findByText("Saved")).toBeTruthy();
   });
 
+  it("sends the sender name with the email settings, defaulting to Zenex Cloud", async () => {
+    const fetchMock = mockApi({ signedIn: true });
+    vi.stubGlobal("fetch", fetchMock);
+    renderAt("/settings");
+    const name = (await screen.findByLabelText("Sender name")) as HTMLInputElement;
+    expect(name.value).toBe("Zenex Cloud");
+    changeValue(name, { target: { value: "Zenex Support" } });
+    const email = screen.getByText("Email").closest("fieldset") as HTMLElement;
+    fireEvent.click(within(email).getByRole("button", { name: "Save" }));
+    await waitFor(() => {
+      const put = fetchMock.mock.calls.find(
+        ([url, init]) => String(url).endsWith("/api/v1/settings/alerts") && init?.method === "PUT",
+      );
+      expect(JSON.parse(String(put?.[1]?.body)).email.from_name).toBe("Zenex Support");
+    });
+  });
+
   it("disables PHP versions that are not installed in the site defaults", async () => {
     vi.stubGlobal("fetch", mockApi({ signedIn: true }));
     renderAt("/settings");

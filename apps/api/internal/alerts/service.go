@@ -184,8 +184,9 @@ func (s *Service) SendTestEmail(ctx context.Context) error {
 	if email.Username != "" && password == "" {
 		return ErrEmailNotConfigured
 	}
-	body := fmt.Sprintf("This is a test message from the Zenex panel.\n\nIt was sent at %s to confirm that email alerts can be delivered.\n",
-		s.now().UTC().Format(time.RFC1123))
+	body := "Hello,\n\nThis is a test message from your Zenex Cloud panel.\n\n" +
+		"  Sent:      " + s.now().UTC().Format("02 Jan 2006, 15:04 UTC") + "\n\n" +
+		"If you received it, email alerts are set up correctly.\n"
 	if err := s.Mail.Send(ctx, email, password, testEmailSubject, body); err != nil {
 		return &DeliveryError{Message: safeDeliveryMessage(err.Error(), password)}
 	}
@@ -223,7 +224,7 @@ func (s *Service) Check(ctx context.Context, m sysinfo.Metrics) {
 }
 
 func (s *Service) deliver(ctx context.Context, cfg Settings, ev Event) {
-	title, body := Describe(ev, s.Node)
+	title, body := Describe(ev, s.Node, s.now())
 	if cfg.Email.Enabled {
 		s.sendEmail(ctx, cfg.Email, ev, title, body)
 	}
@@ -272,19 +273,27 @@ func (s *Service) notifyAdmins(ctx context.Context, ev Event, title, body string
 	}
 }
 
-// Describe returns the subject and body of an alert. The node name is optional.
-func Describe(ev Event, node string) (string, string) {
+// Describe returns the subject and body of an alert. The node name is optional. The body is
+// plain, calm and factual: a greeting, one sentence, the details as "Name:  value" lines and
+// a pointer to the panel. Avoid capitals and urgent wording; mail filters score them as spam.
+func Describe(ev Event, node string, now time.Time) (string, string) {
 	label := metricLabel(ev.Metric)
 	where := ""
+	server := "this server"
 	if node != "" {
 		where = " on " + node
+		server = node
 	}
+	details := fmt.Sprintf("  Server:    %s\n  Measure:   %s\n  Current:   %.1f%%\n  Limit:     %d%%\n  Time:      %s\n",
+		server, label, ev.Value, ev.Limit, now.UTC().Format("02 Jan 2006, 15:04 UTC"))
 	if ev.Recovered {
-		return fmt.Sprintf("[Zenex] %s is back to normal%s", label, where),
-			fmt.Sprintf("%s is at %.1f%%, below the %d%% threshold.", label, ev.Value, ev.Limit)
+		return fmt.Sprintf("[Zenex Cloud] %s is back to normal%s", label, where),
+			"Hello,\n\nUsage on your server has returned within the limit you set.\n\n" + details +
+				"\nNo action is needed.\n"
 	}
-	return fmt.Sprintf("[Zenex] High %s%s", label, where),
-		fmt.Sprintf("%s is at %.1f%%, above the %d%% threshold.", label, ev.Value, ev.Limit)
+	return fmt.Sprintf("[Zenex Cloud] High %s%s", label, where),
+		"Hello,\n\nUsage on your server is above the limit you set.\n\n" + details +
+			"\nPlease check the Overview tab in the Zenex panel to see what is using the resources.\n"
 }
 
 func metricLabel(m Metric) string {

@@ -32,8 +32,16 @@ type EmailSettings struct {
 	Port     int    `json:"port"`
 	Username string `json:"username"`
 	From     string `json:"from"`
+	// FromName is the display name shown with the From address. Empty means DefaultFromName.
+	FromName string `json:"from_name"`
 	To       string `json:"to"`
 }
+
+// DefaultFromName is the sender name used when the administrator does not set one.
+const DefaultFromName = "Zenex Cloud"
+
+// maxFromNameLen keeps the display name short enough for every mail client.
+const maxFromNameLen = 64
 
 // TelegramSettings configures Telegram delivery. The bot token is kept separately.
 type TelegramSettings struct {
@@ -58,7 +66,7 @@ type Settings struct {
 // DefaultSettings is used until an administrator saves the alert configuration.
 func DefaultSettings() Settings {
 	return Settings{
-		Email:      EmailSettings{Port: 587},
+		Email:      EmailSettings{Port: 587, FromName: DefaultFromName},
 		Thresholds: Thresholds{CPU: 85, Memory: 90, Disk: 90},
 	}
 }
@@ -119,6 +127,13 @@ func Validate(in Settings) (Settings, error) {
 	s.Email.Host = strings.TrimSpace(s.Email.Host)
 	s.Email.Username = strings.TrimSpace(s.Email.Username)
 	s.Email.From = strings.TrimSpace(s.Email.From)
+	s.Email.FromName = strings.TrimSpace(s.Email.FromName)
+	if s.Email.FromName == "" {
+		s.Email.FromName = DefaultFromName
+	}
+	if len(s.Email.FromName) > maxFromNameLen || strings.ContainsFunc(s.Email.FromName, unicode.IsControl) {
+		return s, invalid("The sender name must be %d characters or fewer and cannot contain line breaks.", maxFromNameLen)
+	}
 	s.Email.To = strings.TrimSpace(s.Email.To)
 	s.Telegram.ChatID = strings.TrimSpace(s.Telegram.ChatID)
 

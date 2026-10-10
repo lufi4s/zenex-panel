@@ -11,7 +11,16 @@ import { Label } from "@/components/ui/label";
 import { CardSkeleton } from "@/components/CardSkeleton";
 
 const EMPTY: AlertSettingsInput = {
-  email: { enabled: false, host: "", port: 587, username: "", from: "", to: "", password: "" },
+  email: {
+    enabled: false,
+    host: "",
+    port: 587,
+    username: "",
+    from: "",
+    from_name: "Zenex Cloud",
+    to: "",
+    password: "",
+  },
   telegram: { enabled: false, chat_id: "", bot_token: "" },
   thresholds: { cpu: 85, memory: 90, disk: 90 },
 };
@@ -27,6 +36,7 @@ function toForm(s: AlertSettings): AlertSettingsInput {
       port: s.email.port,
       username: s.email.username,
       from: s.email.from,
+      from_name: s.email.from_name || "Zenex Cloud",
       to: s.email.to,
       password: "",
     },
@@ -47,6 +57,7 @@ function toWire(v: AlertSettingsInput): AlertSettingsBody {
       port: v.email.port,
       username: v.email.username.trim(),
       from: v.email.from.trim(),
+      from_name: v.email.from_name.trim(),
       to: v.email.to.trim(),
       password: v.email.password,
     },
@@ -273,6 +284,16 @@ export function AlertSettingsCard() {
                         : undefined
                     }
                     onInput={(e) => setEmail({ password: e.currentTarget.value })}
+                  />
+                </div>
+                <div class={FIELD_CLASS}>
+                  <Label for="alert-email-from-name">Sender name</Label>
+                  <Input
+                    id="alert-email-from-name"
+                    maxLength={64}
+                    placeholder="Zenex Cloud"
+                    value={value().email.from_name}
+                    onInput={(e) => setEmail({ from_name: e.currentTarget.value })}
                   />
                 </div>
                 <div class={FIELD_CLASS}>
