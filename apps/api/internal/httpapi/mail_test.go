@@ -1,0 +1,194 @@
+package httpapi
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/zenexcloud/zenex-panel/apps/api/internal/store"
+)
+
+const (
+	mailZoneID    = "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa"
+	mailOtherZone = "bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb"
+	mailAdminID   = "11111111-1111-1111-1111-111111111111"
+	mailCustID    = "55555555-5555-5555-5555-555555555555"
+	goodPassword  = "correct horse battery"
+)
+
+// fakeMail is an in-memory MailStore for the handler tests.
+type fakeMail struct {
+	mu      sync.Mutex
+	zones   map[string]store.ZoneInfo
+	enabled map[string]bool
+	boxes   map[string]store.Mailbox
+	seq     int
+}
+
+func newFakeMail() *fakeMail {
+	return &fakeMail{
+		zones: map[string]store.ZoneInfo{
+			mailZoneID:    {ID: mailZoneID, OwnerID: mailCustID, Apex: "ozima.cloud"},
+			mailOtherZone: {ID: mailOtherZone, OwnerID: mailAdminID, Apex: "other.example"},
+		},
+		enabled: map[string]bool{},
+		boxes:   map[string]store.Mailbox{},
+	}
+}
+
+func (f *fakeMail) ZoneOwner(_ context.Context, id string) (store.ZoneInfo, error) {
+	z, ok := f.zones[id]
+	if !ok {
+		return store.ZoneInfo{}, store.ErrNotFound
+	}
+	return z, nil
+}
+
+func (f *fakeMail) GetMailDomain(_ context.Context, id string) (store.MailDomain, error) {
+	return store.MailDomain{ZoneID: id, Enabled: f.enabled[id]}, nil
+}
+
+func (f *fakeMail) SetMailDomain(_ context.Context, id string, on bool) error {
+	f.enabled[id] = on
+	return nil
+}
+
+func (f *fakeMail) ListMailboxes(_ context.Context, zone string) ([]store.Mailbox, error) {
+	out := []store.Mailbox{}
+	for _, b := range f.boxes {
+		if b.ZoneID == zone {
+			out = append(out, b)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeMail) CreateMailbox(_ context.Context, mb store.Mailbox) (store.Mailbox, error) {
+	for _, b := range f.boxes {
+		if b.ZoneID == mb.ZoneID && b.LocalPart == mb.LocalPart {
+			return store.Mailbox{}, store.ErrConflict
+		}
+	}
+	f.seq++
+	mb.ID = fmt.Sprintf("cccccccc-0000-4000-8000-%012d", f.seq)
+	mb.CreatedAt, mb.UpdatedAt = time.Now(), time.Now()
+	f.boxes[mb.ID] = mb
+	return mb, nil
+}
+
+func (f *fakeMail) GetMailbox(_ context.Context, id string) (store.Mailbox, error) {
+	b, ok := f.boxes[id]
+	if !ok {
+		return store.Mailbox{}, store.ErrNotFound
+	}
+	return b, nil
+}
+
+func (f *fakeMail) UpdateMailbox(_ context.Context, mb store.Mailbox) error {
+	f.boxes[mb.ID] = mb
+	return nil
+}
+
+func (f *fakeMail) DeleteMailbox(_ context.Context, id string) error {
+	delete(f.boxes, id)
+	return nil
+}
+
+// newMailEnv builds the settings fixture with a Mail store attached.
+func newMailEnv(t *testing.T) (settingsEnv, *fakeMail) {
+	t.Helper()
+	e := newSettingsEnv(t)
+	fm := newFakeMail()
+	e.h = NewRouter(Deps{
+		Log:    slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Users:  e.fs,
+		Sites:  e.sites,
+		Manage: e.manage,
+		Alerts: e.alert,
+		Mail:   fm,
+		Site:   SiteSettings{NodeID: "node-1", PHPVersion: "8.3", SecretKey: []byte(testServerSecret), StartJob: func(string) {}, PublicIP: "162.4.35.76"},
+	})
+	return e, fm
+}
+
+func TestMailboxNeedsMailTurnedOnFirst(t *testing.T) {
+	e, _ := newMailEnv(t)
+	customer := e.login(t, "customer@example.com")
+	body := `{"local_part":"info","password":"` + goodPassword + `"}`
+	rec := e.call(t, http.MethodPost, "/api/v1/domains/"+mailZoneID+"/mailboxes", body, customer, true)
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "mail_disabled") {
+		t.Fatalf("mailbox while mail is off = %d %s", rec.Code, rec.Body)
+	}
+}
+
+func TestMailboxLifecycleAndPasswordStaysHidden(t *testing.T) {
+	e, fm := newMailEnv(t)
+	customer := e.login(t, "customer@example.com")
+	zone := "/api/v1/domains/" + mailZoneID
+
+	if rec := e.call(t, http.MethodPut, zone+"/mail", `{"enabled":true}`, customer, true); rec.Code != http.StatusOK {
+		t.Fatalf("enable mail = %d %s", rec.Code, rec.Body)
+	}
+	rec := e.call(t, http.MethodPost, zone+"/mailboxes", `{"local_part":"info","password":"`+goodPassword+`","quota_mb":2048}`, customer, true)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create = %d %s", rec.Code, rec.Body)
+	}
+	if strings.Contains(rec.Body.String(), "password") {
+		t.Fatalf("response leaks the password field: %s", rec.Body)
+	}
+	var created store.Mailbox
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(fm.boxes[created.ID].PasswordHash, "$argon2id$") {
+		t.Fatalf("password not stored as an Argon2id hash: %q", fm.boxes[created.ID].PasswordHash)
+	}
+	if created.QuotaMB != 2048 || !created.Active {
+		t.Fatalf("created = %+v", created)
+	}
+
+	if rec := e.call(t, http.MethodPost, zone+"/mailboxes", `{"local_part":"info","password":"`+goodPassword+`"}`, customer, true); rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "address_taken") {
+		t.Fatalf("duplicate = %d %s", rec.Code, rec.Body)
+	}
+	if rec := e.call(t, http.MethodPost, zone+"/mailboxes", `{"local_part":"sales","password":"short"}`, customer, true); rec.Code != http.StatusBadRequest {
+		t.Fatalf("weak password = %d", rec.Code)
+	}
+
+	get := e.call(t, http.MethodGet, zone+"/mail", "", customer, false)
+	if get.Code != http.StatusOK || strings.Contains(get.Body.String(), "argon2") {
+		t.Fatalf("mail view = %d %s", get.Code, get.Body)
+	}
+	if !strings.Contains(get.Body.String(), "162.4.35.76") || !strings.Contains(get.Body.String(), "mail.ozima.cloud") {
+		t.Fatalf("DNS records missing from the view: %s", get.Body)
+	}
+
+	upd := e.call(t, http.MethodPut, "/api/v1/mailboxes/"+created.ID, `{"quota_mb":4096,"active":false}`, customer, true)
+	if upd.Code != http.StatusOK || !strings.Contains(upd.Body.String(), `"quota_mb":4096`) {
+		t.Fatalf("update = %d %s", upd.Code, upd.Body)
+	}
+	if del := e.call(t, http.MethodDelete, "/api/v1/mailboxes/"+created.ID, "", customer, true); del.Code != http.StatusNoContent {
+		t.Fatalf("delete = %d", del.Code)
+	}
+}
+
+func TestMailOnlyForOwnerAndNeedsCSRF(t *testing.T) {
+	e, _ := newMailEnv(t)
+	customer := e.login(t, "customer@example.com")
+	// The admin's domain is not the customer's: the customer gets 404, not the data.
+	if rec := e.call(t, http.MethodGet, "/api/v1/domains/"+mailOtherZone+"/mail", "", customer, false); rec.Code != http.StatusNotFound {
+		t.Fatalf("another owner's domain = %d, want 404", rec.Code)
+	}
+	if rec := e.call(t, http.MethodPut, "/api/v1/domains/"+mailZoneID+"/mail", `{"enabled":true}`, customer, false); rec.Code != http.StatusForbidden {
+		t.Fatalf("enable without CSRF = %d, want 403", rec.Code)
+	}
+	if rec := e.call(t, http.MethodGet, "/api/v1/domains/"+mailZoneID+"/mail", "", nil, false); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous = %d, want 401", rec.Code)
+	}
+}

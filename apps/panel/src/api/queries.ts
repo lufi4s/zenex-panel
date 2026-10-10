@@ -37,6 +37,8 @@ import type {
   SiteHealth,
   TimeRange,
   User,
+  MailView,
+  Mailbox,
   SiteAccess,
   StorageReport,
 } from "./types";
@@ -263,6 +265,45 @@ export function useSiteHealth(range: TimeRange) {
     queryKey: ["monitoring", "sites", range],
     queryFn: () => apiRequest<SiteHealth[]>(`/api/v1/monitoring/sites?range=${range}`),
     refetchInterval: 60_000,
+  });
+}
+
+export function useMail(domainId: string) {
+  return useQuery({
+    queryKey: ["mail", domainId],
+    queryFn: () => apiRequest<MailView>(`/api/v1/domains/${domainId}/mail`),
+  });
+}
+
+export function useSetMail(domainId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (enabled: boolean) =>
+      apiRequest<MailView>(`/api/v1/domains/${domainId}/mail`, {
+        method: "PUT",
+        body: { enabled },
+      }),
+    meta: { silent: true },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["mail", domainId] }),
+  });
+}
+
+export function useAddMailbox(domainId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { local_part: string; password: string; quota_mb: number }) =>
+      apiRequest<Mailbox>(`/api/v1/domains/${domainId}/mailboxes`, { method: "POST", body: input }),
+    meta: { silent: true },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["mail", domainId] }),
+  });
+}
+
+export function useRemoveMailbox(domainId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiRequest<void>(`/api/v1/mailboxes/${id}`, { method: "DELETE" }),
+    meta: { silent: true },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["mail", domainId] }),
   });
 }
 

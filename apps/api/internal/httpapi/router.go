@@ -22,6 +22,7 @@ type Deps struct {
 	Sites         SiteStore
 	Manage        SiteManager
 	Monitor       MonitorStore
+	Mail          MailStore
 	Updates       UpdateService
 	Alerts        AlertManager
 	Site          SiteSettings
@@ -69,6 +70,11 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("GET /api/v1/sites/{id}/credentials", d.requireSession(d.handleSiteCredentials))
 	mux.Handle("GET /api/v1/sites/{id}/access", d.requireSession(d.handleSiteAccess))
 	mux.Handle("GET /api/v1/storage", d.requireSession(d.handleStorage))
+	mux.Handle("GET /api/v1/domains/{id}/mail", d.requireSession(d.handleGetMail))
+	mux.Handle("PUT /api/v1/domains/{id}/mail", requireCSRF(d.requireSession(d.handleSetMail)))
+	mux.Handle("POST /api/v1/domains/{id}/mailboxes", requireCSRF(d.requireSession(d.handleCreateMailbox)))
+	mux.Handle("PUT /api/v1/mailboxes/{id}", requireCSRF(d.requireSession(d.handleUpdateMailbox)))
+	mux.Handle("DELETE /api/v1/mailboxes/{id}", requireCSRF(d.requireSession(d.handleDeleteMailbox)))
 	mux.Handle("PUT /api/v1/sites/{id}/access/sftp", requireCSRF(d.requireSession(d.handleEnableSFTP)))
 	mux.Handle("DELETE /api/v1/sites/{id}/access/sftp", requireCSRF(d.requireSession(d.handleDisableSFTP)))
 	mux.Handle("POST /api/v1/sites/{id}/access/phpmyadmin", requireCSRF(d.requireSession(d.handleOpenPhpMyAdmin)))

@@ -698,3 +698,17 @@ Existing sites: the phpMyAdmin route appears after "Open phpMyAdmin" is clicked 
 - Storage: helper op usage.sites (read-only, unlocked), manage.SiteUsages (5-minute cache), GET /api/v1/storage (admin also gets server disk), Websites page StorageCard. Tests in helper usage_test.go, manage storage_test.go, httpapi storage_test.go, app.test.tsx (2). Pushed fc29bd8.
 - phpMyAdmin warning "configuration storage is not completely configured": the optional pma__ tables are not set up. Config now sets $cfg['PmaNoRelation_DisableWarning'] = true. install.sh: write_phpmyadmin_config runs on every install/update, so an existing install gets it without a version change. Not deployed yet.
 
+## 54. Mailbox hosting, phase 1 (DONE in code, pending push)
+
+Decision (user): full mail hosting on the same VPS. Plan: Desktop\zenex_mailbox_plan.md. Phase 1 is code only; no server changes. Outbound port 25 open; PTR is panel-test (must become mail host, provider panel).
+Done so far:
+- apps/api/migrations/0008_mailboxes.sql: mail_domains (zone_id, enabled) and mailboxes (zone_id, local_part, password_hash Argon2id, quota_mb, active, UNIQUE zone+local_part). Zone = dns_zones (connected domain, owner_user_id, apex_domain).
+- apps/api/internal/store/mail.go: ZoneOwner, GetMailDomain, SetMailDomain, ListMailboxes, CreateMailbox (ErrConflict), GetMailbox, UpdateMailbox, DeleteMailbox.
+- apps/api/internal/mail/mail.go (+ mail_test.go, passing): ValidLocalPart, ValidPassword (12-128, no control chars), ValidQuota (10-102400 MB), DNSRecords (A, MX, SPF, DMARC, DKIM placeholder).
+Next: httpapi/mail.go (MailStore interface, Deps.Mail, routes: GET/PUT /domains/{id}/mail, POST /domains/{id}/mailboxes, PUT/DELETE /mailboxes/{id}; owner or admin via ZoneOwner + canAccess; CSRF on writes; audit), main.go wiring, tests, panel Mail section on Domains page, then commit + push (auto-push rule).
+- Phase 1 finished: httpapi/mail.go (MailStore; GET/PUT /api/v1/domains/{id}/mail, POST /api/v1/domains/{id}/mailboxes, PUT/DELETE /api/v1/mailboxes/{id}; owner or admin, CSRF on writes, audit mail.enable/disable, mailbox.create/update/delete); cmd/api/main.go wires Mail: s. Mailbox creation refused (409 mail_disabled) until mail is on for the domain. Duplicate address 409 address_taken. Password hashed with auth.HashPassword (Argon2id) and never returned.
+- Panel: components/MailPanel.tsx opened from a domain row ("Mail" button) on the Domains page: switch, mailbox list, add/remove, DNS records with copy buttons, notice that delivery starts after the mail server is set up (delivery_ready false).
+- Tests: mail/mail_test.go, httpapi/mail_test.go (3), app.test.tsx "mail on a connected domain". go test ./... (apps/api) pass; vitest 77/77; tsc, vp check, build pass.
+- Note: app.test.tsx was briefly corrupted by a Windows text-mode write (middle dot became U+FFFD). Restored from HEAD and re-applied with explicit UTF-8. Always edit files in binary/UTF-8 mode.
+- Next: Phase 2 (mail server on the VPS) only after the user approves server changes and gives the mail host name and PTR.
+

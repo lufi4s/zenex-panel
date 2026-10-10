@@ -1,6 +1,7 @@
 import { createSignal, For, Show } from "solid-js";
 import { AlertTriangle, CheckCircle2, RefreshCw, Trash2 } from "@/components/icons";
 import { useAddDomain, useCheckDomain, useDeleteDomain, useDomains } from "@/api/queries";
+import { MailPanel } from "@/components/MailPanel";
 import { ApiError, describeError } from "@/api/client";
 import type { Domain } from "@/api/types";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -92,6 +93,7 @@ function DeleteDomainDialog(props: { domain: Domain }) {
 
 function DomainItem(props: { domain: Domain }) {
   const check = useCheckDomain();
+  const [mailOpen, setMailOpen] = createSignal(false);
   return (
     <li class="flex flex-col gap-2 py-3 first:pt-0 last:pb-0">
       <div class="flex flex-wrap items-center gap-2">
@@ -109,6 +111,14 @@ function DomainItem(props: { domain: Domain }) {
           </Badge>
         </Show>
         <div class="ml-auto flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-expanded={mailOpen()}
+            onClick={() => setMailOpen((open) => !open)}
+          >
+            {mailOpen() ? "Hide mail" : "Mail"}
+          </Button>
           <Button
             variant="ghost"
             size="sm"
@@ -130,6 +140,9 @@ function DomainItem(props: { domain: Domain }) {
         <Alert variant="destructive">
           <AlertDescription>{describeError(check.error)}</AlertDescription>
         </Alert>
+      </Show>
+      <Show when={mailOpen()}>
+        <MailPanel domain={props.domain} />
       </Show>
     </li>
   );

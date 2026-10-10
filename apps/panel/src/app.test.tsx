@@ -70,6 +70,35 @@ function mockApi(options: {
 
   // SFTP switches on and off as the panel asks, so the card shows what the server now holds.
   let sftpOn = options.sftpEnabled ?? false;
+  // Mail on the connected domain d1 (ozima.cloud): the switch and the mailbox list.
+  let mailOn = false;
+  const mailboxes: Array<Record<string, unknown>> = [];
+  const mailView = () => ({
+    domain: "ozima.cloud",
+    enabled: mailOn,
+    delivery_ready: false,
+    mailboxes: [...mailboxes],
+    dns: [
+      {
+        type: "A",
+        name: "mail",
+        value: "162.4.35.76",
+        note: "Points the mail host name at this server.",
+      },
+      {
+        type: "MX",
+        name: "@",
+        value: "10 mail.ozima.cloud.",
+        note: "Sends incoming mail for the domain to the mail host.",
+      },
+      {
+        type: "TXT",
+        name: "@",
+        value: "v=spf1 mx ~all",
+        note: "Lists this server as allowed to send mail for the domain.",
+      },
+    ],
+  });
   const accessView = () => ({
     database: { host: "localhost", name: "zx_shop", user: "zx_shop", password: "aa11bb22cc33dd44" },
     phpmyadmin: { url: "https://shop.ozima.cloud/zenex-dbadmin/" },
@@ -100,6 +129,25 @@ function mockApi(options: {
           },
         ],
       });
+    }
+    if (url.endsWith("/api/v1/domains/d1/mail") && method === "GET") return json(mailView());
+    if (url.endsWith("/api/v1/domains/d1/mail") && method === "PUT") {
+      mailOn = JSON.parse(String(init?.body)).enabled === true;
+      return json(mailView());
+    }
+    if (url.endsWith("/api/v1/domains/d1/mailboxes") && method === "POST") {
+      const body = JSON.parse(String(init?.body));
+      const box = {
+        id: `box-${mailboxes.length + 1}`,
+        zone_id: "d1",
+        local_part: body.local_part,
+        quota_mb: body.quota_mb,
+        active: true,
+        created_at: "2026-10-11T00:00:00Z",
+        updated_at: "2026-10-11T00:00:00Z",
+      };
+      mailboxes.push(box);
+      return json(box, 201);
     }
     if (url.endsWith("/api/v1/sites/s1/access") && method === "GET") return json(accessView());
     if (url.includes("/api/v1/sites/s1/access/sftp") && method === "PUT") {
@@ -1137,5 +1185,30 @@ describe("storage", () => {
     renderAt("/websites");
     expect(await screen.findByText("Storage")).toBeTruthy();
     expect(screen.queryByText("Server disk")).toBeNull();
+  });
+});
+
+describe("mail on a connected domain", () => {
+  it("turns mail on, adds a mailbox, and shows the DNS records to copy", async () => {
+    vi.stubGlobal("fetch", mockApi({ signedIn: true }));
+    renderAt("/domains");
+    fireEvent.click(await screen.findByRole("button", { name: "Mail" }));
+    const toggle = (await screen.findByLabelText("Mail for ozima.cloud")) as HTMLInputElement;
+    expect(toggle.checked).toBe(false);
+    expect(screen.getByText("DNS records to add at your DNS provider")).toBeTruthy();
+    expect(screen.getByText("10 mail.ozima.cloud.")).toBeTruthy();
+
+    fireEvent.click(toggle);
+    // Wait for the server to report mail as on (the checkbox alone changes before that).
+    await waitFor(() =>
+      expect(screen.queryByText("Turn mail on above before adding mailboxes.")).toBeNull(),
+    );
+
+    changeValue(screen.getByLabelText("Name before @"), { target: { value: "info" } });
+    changeValue(screen.getByLabelText("Password (12+ characters)"), {
+      target: { value: "correct horse battery" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add mailbox" }));
+    expect(await screen.findByText("info@ozima.cloud")).toBeTruthy();
   });
 });

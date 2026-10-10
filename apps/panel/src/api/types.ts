@@ -427,6 +427,35 @@ export interface StorageReport {
   sites: SiteStorage[];
 }
 
+/** A mailbox on a connected domain. The password is never sent back. */
+export interface Mailbox {
+  id: string;
+  zone_id: string;
+  local_part: string;
+  quota_mb: number;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/** A DNS record the customer adds at their DNS provider. */
+export interface MailDNSRecord {
+  type: string;
+  name: string;
+  value: string;
+  note: string;
+}
+
+/** The mail settings of a connected domain. */
+export interface MailView {
+  domain: string;
+  enabled: boolean;
+  /** False until the mail server is set up; mailboxes are saved but receive no mail yet. */
+  delivery_ready: boolean;
+  mailboxes: Mailbox[];
+  dns: MailDNSRecord[];
+}
+
 /** Logins for managing a website's database and files. */
 export interface SiteAccess {
   database: { host: string; name: string; user: string; password: string };

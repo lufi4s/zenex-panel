@@ -168,6 +168,7 @@ func serve(cfg config.Config, log *slog.Logger) error {
 			Sites:   s,
 			Manage:  manager,
 			Monitor: s,
+			Mail:    s,
 			Updates: update.New(helpers),
 			Alerts:  alertSvc,
 			Site: httpapi.SiteSettings{
