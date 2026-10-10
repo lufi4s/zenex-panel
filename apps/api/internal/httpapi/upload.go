@@ -21,6 +21,22 @@ const maxUploadBodyBytes = maxUploadFileBytes + 1<<20
 
 var errUploadTooLarge = APIError{Status: http.StatusRequestEntityTooLarge, Code: "file_too_large", Message: "The file is larger than 64 MB."}
 
+var errUploadBusy = APIError{Status: http.StatusServiceUnavailable, Code: "uploads_busy", Message: "Other uploads are running. Wait for them to finish, then try again."}
+
+var errDiskFull = APIError{Status: http.StatusInsufficientStorage, Code: "disk_full", Message: "The server is nearly out of disk space. Free some space, then try again."}
+
+// maxConcurrentUploads caps staged uploads across the server, so many large files cannot
+// fill the disk at once. minFreeForUpload is the space kept free for the rest of the system.
+const (
+	maxConcurrentUploads = 2
+	minFreeForUpload     = 2 << 30
+)
+
+var uploadSlots = make(chan struct{}, maxConcurrentUploads)
+
+// diskFree is a variable so tests can simulate a full disk.
+var diskFree = freeBytes
+
 // allowSlowRequest gives this one request more time than the server's usual limits (15 seconds to
 // read, 30 to answer). A 64 MB upload on a slow line, or a scan of a remote server, needs minutes.
 func allowSlowRequest(w http.ResponseWriter, read, write time.Duration) {
@@ -50,6 +66,26 @@ func (d Deps) handleUploadFile(w http.ResponseWriter, r *http.Request) {
 	dir, valid := filePath(r)
 	if !valid {
 		writeError(w, requestIDFrom(r), ErrInvalidRequest)
+		return
+	}
+	select {
+	case uploadSlots <- struct{}{}:
+		defer func() { <-uploadSlots }()
+	default:
+		writeError(w, requestIDFrom(r), errUploadBusy)
+		return
+	}
+	if err := os.MkdirAll(manage.UploadDir, 0o700); err != nil {
+		d.internal(w, r, "files.upload.dir", err)
+		return
+	}
+	free, err := diskFree(manage.UploadDir)
+	if err != nil {
+		d.internal(w, r, "files.upload.statfs", err)
+		return
+	}
+	if free < minFreeForUpload {
+		writeError(w, requestIDFrom(r), errDiskFull)
 		return
 	}
 	allowSlowRequest(w, 20*time.Minute, 25*time.Minute)

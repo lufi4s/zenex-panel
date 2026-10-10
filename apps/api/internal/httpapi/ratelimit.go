@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"net/http"
 	"sync"
 	"time"
 )
@@ -50,4 +51,17 @@ func (l *fixedWindowLimiter) Allow(key string) bool {
 		}
 	}
 	return true
+}
+
+// limitActions runs next for a signed-in user, unless that user has used up the
+// expensive-action allowance. It must sit inside requireSession.
+func (d Deps) limitActions(next http.HandlerFunc) http.Handler {
+	return d.requireSession(func(w http.ResponseWriter, r *http.Request) {
+		user, ok := currentUser(r)
+		if !ok || !d.ActionLimiter.Allow(user.ID) {
+			writeError(w, requestIDFrom(r), ErrRateLimited)
+			return
+		}
+		next(w, r)
+	})
 }

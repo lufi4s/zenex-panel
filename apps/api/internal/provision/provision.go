@@ -98,6 +98,11 @@ func AutoLoginKey(key []byte, siteID string) string {
 	return derive(key, "autologin:"+siteID, 32)
 }
 
+// SFTPPassword derives a website's SFTP password. Each rotation uses a new generation.
+func SFTPPassword(key []byte, siteID string, generation int) string {
+	return derive(key, fmt.Sprintf("sftp:%s:%d", siteID, generation), 24)
+}
+
 // WPAdminPassword derives the WordPress administrator password for a site.
 func WPAdminPassword(key []byte, siteID string) string {
 	return derive(key, "wp-admin:"+siteID, 24)

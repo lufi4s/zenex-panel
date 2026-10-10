@@ -71,11 +71,15 @@ type Manager struct {
 	// DBPassword derives a website's database password from its ID. Restores use it to
 	// write the archive's wp-config.php for this server's database account.
 	DBPassword func(siteID string) string
+	// SFTPPasswordFor derives a website's SFTP password for a rotation generation.
+	SFTPPasswordFor func(siteID string, generation int) string
 	// AutoLoginKey derives the key that signs a website's one-time admin sign-in links.
 	AutoLoginKey func(siteID string) string
 	// SFTPPassword returns the saved SFTP password in plain text. It is called only for
 	// SFTP destinations that sign in with a password, just before the helper runs.
 	SFTPPassword func(ctx context.Context) (string, error)
+	// scans tracks the malware scans that run in the background.
+	scans scanState
 }
 
 func New(s Store, h Helper, log *slog.Logger) *Manager {

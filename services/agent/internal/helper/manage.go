@@ -217,6 +217,9 @@ func (o *Ops) sitePurge(ctx context.Context, args map[string]string) error {
 		return errors.New("refusing to remove an unexpected path")
 	}
 	note("files", os.RemoveAll(home))
+	if o.Paths.QuarantineDir != "" {
+		note("quarantine", os.RemoveAll(filepath.Join(o.Paths.QuarantineDir, name)))
+	}
 
 	// 5. Remove logs.
 	if logs, _ := filepath.Glob(filepath.Join(o.Paths.LogDir, "zx-"+name+".*")); len(logs) > 0 {

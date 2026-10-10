@@ -332,3 +332,19 @@ func TestDeepLinksReturnTheApp(t *testing.T) {
 		}
 	}
 }
+
+// Server-wide readings are for administrators only. A customer signed in with
+// a valid session must get 403, not the data.
+func TestServerMetricsAreAdminOnly(t *testing.T) {
+	e := newSettingsEnv(t)
+	customer := e.login(t, "customer@example.com")
+	for _, path := range []string{
+		"/api/v1/system/metrics",
+		"/api/v1/monitoring/metrics",
+		"/api/v1/monitoring/services",
+	} {
+		if rec := e.call(t, http.MethodGet, path, "", customer, false); rec.Code != http.StatusForbidden {
+			t.Errorf("%s as customer = %d, want 403", path, rec.Code)
+		}
+	}
+}

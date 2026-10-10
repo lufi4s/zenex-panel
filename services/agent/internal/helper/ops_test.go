@@ -172,3 +172,28 @@ func TestPoolFileUsesConfExtension(t *testing.T) {
 		t.Fatalf("pool file not written with .conf extension: %v", err)
 	}
 }
+
+// The database password reaches WP-CLI on stdin (--prompt), never in argv, where
+// other accounts could read it from /proc while the command runs.
+func TestWPConfigCreateSendsDBPasswordOnStdin(t *testing.T) {
+	f := &fakeExec{}
+	o, _ := testOps(t, f)
+	err := o.wpConfigCreate(context.Background(), map[string]string{
+		"user": "zx_shop", "db": "zx_shop", "dbuser": "zx_shop", "dbpass": validSecret(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(f.calls) != 1 {
+		t.Fatalf("expected one call, got %d", len(f.calls))
+	}
+	if strings.Contains(f.calls[0], validSecret()) {
+		t.Fatal("database password appeared in argv")
+	}
+	if !strings.Contains(f.calls[0], "--prompt=dbpass") {
+		t.Fatalf("wp-cli is not reading the password from stdin: %s", f.calls[0])
+	}
+	if f.stdin != validSecret()+"\n" {
+		t.Fatalf("stdin = %q, want the password and a newline", f.stdin)
+	}
+}

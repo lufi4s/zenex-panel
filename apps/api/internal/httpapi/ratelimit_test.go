@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"net/http"
 	"testing"
 	"time"
 )
@@ -22,5 +23,21 @@ func TestFixedWindowLimiter(t *testing.T) {
 	clock = clock.Add(time.Minute)
 	if !l.Allow("ip") {
 		t.Fatal("event after window reset should pass")
+	}
+}
+
+// Expensive actions stop after the per-user allowance, so one account cannot start
+// SSH logins, scans or backups in a loop. The allowance is counted per user.
+func TestExpensiveActionsAreRateLimitedPerUser(t *testing.T) {
+	e := newSettingsEnv(t)
+	admin := e.login(t, "admin@example.com")
+	const path = "/api/v1/settings/backups/run-now"
+	for i := 0; i < 20; i++ {
+		if rec := e.call(t, http.MethodPost, path, "", admin, true); rec.Code == http.StatusTooManyRequests {
+			t.Fatalf("request %d limited too early", i+1)
+		}
+	}
+	if rec := e.call(t, http.MethodPost, path, "", admin, true); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("request 21 = %d, want 429", rec.Code)
 	}
 }

@@ -121,6 +121,7 @@ func TestSwitchPHPRejectsSameVersion(t *testing.T) {
 
 func (f *fakeStore) Notify(context.Context, string, string, string, string) error { return nil }
 func (f *fakeStore) SetSiteMaintenance(context.Context, string, bool) error       { return nil }
+func (f *fakeStore) SetSiteSFTP(context.Context, string, bool, int) error         { return nil }
 func (f *fakeStore) ListReadySites(context.Context) ([]store.Site, error)         { return nil, nil }
 func (f *fakeStore) ListAutoUpdateSites(context.Context) ([]store.Site, error)    { return nil, nil }
 func (f *fakeStore) InsertBackup(context.Context, string, int64, string) error    { return nil }

@@ -14,6 +14,7 @@ import (
 // folder, reading a log, building a new site.
 //
 //   - read-only operations: folder listings, file reads, log tails, service and PHP lists, versions
+//   - malware scans and quarantine: they read one website's files and move single files
 //   - backup, restore and cPanel copies: they work on one website's files and database, and on
 //     the backup folders; the panel never runs two of them for the same website at once
 var unlockedOps = map[string]bool{
@@ -22,6 +23,8 @@ var unlockedOps = map[string]bool{
 	"backup.create": true, "backup.restore": true, "backup.upload": true, "backup.download": true,
 	"backup.delete": true, "backup.discover": true, "backup.test": true,
 	"cpanel.scan": true, "cpanel.pull": true,
+	"malware.scan": true, "malware.report": true, "malware.list": true, "malware.quarantine": true,
+	"malware.restore": true, "malware.purge": true,
 }
 
 // runsWithoutLock reports whether an operation skips the lock.

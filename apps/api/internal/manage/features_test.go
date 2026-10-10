@@ -25,10 +25,24 @@ type featureStore struct {
 	inserted    []string
 	settings    store.BackupSettings
 	insertErr   error
+	sftp        map[string]sftpState
+}
+
+type sftpState struct {
+	enabled    bool
+	generation int
 }
 
 func (f *featureStore) GetBackupSettings(context.Context) (store.BackupSettings, error) {
 	return f.settings, nil
+}
+
+func (f *featureStore) SetSiteSFTP(_ context.Context, id string, enabled bool, generation int) error {
+	if f.sftp == nil {
+		f.sftp = map[string]sftpState{}
+	}
+	f.sftp[id] = sftpState{enabled: enabled, generation: generation}
+	return nil
 }
 
 func (f *featureStore) SetSiteMaintenance(_ context.Context, id string, on bool) error {

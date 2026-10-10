@@ -110,6 +110,9 @@ func serve(cfg config.Config, log *slog.Logger) error {
 	prov := provision.New(s, helpers, []byte(cfg.SecretKey), log)
 	manager := manage.New(s, helpers, log)
 	manager.PublicIP = cfg.PublicIP
+	manager.SFTPPasswordFor = func(siteID string, generation int) string {
+		return provision.SFTPPassword([]byte(cfg.SecretKey), siteID, generation)
+	}
 	manager.DBPassword = func(siteID string) string {
 		return provision.DBPassword([]byte(cfg.SecretKey), siteID)
 	}

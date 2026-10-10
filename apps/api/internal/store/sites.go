@@ -43,7 +43,10 @@ type Site struct {
 	Health      string    `json:"health"`
 	AutoUpdate  bool      `json:"auto_update"`
 	Maintenance bool      `json:"maintenance"`
-	CreatedAt   time.Time `json:"created_at"`
+	// SFTPEnabled and SFTPGeneration describe the website's SFTP login (see migration 0007).
+	SFTPEnabled    bool      `json:"sftp_enabled"`
+	SFTPGeneration int       `json:"-"`
+	CreatedAt      time.Time `json:"created_at"`
 }
 
 // Job is a long-running operation tracked in the jobs table.
@@ -231,13 +234,13 @@ func (s *Store) CreateSiteWithJob(ctx context.Context, in NewSite) (siteID, jobI
 const siteColumns = `
 	s.id::text, s.owner_user_id::text, s.node_id::text, s.slug, s.primary_domain::text,
 	s.linux_user, s.db_name, s.db_user, s.php_version, s.state, s.health,
-	s.auto_update, s.maintenance, s.created_at`
+	s.auto_update, s.maintenance, s.sftp_enabled, s.sftp_generation, s.created_at`
 
 func scanSite(row pgx.Row) (Site, error) {
 	var st Site
 	err := row.Scan(&st.ID, &st.OwnerID, &st.NodeID, &st.Slug, &st.Domain,
 		&st.LinuxUser, &st.DBName, &st.DBUser, &st.PHPVersion, &st.State, &st.Health,
-		&st.AutoUpdate, &st.Maintenance, &st.CreatedAt)
+		&st.AutoUpdate, &st.Maintenance, &st.SFTPEnabled, &st.SFTPGeneration, &st.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Site{}, ErrNotFound
 	}
@@ -292,6 +295,14 @@ func (s *Store) querySites(ctx context.Context, query string, args ...any) ([]Si
 func (s *Store) SetSiteAutoUpdate(ctx context.Context, siteID string, enabled bool) error {
 	_, err := s.pool.Exec(ctx,
 		`UPDATE sites SET auto_update = $2, updated_at = now() WHERE id = $1::uuid`, siteID, enabled)
+	return err
+}
+
+// SetSiteSFTP records whether a site's SFTP login is enabled and which password generation it uses.
+func (s *Store) SetSiteSFTP(ctx context.Context, siteID string, enabled bool, generation int) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE sites SET sftp_enabled = $2, sftp_generation = $3, updated_at = now() WHERE id = $1::uuid`,
+		siteID, enabled, generation)
 	return err
 }
 

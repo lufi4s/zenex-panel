@@ -38,6 +38,7 @@ const (
 // FeatureStore is the persistence surface for maintenance, backups and auto-updates.
 type FeatureStore interface {
 	SetSiteMaintenance(ctx context.Context, siteID string, enabled bool) error
+	SetSiteSFTP(ctx context.Context, siteID string, enabled bool, generation int) error
 	ListReadySites(ctx context.Context) ([]store.Site, error)
 	ListAutoUpdateSites(ctx context.Context) ([]store.Site, error)
 	InsertBackup(ctx context.Context, siteID string, sizeBytes int64, path string) error

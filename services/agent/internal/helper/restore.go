@@ -227,8 +227,8 @@ func (o *Ops) rewriteWPConfig(ctx context.Context, name, docroot, dbPass, prefix
 	if err := os.Remove(filepath.Join(docroot, "wp-config.php")); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("replace wp-config.php: %w", err)
 	}
-	return o.wpRun(ctx, name, "config", "create",
-		"--dbname="+name, "--dbuser="+name, "--dbpass="+dbPass, "--dbhost=localhost",
+	return o.wpRunInput(ctx, name, dbPass+"\n", "config", "create",
+		"--dbname="+name, "--dbuser="+name, "--prompt=dbpass", "--dbhost=localhost",
 		"--dbcharset=utf8mb4", "--dbprefix="+prefix)
 }
 

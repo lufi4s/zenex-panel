@@ -27,6 +27,8 @@ type Deps struct {
 	Site          SiteSettings
 	SecureCookies bool // true when served over TLS
 	LoginLimiter  *fixedWindowLimiter
+	// ActionLimiter caps the expensive actions (SSH logins, scans, backups, restores) per user.
+	ActionLimiter *fixedWindowLimiter
 	SessionTTL    time.Duration
 }
 
@@ -34,6 +36,9 @@ type Deps struct {
 func NewRouter(d Deps) http.Handler {
 	if d.LoginLimiter == nil {
 		d.LoginLimiter = newFixedWindowLimiter(10, time.Minute)
+	}
+	if d.ActionLimiter == nil {
+		d.ActionLimiter = newFixedWindowLimiter(20, 10*time.Minute)
 	}
 	if d.SessionTTL == 0 {
 		d.SessionTTL = 12 * time.Hour
@@ -52,7 +57,7 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("POST /api/v1/auth/login", requireCSRF(http.HandlerFunc(d.handleLogin)))
 	mux.Handle("POST /api/v1/auth/logout", requireCSRF(d.requireSession(d.handleLogout)))
 	mux.Handle("GET /api/v1/auth/me", d.requireSession(d.handleMe))
-	mux.Handle("GET /api/v1/system/metrics", d.requireSession(d.handleMetrics))
+	mux.Handle("GET /api/v1/system/metrics", d.requireAdmin(d.handleMetrics))
 	mux.Handle("GET /api/v1/system/update", d.requireSession(d.handleGetUpdate))
 	mux.Handle("POST /api/v1/system/update", requireCSRF(d.requireSession(d.handleStartUpdate)))
 
@@ -62,6 +67,10 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("POST /api/v1/sites", requireCSRF(d.requireSession(d.handleCreateSite)))
 	mux.Handle("GET /api/v1/sites/{id}", d.requireSession(d.handleGetSite))
 	mux.Handle("GET /api/v1/sites/{id}/credentials", d.requireSession(d.handleSiteCredentials))
+	mux.Handle("GET /api/v1/sites/{id}/access", d.requireSession(d.handleSiteAccess))
+	mux.Handle("PUT /api/v1/sites/{id}/access/sftp", requireCSRF(d.requireSession(d.handleEnableSFTP)))
+	mux.Handle("DELETE /api/v1/sites/{id}/access/sftp", requireCSRF(d.requireSession(d.handleDisableSFTP)))
+	mux.Handle("POST /api/v1/sites/{id}/access/phpmyadmin", requireCSRF(d.requireSession(d.handleOpenPhpMyAdmin)))
 	mux.Handle("GET /api/v1/jobs/{id}", d.requireSession(d.handleGetJob))
 	mux.Handle("POST /api/v1/jobs/{id}/retry", requireCSRF(d.requireSession(d.handleRetryJob)))
 	mux.Handle("POST /api/v1/domains/{id}/verify", requireCSRF(d.requireSession(d.handleVerifyDomain)))
@@ -75,9 +84,9 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("GET /api/v1/notifications", d.requireSession(d.handleListNotifications))
 	mux.Handle("POST /api/v1/notifications/read", requireCSRF(d.requireSession(d.handleMarkNotificationsRead)))
 	mux.Handle("DELETE /api/v1/domains/{id}", requireCSRF(d.requireSession(d.handleDeleteDomain)))
-	mux.Handle("GET /api/v1/monitoring/metrics", d.requireSession(d.handleMetricSeries))
+	mux.Handle("GET /api/v1/monitoring/metrics", d.requireAdmin(d.handleMetricSeries))
 	mux.Handle("GET /api/v1/monitoring/sites", d.requireSession(d.handleSiteHealth))
-	mux.Handle("GET /api/v1/monitoring/services", d.requireSession(d.handleServices))
+	mux.Handle("GET /api/v1/monitoring/services", d.requireAdmin(d.handleServices))
 	mux.Handle("GET /api/v1/activity", d.requireSession(d.handleActivity))
 	mux.Handle("GET /api/v1/jobs/{id}/logs", d.requireSession(d.handleJobLogs))
 	mux.Handle("GET /api/v1/sites/{id}/files", d.requireSession(d.handleListFiles))
@@ -86,8 +95,13 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("POST /api/v1/sites/{id}/folders", requireCSRF(d.requireSession(d.handleCreateFolder)))
 	mux.Handle("DELETE /api/v1/sites/{id}/files", requireCSRF(d.requireSession(d.handleDeleteFile)))
 	mux.Handle("POST /api/v1/sites/{id}/files/upload", requireCSRF(d.requireSession(d.handleUploadFile)))
-	mux.Handle("POST /api/v1/migrations/cpanel/scan", requireCSRF(d.requireSession(d.handleScanCpanel)))
-	mux.Handle("POST /api/v1/migrations/cpanel", requireCSRF(d.requireSession(d.handleMigrateCpanel)))
+	mux.Handle("POST /api/v1/migrations/cpanel/scan", requireCSRF(d.limitActions(d.handleScanCpanel)))
+	mux.Handle("POST /api/v1/migrations/cpanel", requireCSRF(d.limitActions(d.handleMigrateCpanel)))
+	mux.Handle("GET /api/v1/sites/{id}/security", d.requireSession(d.handleSecurityStatus))
+	mux.Handle("POST /api/v1/sites/{id}/security/scan", requireCSRF(d.limitActions(d.handleSecurityScan)))
+	mux.Handle("POST /api/v1/sites/{id}/security/quarantine", requireCSRF(d.requireSession(d.handleSecurityQuarantine)))
+	mux.Handle("POST /api/v1/sites/{id}/security/quarantine/{item}/restore", requireCSRF(d.requireSession(d.handleSecurityRestore)))
+	mux.Handle("DELETE /api/v1/sites/{id}/security/quarantine/{item}", requireCSRF(d.requireSession(d.handleSecurityDelete)))
 	mux.Handle("POST /api/v1/sites/{id}/wp-login-link", requireCSRF(d.requireSession(d.handleWPLoginLink)))
 	mux.Handle("GET /api/v1/settings/defaults", d.requireSession(d.handleGetSiteDefaults))
 	mux.Handle("PUT /api/v1/settings/defaults", requireCSRF(d.requireSession(d.handlePutSiteDefaults)))
@@ -96,7 +110,7 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("GET /api/v1/settings/backups/sftp-key", d.requireSession(d.handleGetSFTPKey))
 	mux.Handle("POST /api/v1/settings/backups/sftp-key", requireCSRF(d.requireSession(d.handleCreateSFTPKey)))
 	mux.Handle("POST /api/v1/settings/backups/sftp-test", requireCSRF(d.requireSession(d.handleTestSFTP)))
-	mux.Handle("POST /api/v1/settings/backups/run-now", requireCSRF(d.requireSession(d.handleRunBackupsNow)))
+	mux.Handle("POST /api/v1/settings/backups/run-now", requireCSRF(d.limitActions(d.handleRunBackupsNow)))
 	mux.Handle("GET /api/v1/settings/alerts", d.requireSession(d.handleGetAlerts))
 	mux.Handle("PUT /api/v1/settings/alerts", requireCSRF(d.requireSession(d.handlePutAlerts)))
 	mux.Handle("POST /api/v1/settings/alerts/test-email", requireCSRF(d.requireSession(d.handleTestAlertEmail)))
@@ -104,11 +118,11 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("PUT /api/v1/sites/{id}/maintenance", requireCSRF(d.requireSession(d.handleSetMaintenance)))
 	mux.Handle("GET /api/v1/sites/{id}/backups", d.requireSession(d.handleListBackups))
 	mux.Handle("GET /api/v1/sites/activity", d.requireSession(d.handleSiteActivity))
-	mux.Handle("POST /api/v1/sites/backup-all", requireCSRF(d.requireSession(d.handleBackupAll)))
+	mux.Handle("POST /api/v1/sites/backup-all", requireCSRF(d.limitActions(d.handleBackupAll)))
 	mux.Handle("POST /api/v1/sites/{id}/backup", requireCSRF(d.requireSession(d.handleStartBackup)))
-	mux.Handle("POST /api/v1/sites/{id}/backups/{backup_id}/restore", requireCSRF(d.requireSession(d.handleRestoreBackup)))
+	mux.Handle("POST /api/v1/sites/{id}/backups/{backup_id}/restore", requireCSRF(d.limitActions(d.handleRestoreBackup)))
 	mux.Handle("GET /api/v1/settings/backups/remote", d.requireSession(d.handleListRemoteBackups))
-	mux.Handle("POST /api/v1/sites/{id}/restore-remote", requireCSRF(d.requireSession(d.handleRestoreRemote)))
+	mux.Handle("POST /api/v1/sites/{id}/restore-remote", requireCSRF(d.limitActions(d.handleRestoreRemote)))
 	mux.Handle("GET /api/v1/sites/{id}/backup-progress", d.requireSession(d.handleBackupProgress))
 
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {

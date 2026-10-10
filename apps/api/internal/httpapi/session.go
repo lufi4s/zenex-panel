@@ -57,3 +57,16 @@ func (d Deps) requireSession(next http.HandlerFunc) http.Handler {
 		next(w, r.WithContext(ctx))
 	})
 }
+
+// requireAdmin wraps requireSession and refuses signed-in customers. Used for
+// routes that describe the whole shared server (metrics, services), which a
+// customer must not see.
+func (d Deps) requireAdmin(next http.HandlerFunc) http.Handler {
+	return d.requireSession(func(w http.ResponseWriter, r *http.Request) {
+		if u, ok := currentUser(r); !ok || !isAdmin(u) {
+			writeError(w, requestIDFrom(r), APIError{Status: http.StatusForbidden, Code: "forbidden", Message: "Only administrators can see server details."})
+			return
+		}
+		next(w, r)
+	})
+}

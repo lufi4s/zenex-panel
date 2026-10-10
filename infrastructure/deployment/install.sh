@@ -48,6 +48,16 @@ readonly HELPER_SOCKET="/run/zenex/helper.sock"
 readonly HELPER_UNIT="/etc/systemd/system/zenex-helper.service"
 readonly WP_BIN="/usr/local/bin/wp"
 readonly WP_URL="https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar"
+# Go toolchain for building the panel and the website helper. Ubuntu's golang-go is
+# too old (missing security fixes in net/http and crypto/tls), so the official release
+# is used. The SHA-256 is pinned: bump GO_VERSION and GO_SHA256 together.
+readonly GO_VERSION="1.27.2"
+readonly GO_SHA256="ecbadb99091a3f46e31f5f934b068b1864eafa7995211b39eaddf76996045fe5"
+readonly GO_ROOT="/usr/local/go"
+# phpMyAdmin, shared by every website (database admin under /zenex-dbadmin). Pinned like Go.
+readonly PMA_VERSION="5.2.3"
+readonly PMA_SHA256="12ba1c425fa4071abbd4e7668c9ebdeac0b0755a467a6d6d5026122bb47c102b"
+readonly PMA_DIR="/usr/share/zenex-phpmyadmin"
 
 ZENEX_ADMIN_EMAIL="${ZENEX_ADMIN_EMAIL:-admin@zenex.local}"
 ZENEX_REPO_URL="${ZENEX_REPO_URL:-https://github.com/lufi4s/zenex-panel.git}"
@@ -187,6 +197,80 @@ ensure_swap() {
     grep -q '^/swapfile ' /etc/fstab || printf '/swapfile none swap sw 0 0\n' >> /etc/fstab
 }
 
+# Installs the pinned Go release from go.dev after its SHA-256 matches.
+install_go() {
+    export PATH="$GO_ROOT/bin:$PATH"
+    if [[ "$("$GO_ROOT/bin/go" env GOVERSION 2>/dev/null)" == "go$GO_VERSION" ]]; then
+        info "Go $GO_VERSION already installed"
+        return 0
+    fi
+    local tmp actual
+    tmp="$(mktemp)"
+    retry 3 5 curl -fsSL -o "$tmp" "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz"
+    actual="$(sha256sum "$tmp" | awk '{print $1}')"
+    if [[ "$actual" != "$GO_SHA256" ]]; then
+        rm -f "$tmp"
+        fail "the Go download did not match its checksum. Re-run the command in a few minutes."
+    fi
+    rm -rf "$GO_ROOT"
+    tar -C /usr/local -xzf "$tmp"
+    rm -f "$tmp"
+    info "Go $GO_VERSION installed"
+}
+
+# Installs the pinned phpMyAdmin release. The blowfish secret in its config is kept across
+# re-runs and upgrades, so logins survive them.
+install_phpmyadmin() {
+    if [[ -f "$PMA_DIR/.zenex-version" ]] && [[ "$(cat "$PMA_DIR/.zenex-version")" == "$PMA_VERSION" ]]; then
+        info "phpMyAdmin $PMA_VERSION already installed"
+        return 0
+    fi
+    local tmp actual new old
+    tmp="$(mktemp)"
+    retry 3 5 curl -fsSL -o "$tmp" "https://files.phpmyadmin.net/phpMyAdmin/${PMA_VERSION}/phpMyAdmin-${PMA_VERSION}-all-languages.tar.gz"
+    actual="$(sha256sum "$tmp" | awk '{print $1}')"
+    if [[ "$actual" != "$PMA_SHA256" ]]; then
+        rm -f "$tmp"
+        fail "the phpMyAdmin download did not match its checksum. Re-run the command in a few minutes."
+    fi
+    new="${PMA_DIR}.new"
+    old="${PMA_DIR}.old"
+    rm -rf "$new"
+    mkdir -p "$new"
+    tar -xzf "$tmp" -C "$new" --strip-components=1
+    rm -f "$tmp"
+
+    local secret=""
+    if [[ -f "$PMA_DIR/config.inc.php" ]]; then
+        secret="$(sed -n "s/^\$cfg\['blowfish_secret'\] = '\(.*\)';\$/\1/p" "$PMA_DIR/config.inc.php")"
+    fi
+    if [[ ${#secret} -ne 32 ]]; then
+        secret="$(openssl rand -hex 16)"
+    fi
+    # Sessions and temporary files use /tmp, which every website's PHP pool may use.
+    cat >"$new/config.inc.php" <<PHPCFG
+<?php
+// Managed by Zenex. Written by the installer.
+\$cfg['blowfish_secret'] = '${secret}';
+\$cfg['TempDir'] = '/tmp';
+\$cfg['AllowArbitraryServer'] = false;
+\$cfg['ShowPhpInfo'] = false;
+\$cfg['ShowServerInfo'] = false;
+\$cfg['LoginCookieValidity'] = 1800;
+\$cfg['Servers'][1]['auth_type'] = 'cookie';
+\$cfg['Servers'][1]['host'] = 'localhost';
+PHPCFG
+    chmod 0644 "$new/config.inc.php"
+    echo "$PMA_VERSION" >"$new/.zenex-version"
+
+    rm -rf "$old"
+    if [[ -d "$PMA_DIR" ]]; then mv "$PMA_DIR" "$old"; fi
+    mv "$new" "$PMA_DIR"
+    rm -rf "$old"
+    chmod -R a+rX "$PMA_DIR"
+    info "phpMyAdmin $PMA_VERSION installed"
+}
+
 install_packages() {
     export DEBIAN_FRONTEND=noninteractive
     wait_for_package_manager
@@ -198,7 +282,6 @@ install_packages() {
     retry 3 20 apt-get install -y -qq --no-install-recommends \
         -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold \
         ca-certificates curl git openssl sshpass \
-        golang-go \
         postgresql \
         php-cli php-fpm php-mysql php-curl php-gd php-mbstring php-xml php-zip php-intl php-redis \
         mariadb-server \
@@ -210,6 +293,8 @@ install_packages() {
 }
 
 create_service_user() {
+    # Website SFTP accounts join this group; sshd applies its SFTP lock to it (see helper sftp.go).
+    getent group zenex-sftp >/dev/null 2>&1 || groupadd zenex-sftp
     if ! id -u "$ZENEX_USER" >/dev/null 2>&1; then
         useradd --system --home-dir "$STATE_DIR" --shell /usr/sbin/nologin "$ZENEX_USER"
     fi
@@ -810,6 +895,8 @@ main() {
 
     step "Installing system software (this takes a few minutes)"
     install_packages
+    install_go
+    install_phpmyadmin
 
     step "Preparing the service account and folders"
     create_service_user

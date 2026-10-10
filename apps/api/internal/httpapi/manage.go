@@ -23,6 +23,8 @@ type SiteManager interface {
 	Services(ctx context.Context) ([]manage.ServiceState, error)
 	Files(ctx context.Context, site store.Site, op, path, content string) (string, error)
 	SetMaintenance(ctx context.Context, site store.Site, enabled bool) error
+	SetSFTP(ctx context.Context, site store.Site, enable, reset bool) error
+	PrepareDBAdmin(ctx context.Context, site store.Site) error
 	StartBackup(ctx context.Context, site store.Site, actorID string) (string, error)
 	StartRestore(ctx context.Context, site store.Site, backup store.Backup, sourceDomain string, actorID string) (string, error)
 	ListRemoteBackups(ctx context.Context) ([]manage.RemoteBackup, error)
@@ -31,6 +33,11 @@ type SiteManager interface {
 	ScanCpanel(ctx context.Context, c manage.CpanelCreds) ([]manage.CpanelInstall, error)
 	StartMigration(ctx context.Context, req manage.MigrationRequest) (string, error)
 	WPLoginLink(ctx context.Context, site store.Site, now time.Time) (string, time.Time, error)
+	StartScan(ctx context.Context, site store.Site) error
+	SecurityStatus(ctx context.Context, site store.Site) (manage.SecurityStatus, error)
+	Quarantine(ctx context.Context, site store.Site, path, rule string) error
+	RestoreQuarantined(ctx context.Context, site store.Site, id string) error
+	DeleteQuarantined(ctx context.Context, site store.Site, id string) error
 	SFTPPublicKey(ctx context.Context) (string, error)
 	TestSFTP(ctx context.Context, dest store.SFTPDestination) error
 }

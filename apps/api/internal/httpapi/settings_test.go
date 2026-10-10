@@ -97,11 +97,30 @@ type settingsManage struct {
 	testErr     error
 	started     []string         // site IDs given a backup job, in order
 	startErr    map[string]error // site ID -> error from StartBackup
+	sftp        []string         // SFTP changes, e.g. "enable", "enable-reset", "disable"
+	dbadmin     int              // phpMyAdmin preparations
 }
 
 func (m *settingsManage) PHPVersions(context.Context) ([]string, error) {
 	return m.installed, nil
 }
+func (m *settingsManage) SetSFTP(_ context.Context, _ store.Site, enable, reset bool) error {
+	switch {
+	case !enable:
+		m.sftp = append(m.sftp, "disable")
+	case reset:
+		m.sftp = append(m.sftp, "enable-reset")
+	default:
+		m.sftp = append(m.sftp, "enable")
+	}
+	return nil
+}
+
+func (m *settingsManage) PrepareDBAdmin(context.Context, store.Site) error {
+	m.dbadmin++
+	return nil
+}
+
 func (m *settingsManage) SetMaintenance(_ context.Context, _ store.Site, on bool) error {
 	m.maintenance = &on
 	return nil

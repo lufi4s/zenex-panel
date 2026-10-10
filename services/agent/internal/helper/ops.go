@@ -69,6 +69,8 @@ type Paths struct {
 	BackupDir      string // /var/backups/zenex
 	BackupKeyDir   string // /etc/zenex/backup (SSH key pair, known_hosts, sftp batch files)
 	UploadDir      string // /var/lib/zenex/uploads (uploads staged by the API before they are imported)
+	QuarantineDir  string // /var/lib/zenex/quarantine (scan reports and quarantined files, root only)
+	SSHDropIn      string // /etc/ssh/sshd_config.d/zenex-sftp.conf (website SFTP access)
 }
 
 func DefaultPaths() Paths {
@@ -82,6 +84,8 @@ func DefaultPaths() Paths {
 		BackupDir:      "/var/backups/zenex",
 		BackupKeyDir:   "/etc/zenex/backup",
 		UploadDir:      "/var/lib/zenex/uploads",
+		QuarantineDir:  "/var/lib/zenex/quarantine",
+		SSHDropIn:      "/etc/ssh/sshd_config.d/zenex-sftp.conf",
 	}
 }
 
@@ -129,6 +133,10 @@ func (o *Ops) Do(ctx context.Context, op string, args map[string]string) (Result
 		return Result{}, o.poolWrite(ctx, args)
 	case "vhost.write":
 		return Result{}, o.vhostWrite(ctx, args)
+	case "sftp.enable":
+		return Result{}, o.sftpEnable(ctx, args)
+	case "sftp.disable":
+		return Result{}, o.sftpDisable(ctx, args)
 	case "wp.core-download":
 		return Result{}, o.wpCoreDownload(ctx, args)
 	case "wp.config-create":
@@ -159,6 +167,8 @@ func (o *Ops) Do(ctx context.Context, op string, args map[string]string) (Result
 		return Result{}, o.wpUpdate(ctx, args)
 	case "wp.autologin":
 		return Result{}, o.wpAutoLogin(ctx, args)
+	case "malware.scan", "malware.report", "malware.list", "malware.quarantine", "malware.restore", "malware.purge":
+		return o.malwareOp(ctx, op, args)
 	case "wp.verify":
 		return o.wpVerify(ctx, args)
 	case "cpanel.scan":
@@ -406,10 +416,16 @@ func maintenanceFlag(args map[string]string) (bool, error) {
 }
 
 func (o *Ops) wpRun(ctx context.Context, linuxUser string, wpArgs ...string) error {
+	return o.wpRunInput(ctx, linuxUser, "", wpArgs...)
+}
+
+// wpRunInput runs WP-CLI with stdin. Secrets go here, not in argv, because other
+// accounts can read a process's arguments through /proc. Pair it with --prompt=<arg>.
+func (o *Ops) wpRunInput(ctx context.Context, linuxUser, stdin string, wpArgs ...string) error {
 	home := o.homeDir(linuxUser)
 	argv := []string{"-u", linuxUser, "--", binEnv, "HOME=" + home, binWP, "--path=" + o.docRoot(linuxUser)}
 	argv = append(argv, wpArgs...)
-	res, err := o.Exec.Run(ctx, binRunuser, argv, 10*time.Minute)
+	res, err := o.Exec.RunInput(ctx, binRunuser, argv, stdin, 10*time.Minute)
 	if err != nil {
 		return fmt.Errorf("wp-cli: %w", err)
 	}
@@ -445,8 +461,8 @@ func (o *Ops) wpConfigCreate(ctx context.Context, args map[string]string) error 
 	if err := requireHex(pass, "database password"); err != nil {
 		return err
 	}
-	return o.wpRun(ctx, name, "config", "create",
-		"--dbname="+db, "--dbuser="+dbUser, "--dbpass="+pass, "--dbhost=localhost", "--dbcharset=utf8mb4")
+	return o.wpRunInput(ctx, name, pass+"\n", "config", "create",
+		"--dbname="+db, "--dbuser="+dbUser, "--prompt=dbpass", "--dbhost=localhost", "--dbcharset=utf8mb4")
 }
 
 func (o *Ops) wpCoreInstall(ctx context.Context, args map[string]string) error {
@@ -476,9 +492,9 @@ func (o *Ops) wpCoreInstall(ctx context.Context, args map[string]string) error {
 	} else if installed {
 		return nil
 	}
-	return o.wpRun(ctx, name, "core", "install",
+	return o.wpRunInput(ctx, name, pass+"\n", "core", "install",
 		"--url="+url, "--title="+title, "--admin_user="+admin,
-		"--admin_password="+pass, "--admin_email="+email, "--skip-email")
+		"--prompt=admin_password", "--admin_email="+email, "--skip-email")
 }
 
 // wpInstalled asks WP-CLI whether WordPress is already installed.
@@ -575,13 +591,13 @@ pm = ondemand
 pm.max_children = 5
 pm.process_idle_timeout = 10s
 pm.max_requests = 500
-php_admin_value[open_basedir] = %[2]s:/tmp/
+php_admin_value[open_basedir] = %[2]s:/tmp/:%[3]s/
 php_admin_value[upload_tmp_dir] = /tmp
 php_admin_value[memory_limit] = 256M
 php_admin_value[upload_max_filesize] = 64M
 php_admin_value[post_max_size] = 64M
 php_admin_value[session.save_path] = /tmp
-`, name, home)
+`, name, home, PMADir)
 }
 
 // vhostConfig builds the site file. In maintenance mode the final handler answers
@@ -591,6 +607,16 @@ func vhostConfig(name, domain, docRoot, logDir string, maintenance bool) string 
         php_fastcgi unix//run/php/zx-%s.sock
         file_server
     }`, name)
+	if !maintenance {
+		// phpMyAdmin for this website. Its own handler, so the database login page
+		// is reached only under /zenex-dbadmin and PHP runs as the site account.
+		handler = fmt.Sprintf(`handle_path /zenex-dbadmin* {
+        root * %[2]s
+        php_fastcgi unix//run/php/zx-%[1]s.sock
+        file_server
+    }
+    %[3]s`, name, PMADir, handler)
+	}
 	if maintenance {
 		handler = `handle {
         header Retry-After 3600
@@ -676,6 +702,7 @@ func trim(s string) string {
 // set of PHP-FPM binaries installed on the server, discovered at startup.
 func AllowedBinaries(phpFPM []string) []string {
 	base := []string{binUseradd, binUserdel, binRunuser, binEnv, binMariadb, binMariadbDump, binTar, binSystemctl, binWP, binGit, binSystemdRun, binBash, binSSHKeygen, binSFTP, binSSHPass, binSSH}
+	base = append(base, sftpBinaries...)
 	base = append(base, caddy.AllowedBinaries...)
 	return append(base, phpFPM...)
 }
