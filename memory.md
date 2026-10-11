@@ -797,3 +797,9 @@ Next: httpapi/mail.go (MailStore interface, Deps.Mail, routes: GET/PUT /domains/
 - Cause: update 14:17 succeeded and Roundcube 1.7.4 is installed, but the Caddy site `zenex-webmail.caddy` did not exist yet: `webmail.setup` only runs on Settings > Mail server > Save and apply. The Open webmail link shows as soon as a host is saved, so it opened an unpublished host (no certificate).
 - Changed: `apps/panel/src/components/MailServerCard.tsx` text tells the admin to Save and apply once after an update.
 - Next: user clicks Save and apply, waits ~1 min for the certificate, opens webmail. If it still fails, check Cloudflare: `mail` must be DNS-only (grey cloud).
+
+## 64. Resource use (user wants less than a 4 GB box needs)
+- Measured 2026-10-11: 2 cores, 3.8 GB, 1.3 GB used, 2.5 GB available, CPU ~95% idle, swap unused, 14 sites. No bottleneck found. Baseline is the mail stack (rspamd 286 MB, dovecot, postfix), postgres 236 MB, mariadb 187 MB, redis, fail2ban 96 MB, journald 299 MB.
+- Added `trim_server_resources` to `install.sh` (runs on every update): journald capped at 100 MB, ModemManager/udisks2/fwupd/motd-news disabled.
+- Seen but not changed: UI polls services.status ~33x per 10 min; MariaDB buffer pool 128 MB; PHP pools ondemand max_children 5; no page cache per site.
+- Next ideas: lower UI polling, rspamd worker count, site page-cache option, MariaDB buffer tune.

@@ -573,6 +573,24 @@ webmail_db_ready() {
     runuser -u "$RC_USER" -- php -r '$p = new PDO("sqlite:" . $argv[1]); $r = $p->query("SELECT name FROM sqlite_master WHERE type=\"table\" AND name=\"users\""); exit($r && $r->fetchColumn() ? 0 : 1);' "$RC_STATE/roundcube.db" >/dev/null 2>&1
 }
 
+# Trims what a hosting server does not need, so more memory is left for the websites: the system
+# log is capped, and desktop and hardware services that only run on a laptop are switched off.
+# Every step is safe to repeat and never fails the install.
+trim_server_resources() {
+    mkdir -p /etc/systemd/journald.conf.d
+    printf '[Journal]
+SystemMaxUse=100M
+RuntimeMaxUse=50M
+' >/etc/systemd/journald.conf.d/zenex.conf
+    systemctl restart systemd-journald >/dev/null 2>&1 || true
+    journalctl --vacuum-size=100M >/dev/null 2>&1 || true
+    local unit
+    for unit in ModemManager.service udisks2.service fwupd.service fwupd-refresh.timer motd-news.timer; do
+        systemctl disable --now "$unit" >/dev/null 2>&1 || true
+    done
+    info "server trimmed (log capped at 100 MB, unused services off)"
+}
+
 # Installs the webmail (Roundcube) with the panel, with its own database and its own unprivileged
 # account. It is published later, when the administrator sets the mail server up in the panel:
 # that step creates the web address (and its HTTPS certificate) under the mail host name.
@@ -1108,6 +1126,7 @@ main() {
     setup_database
     install_mail_server
     install_webmail
+    trim_server_resources
     write_env_file
 
     step "Creating the secure certificate"
