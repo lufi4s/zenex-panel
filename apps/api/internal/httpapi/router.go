@@ -106,6 +106,7 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("PUT /api/v1/sites/{id}/file", requireCSRF(d.requireSession(d.handleWriteFile)))
 	mux.Handle("POST /api/v1/sites/{id}/folders", requireCSRF(d.requireSession(d.handleCreateFolder)))
 	mux.Handle("DELETE /api/v1/sites/{id}/files", requireCSRF(d.requireSession(d.handleDeleteFile)))
+	mux.Handle("GET /api/v1/sites/{id}/files/download", d.requireSession(d.handleDownloadFiles))
 	mux.Handle("POST /api/v1/sites/{id}/files/upload", requireCSRF(d.requireSession(d.handleUploadFile)))
 	mux.Handle("POST /api/v1/migrations/cpanel/scan", requireCSRF(d.limitActions(d.handleScanCpanel)))
 	mux.Handle("POST /api/v1/migrations/cpanel", requireCSRF(d.limitActions(d.handleMigrateCpanel)))

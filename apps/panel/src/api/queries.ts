@@ -307,6 +307,20 @@ export function useAddMailbox(domainId: string) {
   });
 }
 
+/** Changes a mailbox password (and nothing else). */
+export function useChangeMailboxPassword(domainId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { id: string; password: string }) =>
+      apiRequest<Mailbox>(`/api/v1/mailboxes/${input.id}`, {
+        method: "PUT",
+        body: { password: input.password },
+      }),
+    meta: { silent: true },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["mail", domainId] }),
+  });
+}
+
 export function useRemoveMailbox(domainId: string) {
   const qc = useQueryClient();
   return useMutation({
@@ -432,6 +446,15 @@ export function useFolder(siteId: string, path: string, enabled: boolean) {
       apiRequest<FileEntry[]>(`/api/v1/sites/${siteId}/files?path=${encodeURIComponent(path)}`),
     enabled,
   });
+}
+
+/**
+ * The address that downloads files and folders of a website. One file is sent as it is; folders and
+ * several items arrive as one zip archive. The browser saves it, signed in with its session cookie.
+ */
+export function downloadUrl(siteId: string, paths: string[]): string {
+  const query = paths.map((p) => `path=${encodeURIComponent(p)}`).join("&");
+  return `/api/v1/sites/${siteId}/files/download?${query}`;
 }
 
 export function useFileContent(siteId: string, path: string | null) {

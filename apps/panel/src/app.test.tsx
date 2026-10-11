@@ -75,6 +75,7 @@ function mockApi(options: {
   let mailOn = false;
   let mailHost = "";
   const mailboxes: Array<Record<string, unknown>> = [];
+  const passwordChanges: Array<Record<string, unknown>> = [];
   const mailView = () => ({
     domain: "ozima.cloud",
     enabled: mailOn,
@@ -178,6 +179,10 @@ function mockApi(options: {
       };
       mailboxes.push(box);
       return json(box, 201);
+    }
+    if (url.includes("/api/v1/mailboxes/") && method === "PUT") {
+      passwordChanges.push(JSON.parse(String(init?.body)));
+      return json({ ...mailboxes[0], updated_at: "2026-10-11T01:00:00Z" });
     }
     if (url.endsWith("/api/v1/sites/s1/access") && method === "GET") return json(accessView());
     if (url.includes("/api/v1/sites/s1/access/sftp") && method === "PUT") {
@@ -571,6 +576,58 @@ describe("navigation", () => {
     chooseTab("Files");
     expect(await screen.findByText("wp-content")).toBeTruthy();
     expect(await screen.findByText("index.php")).toBeTruthy();
+  });
+
+  describe("downloads from the file list", () => {
+    const clicked: string[] = [];
+    beforeEach(() => {
+      clicked.length = 0;
+      vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+        this: HTMLAnchorElement,
+      ) {
+        clicked.push(decodeURIComponent(this.getAttribute("href") ?? ""));
+      });
+    });
+
+    async function openFiles() {
+      vi.stubGlobal("fetch", mockApi({ signedIn: true }));
+      renderAt("/websites/s1");
+      await screen.findByRole("heading", { name: "shop.ozima.cloud" });
+      chooseTab("Files");
+      await screen.findByText("index.php");
+    }
+
+    it("offers Download in the right-click menu of a file", async () => {
+      await openFiles();
+      fireEvent.contextMenu(screen.getByText("index.php"));
+      fireEvent.click(await screen.findByRole("menuitem", { name: "Download" }));
+      expect(clicked).toEqual(["/api/v1/sites/s1/files/download?path=index.php"]);
+      expect(screen.queryByRole("menu")).toBeNull();
+    });
+
+    it("downloads a folder as a zip from its right-click menu", async () => {
+      await openFiles();
+      fireEvent.contextMenu(screen.getByText("wp-content"));
+      fireEvent.click(await screen.findByRole("menuitem", { name: "Download folder as zip" }));
+      expect(clicked).toEqual(["/api/v1/sites/s1/files/download?path=wp-content"]);
+    });
+
+    it("downloads several selected items together", async () => {
+      await openFiles();
+      fireEvent.click(screen.getByRole("checkbox", { name: "Select wp-content" }));
+      fireEvent.click(screen.getByRole("checkbox", { name: "Select index.php" }));
+      expect(screen.getByText("2 selected")).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Download selected" }));
+      expect(clicked).toEqual(["/api/v1/sites/s1/files/download?path=wp-content&path=index.php"]);
+    });
+
+    it("downloads every selected item when the right-click lands on a selected row", async () => {
+      await openFiles();
+      fireEvent.click(screen.getByRole("checkbox", { name: "Select all" }));
+      fireEvent.contextMenu(screen.getByText("index.php"));
+      fireEvent.click(await screen.findByRole("menuitem", { name: "Download 2 items as zip" }));
+      expect(clicked).toEqual(["/api/v1/sites/s1/files/download?path=wp-content&path=index.php"]);
+    });
   });
 
   it("shows maintenance mode and WordPress updates on the overview", async () => {
@@ -1254,6 +1311,68 @@ describe("mail on a connected domain", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Add mailbox" }));
     expect(await screen.findByText("info@ozima.cloud")).toBeTruthy();
+  });
+
+  async function openMailWithOn() {
+    vi.stubGlobal("fetch", mockApi({ signedIn: true }));
+    renderAt("/domains");
+    fireEvent.click(await screen.findByRole("button", { name: "Mail" }));
+    const toggle = (await screen.findByLabelText("Mail for ozima.cloud")) as HTMLInputElement;
+    fireEvent.click(toggle);
+    await waitFor(() =>
+      expect(screen.queryByText("Turn mail on above before adding mailboxes.")).toBeNull(),
+    );
+  }
+
+  it("makes a strong password with Generate, shows it, and can hide it again", async () => {
+    await openMailWithOn();
+    const field = screen.getByLabelText("Password (12+ characters)") as HTMLInputElement;
+    expect(field.type).toBe("password");
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+    expect(field.type).toBe("text");
+    expect(field.value).toMatch(/^[A-Za-z0-9]{20}$/);
+    const first = field.value;
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+    expect(field.value).not.toBe(first);
+    fireEvent.click(screen.getByRole("button", { name: "Hide password" }));
+    expect(field.type).toBe("password");
+    fireEvent.click(screen.getByRole("button", { name: "Show password" }));
+    expect(field.type).toBe("text");
+  });
+
+  it("shows the address and password once after a mailbox is created", async () => {
+    await openMailWithOn();
+    changeValue(screen.getByLabelText("Name before @"), { target: { value: "sales" } });
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+    const made = (screen.getByLabelText("Password (12+ characters)") as HTMLInputElement).value;
+    fireEvent.click(screen.getByRole("button", { name: "Add mailbox" }));
+    const card = await screen.findByRole("status");
+    expect(within(card).getByText("Mailbox created")).toBeTruthy();
+    expect(within(card).getByText("sales@ozima.cloud")).toBeTruthy();
+    expect(within(card).getByText(made)).toBeTruthy();
+    fireEvent.click(within(card).getByRole("button", { name: "Done" }));
+    expect(screen.queryByText(made)).toBeNull();
+  });
+
+  it("changes the password of an existing mailbox", async () => {
+    await openMailWithOn();
+    changeValue(screen.getByLabelText("Name before @"), { target: { value: "info" } });
+    changeValue(screen.getByLabelText("Password (12+ characters)"), {
+      target: { value: "correct horse battery" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add mailbox" }));
+    await screen.findByText("info@ozima.cloud");
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Change password of info@ozima.cloud" }));
+    const save = screen.getByRole("button", { name: "Save password" }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    fireEvent.click(screen.getAllByRole("button", { name: "Generate" })[0]);
+    expect(save.disabled).toBe(false);
+    fireEvent.click(save);
+    const card = await screen.findByRole("status");
+    expect(within(card).getByText("Password changed")).toBeTruthy();
+    expect(within(card).getByText("info@ozima.cloud")).toBeTruthy();
   });
 });
 

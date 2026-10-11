@@ -32,6 +32,7 @@ type SiteManager interface {
 	StartRestore(ctx context.Context, site store.Site, backup store.Backup, sourceDomain string, actorID string) (string, error)
 	ListRemoteBackups(ctx context.Context) ([]manage.RemoteBackup, error)
 	StartRemoteRestore(ctx context.Context, site store.Site, rb manage.RemoteBackup, actorID string) (string, error)
+	ExportFiles(ctx context.Context, site store.Site, paths []string, staged string) (manage.Export, error)
 	ImportFile(ctx context.Context, site store.Site, dir, name, staged string) error
 	ScanCpanel(ctx context.Context, c manage.CpanelCreds) ([]manage.CpanelInstall, error)
 	StartMigration(ctx context.Context, req manage.MigrationRequest) (string, error)

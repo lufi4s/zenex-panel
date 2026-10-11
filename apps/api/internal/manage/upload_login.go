@@ -2,12 +2,14 @@ package manage
 
 import (
 	"context"
+	"encoding/json"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/store"
@@ -62,4 +64,30 @@ func (m *Manager) WPLoginLink(ctx context.Context, site store.Site, now time.Tim
 	mac.Write([]byte(payload))
 	link := "https://" + site.Domain + "/?zenex_autologin=" + payload + "." + hex.EncodeToString(mac.Sum(nil))
 	return link, expires, nil
+}
+
+// Export is a prepared download: the name to save it under and whether it is one file as it is
+// or a zip archive.
+type Export struct {
+	Name string `json:"name"`
+	Kind string `json:"kind"`
+}
+
+// ExportFiles prepares a download of files and folders of the website. staged is an empty file
+// in UploadDir that the helper fills; the caller sends it and removes it.
+func (m *Manager) ExportFiles(ctx context.Context, site store.Site, paths []string, staged string) (Export, error) {
+	if site.State != "ready" && site.State != "suspended" {
+		return Export{}, refuse("files can be managed once the website is ready (it is %s)", site.State)
+	}
+	out, err := m.Helper.Output(ctx, "files.export", map[string]string{
+		"user": site.LinuxUser, "paths": strings.Join(paths, "\n"), "staged": staged,
+	})
+	if err != nil {
+		return Export{}, err
+	}
+	var e Export
+	if err := json.Unmarshal([]byte(out), &e); err != nil || e.Name == "" {
+		return Export{}, errors.New("the download could not be prepared")
+	}
+	return e, nil
 }

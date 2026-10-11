@@ -1,6 +1,7 @@
-import { createEffect, createMemo, createSignal, For, on, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, on, onCleanup, Show } from "solid-js";
 import {
   ChevronRight,
+  Download,
   File,
   FilePlus,
   Folder,
@@ -19,6 +20,7 @@ import {
   useFolder,
   useSaveFile,
   useUploadFile,
+  downloadUrl,
 } from "@/api/queries";
 import { describeError } from "@/api/client";
 import type { FileEntry, Site } from "@/api/types";
@@ -29,6 +31,25 @@ import { formatBytes } from "@/lib/format";
 
 function joinPath(folder: string, name: string): string {
   return folder ? `${folder}/${name}` : name;
+}
+
+/** Starts the browser download of the given paths of a website. */
+function startDownload(siteId: string, paths: string[]) {
+  const link = document.createElement("a");
+  link.href = downloadUrl(siteId, paths);
+  link.rel = "noopener";
+  link.style.display = "none";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
+interface MenuState {
+  x: number;
+  y: number;
+  /** The full paths the menu acts on: the clicked row, or every selected row if it is one of them. */
+  paths: string[];
+  entry: FileEntry | null;
 }
 
 function Crumbs(props: { path: string; onGo: (p: string) => void }) {
@@ -75,7 +96,41 @@ function Listing(props: {
   const folder = useFolder(props.siteId, props.path, true);
   const remove = useDeleteFile(props.siteId);
   const [confirming, setConfirming] = createSignal<string | null>(null);
+  const [selected, setSelected] = createSignal<string[]>([]);
+  const [menu, setMenu] = createSignal<MenuState | null>(null);
   const entries = (): FileEntry[] => folder.data ?? [];
+  const allFull = () => entries().map((e) => joinPath(props.path, e.name));
+  const allSelected = () => entries().length > 0 && selected().length === entries().length;
+
+  const toggle = (full: string) =>
+    setSelected((cur) => (cur.includes(full) ? cur.filter((p) => p !== full) : [...cur, full]));
+
+  const openMenu = (e: MouseEvent, entry: FileEntry) => {
+    e.preventDefault();
+    const full = joinPath(props.path, entry.name);
+    const paths = selected().includes(full) ? selected() : [full];
+    setMenu({
+      x: Math.min(e.clientX, window.innerWidth - 220),
+      y: Math.min(e.clientY, window.innerHeight - 180),
+      paths,
+      entry: paths.length === 1 ? entry : null,
+    });
+  };
+
+  // The menu closes on any click elsewhere, on Escape and when the page scrolls.
+  createEffect(() => {
+    if (!menu()) return;
+    const close = () => setMenu(null);
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
+    window.addEventListener("click", close);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("keydown", onKey);
+    onCleanup(() => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("keydown", onKey);
+    });
+  });
 
   return (
     <Show
@@ -96,10 +151,33 @@ function Listing(props: {
             <p class="p-8 text-center text-sm text-muted-foreground">This folder is empty.</p>
           }
         >
+          <Show when={selected().length > 0}>
+            <div class="mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm">
+              <span class="font-medium">{selected().length} selected</span>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => startDownload(props.siteId, selected())}
+              >
+                <Download aria-hidden="true" /> Download selected
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setSelected([])}>
+                Clear selection
+              </Button>
+            </div>
+          </Show>
           <div class="overflow-x-auto rounded-lg border border-border">
             <table class="w-full text-sm">
               <thead class="bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
                 <tr>
+                  <th class="w-10 px-4 py-2.5">
+                    <input
+                      type="checkbox"
+                      aria-label="Select all"
+                      checked={allSelected()}
+                      onChange={() => setSelected(allSelected() ? [] : allFull())}
+                    />
+                  </th>
                   <th class="px-4 py-2.5 font-medium">Name</th>
                   <th class="hidden px-4 py-2.5 font-medium sm:table-cell">Size</th>
                   <th class="hidden px-4 py-2.5 font-medium md:table-cell">Modified</th>
@@ -112,7 +190,18 @@ function Listing(props: {
                     const full = () => joinPath(props.path, entry.name);
                     const isDir = entry.type === "dir";
                     return (
-                      <tr class="border-t border-border hover:bg-muted/40">
+                      <tr
+                        class={`border-t border-border hover:bg-muted/40 ${selected().includes(full()) ? "bg-primary/5" : ""}`}
+                        onContextMenu={(e) => openMenu(e, entry)}
+                      >
+                        <td class="w-10 px-4 py-2.5">
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${entry.name}`}
+                            checked={selected().includes(full())}
+                            onChange={() => toggle(full())}
+                          />
+                        </td>
                         <td class="px-4 py-2.5">
                           <button
                             type="button"
@@ -148,6 +237,15 @@ function Listing(props: {
                         </td>
                         <td class="px-4 py-2.5 text-right">
                           <div class="flex justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => startDownload(props.siteId, [full()])}
+                              aria-label={`Download ${entry.name}`}
+                              title={isDir ? "Download as a zip archive" : "Download"}
+                            >
+                              <Download aria-hidden="true" />
+                            </Button>
                             <Show when={!isDir && entry.editable}>
                               <Button
                                 variant="ghost"
@@ -198,6 +296,55 @@ function Listing(props: {
               </div>
             </Show>
           </div>
+          <Show when={menu()}>
+            {(m) => (
+              <div
+                role="menu"
+                aria-label="File actions"
+                class="fixed z-50 min-w-48 rounded-md border border-border bg-popover p-1 text-sm shadow-md"
+                style={{ left: `${m().x}px`, top: `${m().y}px` }}
+                onClick={(e) => e.stopPropagation()}
+                onContextMenu={(e) => e.preventDefault()}
+              >
+                <Show when={m().entry}>
+                  {(entry) => (
+                    <Show when={entry().type === "dir" || entry().editable}>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-muted"
+                        onClick={() => {
+                          const target = m().paths[0];
+                          setMenu(null);
+                          if (entry().type === "dir") props.onOpenFolder(target);
+                          else props.onOpenFile(target);
+                        }}
+                      >
+                        {entry().type === "dir" ? "Open" : "Edit"}
+                      </button>
+                    </Show>
+                  )}
+                </Show>
+                <button
+                  type="button"
+                  role="menuitem"
+                  class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-muted"
+                  onClick={() => {
+                    const paths = m().paths;
+                    setMenu(null);
+                    startDownload(props.siteId, paths);
+                  }}
+                >
+                  <Download class="size-4" aria-hidden="true" />
+                  {m().paths.length > 1
+                    ? `Download ${m().paths.length} items as zip`
+                    : m().entry?.type === "dir"
+                      ? "Download folder as zip"
+                      : "Download"}
+                </button>
+              </div>
+            )}
+          </Show>
         </Show>
       </Show>
     </Show>

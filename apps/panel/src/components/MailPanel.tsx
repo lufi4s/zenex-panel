@@ -2,6 +2,7 @@ import { createSignal, For, Show } from "solid-js";
 import { describeError } from "@/api/client";
 import {
   useAddMailbox,
+  useChangeMailboxPassword,
   useCheckMailDNS,
   useMail,
   useRemoveMailbox,
@@ -11,6 +12,7 @@ import type { Domain, MailCheckResult } from "@/api/types";
 import { Check, Copy, Trash2 } from "@/components/icons";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button, buttonClasses } from "@/components/ui/button";
+import { PasswordField } from "@/components/PasswordField";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { formatBytes } from "@/lib/format";
@@ -83,6 +85,49 @@ function DNSRow(props: { type: string; name: string; value: string; note: string
   );
 }
 
+/** A mailbox address and its password, shown once after it is created or changed. */
+interface Credentials {
+  title: string;
+  address: string;
+  password: string;
+}
+
+function CredentialsCard(props: { credentials: Credentials; onDone: () => void }) {
+  const [copied, setCopied] = createSignal(false);
+  const copy = async () => {
+    await navigator.clipboard.writeText(
+      `${props.credentials.address}\n${props.credentials.password}`,
+    );
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1500);
+  };
+  return (
+    <div
+      role="status"
+      class="space-y-2 rounded-md border border-success/40 bg-success/5 p-3 text-sm"
+    >
+      <p class="font-medium">{props.credentials.title}</p>
+      <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+        <dt class="text-muted-foreground">Address</dt>
+        <dd class="break-all font-mono text-xs">{props.credentials.address}</dd>
+        <dt class="text-muted-foreground">Password</dt>
+        <dd class="break-all font-mono text-xs">{props.credentials.password}</dd>
+      </dl>
+      <p class="text-xs text-muted-foreground">
+        Save this password now. It is not shown again, but you can set a new one at any time.
+      </p>
+      <div class="flex gap-2">
+        <Button type="button" size="sm" variant="outline" onClick={() => void copy()}>
+          {copied() ? <Check aria-hidden /> : <Copy aria-hidden />} Copy address and password
+        </Button>
+        <Button type="button" size="sm" variant="ghost" onClick={props.onDone}>
+          Done
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 /** Mail for one connected domain: the switch, mailboxes, and the DNS records to add. */
 export function MailPanel(props: { domain: Domain }) {
   const mail = useMail(props.domain.id);
@@ -90,6 +135,10 @@ export function MailPanel(props: { domain: Domain }) {
   const addBox = useAddMailbox(props.domain.id);
   const check = useCheckMailDNS(props.domain.id);
   const removeBox = useRemoveMailbox(props.domain.id);
+  const changePassword = useChangeMailboxPassword(props.domain.id);
+  const [credentials, setCredentials] = createSignal<Credentials | null>(null);
+  const [changingId, setChangingId] = createSignal<string | null>(null);
+  const [newPassword, setNewPassword] = createSignal("");
   const [localPart, setLocalPart] = createSignal("");
   const [password, setPassword] = createSignal("");
   const [quota, setQuota] = createSignal(1024);
@@ -102,8 +151,30 @@ export function MailPanel(props: { domain: Domain }) {
       { local_part: localPart().trim(), password: password(), quota_mb: quota() },
       {
         onSuccess: () => {
+          setCredentials({
+            title: "Mailbox created",
+            address: address(),
+            password: password(),
+          });
           setLocalPart("");
           setPassword("");
+        },
+      },
+    );
+  };
+
+  const savePassword = (id: string, boxAddress: string) => {
+    changePassword.mutate(
+      { id, password: newPassword() },
+      {
+        onSuccess: () => {
+          setCredentials({
+            title: "Password changed",
+            address: boxAddress,
+            password: newPassword(),
+          });
+          setChangingId(null);
+          setNewPassword("");
         },
       },
     );
@@ -182,16 +253,76 @@ export function MailPanel(props: { domain: Domain }) {
                         <span class="font-medium break-all">
                           {box.local_part}@{view().domain}
                         </span>
+                        <Show when={changingId() === box.id}>
+                          <form
+                            class="flex w-full flex-wrap items-end gap-2"
+                            onSubmit={(e) => {
+                              e.preventDefault();
+                              savePassword(box.id, `${box.local_part}@${view().domain}`);
+                            }}
+                          >
+                            <div class="min-w-64 flex-1">
+                              <PasswordField
+                                id={`mb-new-${box.id}`}
+                                label="New password (12+ characters)"
+                                value={newPassword()}
+                                onChange={setNewPassword}
+                              />
+                            </div>
+                            <Button
+                              type="submit"
+                              size="sm"
+                              disabled={changePassword.isPending || newPassword().length < 12}
+                            >
+                              {changePassword.isPending ? "Saving…" : "Save password"}
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => {
+                                setChangingId(null);
+                                setNewPassword("");
+                              }}
+                            >
+                              Cancel
+                            </Button>
+                          </form>
+                          <Show when={changePassword.error}>
+                            <p class="w-full text-xs text-destructive" role="alert">
+                              {describeError(changePassword.error)}
+                            </p>
+                          </Show>
+                        </Show>
                         <span class="text-xs text-muted-foreground">
                           {formatBytes(box.quota_mb * 1024 * 1024)} quota
                         </span>
                         <Show when={!box.active}>
                           <span class="text-xs text-warning">disabled</span>
                         </Show>
+                        <Show when={changingId() !== box.id}>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            class="ml-auto"
+                            aria-label={`Change password of ${box.local_part}@${view().domain}`}
+                            onClick={() => {
+                              setChangingId(box.id);
+                              setNewPassword("");
+                              changePassword.reset();
+                            }}
+                          >
+                            Change password
+                          </Button>
+                        </Show>
                         <Button
                           variant="ghost"
                           size="sm"
-                          class="ml-auto text-destructive"
+                          class={
+                            changingId() !== box.id
+                              ? "text-destructive"
+                              : "ml-auto text-destructive"
+                          }
                           aria-label={`Remove ${box.local_part}@${view().domain}`}
                           disabled={removeBox.isPending}
                           onClick={() => removeBox.mutate(box.id)}
@@ -229,16 +360,12 @@ export function MailPanel(props: { domain: Domain }) {
                     </span>
                   </div>
                 </div>
-                <div class="space-y-1.5">
-                  <Label for={`mb-pass-${props.domain.id}`}>Password (12+ characters)</Label>
-                  <Input
-                    id={`mb-pass-${props.domain.id}`}
-                    type="password"
-                    autocomplete="new-password"
-                    value={password()}
-                    onInput={(e) => setPassword(e.currentTarget.value)}
-                  />
-                </div>
+                <PasswordField
+                  id={`mb-pass-${props.domain.id}`}
+                  label="Password (12+ characters)"
+                  value={password()}
+                  onChange={setPassword}
+                />
                 <div class="space-y-1.5">
                   <Label for={`mb-quota-${props.domain.id}`}>Quota</Label>
                   <select
@@ -263,6 +390,9 @@ export function MailPanel(props: { domain: Domain }) {
                 <Alert variant="destructive">
                   <AlertDescription>{describeError(addBox.error)}</AlertDescription>
                 </Alert>
+              </Show>
+              <Show when={credentials()}>
+                {(c) => <CredentialsCard credentials={c()} onDone={() => setCredentials(null)} />}
               </Show>
               <Show when={!view().enabled}>
                 <p class="text-xs text-muted-foreground">

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -63,6 +64,7 @@ func (s *settingsSites) SetBackupSettings(_ context.Context, _ string, v store.B
 	s.backup = v
 	return nil
 }
+
 // LatestJobForSiteOfType reports no backup or restore job, so starts are not refused as busy.
 func (s *settingsSites) LatestJobForSiteOfType(context.Context, string, string) (store.Job, error) {
 	return store.Job{}, store.ErrNotFound
@@ -92,16 +94,17 @@ func (s *settingsSites) CreateSiteWithJob(_ context.Context, in store.NewSite) (
 // settingsManage implements the PHP version list and the maintenance call.
 type settingsManage struct {
 	SiteManager
-	installed   []string
-	maintenance *bool
-	pageCache *bool
+	installed    []string
+	maintenance  *bool
+	pageCache    *bool
 	cacheCleared int
-	tested      []store.SFTPDestination
-	testErr     error
-	started     []string         // site IDs given a backup job, in order
-	startErr    map[string]error // site ID -> error from StartBackup
-	sftp        []string         // SFTP changes, e.g. "enable", "enable-reset", "disable"
-	dbadmin     int              // phpMyAdmin preparations
+	tested       []store.SFTPDestination
+	testErr      error
+	started      []string         // site IDs given a backup job, in order
+	startErr     map[string]error // site ID -> error from StartBackup
+	sftp         []string         // SFTP changes, e.g. "enable", "enable-reset", "disable"
+	dbadmin      int              // phpMyAdmin preparations
+	exported     []string         // paths of the last download
 }
 
 func (m *settingsManage) PHPVersions(context.Context) ([]string, error) {
@@ -141,6 +144,16 @@ func (m *settingsManage) SetPageCache(_ context.Context, _ store.Site, on bool) 
 func (m *settingsManage) ClearPageCache(context.Context, store.Site) error {
 	m.cacheCleared++
 	return nil
+}
+func (m *settingsManage) ExportFiles(_ context.Context, _ store.Site, paths []string, staged string) (manage.Export, error) {
+	m.exported = paths
+	if err := os.WriteFile(staged, []byte("hello"), 0o600); err != nil {
+		return manage.Export{}, err
+	}
+	if len(paths) == 1 && paths[0] == "wp-content/a.txt" {
+		return manage.Export{Name: "a.txt", Kind: "file"}, nil
+	}
+	return manage.Export{Name: "download.zip", Kind: "zip"}, nil
 }
 func (m *settingsManage) StartBackup(_ context.Context, site store.Site, _ string) (string, error) {
 	if err := m.startErr[site.ID]; err != nil {
@@ -500,5 +513,55 @@ func TestPageCacheToggleAndClear(t *testing.T) {
 	}
 	if e.manage.cacheCleared != 1 {
 		t.Fatal("cache not cleared")
+	}
+}
+
+func TestDownloadSendsTheFileAndRemovesTheStagedCopy(t *testing.T) {
+	dir := t.TempDir()
+	old := downloadDir
+	downloadDir = dir
+	defer func() { downloadDir = old }()
+	oldFree := diskFree
+	diskFree = func(string) (uint64, error) { return 100 << 30, nil }
+	defer func() { diskFree = oldFree }()
+
+	e := newSettingsEnv(t)
+	cookie := e.login(t, testEmail)
+	base := "/api/v1/sites/11111111-aaaa-4aaa-8aaa-111111111111/files/download"
+
+	rec := e.call(t, http.MethodGet, base+"?path=wp-content/a.txt", "", cookie, false)
+	if rec.Code != http.StatusOK || rec.Body.String() != "hello" {
+		t.Fatalf("download = %d %q", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Content-Disposition"); !strings.HasPrefix(got, "attachment;") || !strings.Contains(got, "a.txt") {
+		t.Fatalf("Content-Disposition = %q", got)
+	}
+	if rec.Header().Get("Content-Type") != "application/octet-stream" || rec.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("headers = %v", rec.Header())
+	}
+
+	rec = e.call(t, http.MethodGet, base+"?path=wp-content&path=index.php", "", cookie, false)
+	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "application/zip" {
+		t.Fatalf("several items = %d %v", rec.Code, rec.Header())
+	}
+	if strings.Join(e.manage.exported, ",") != "wp-content,index.php" {
+		t.Fatalf("paths = %v", e.manage.exported)
+	}
+	if left, _ := os.ReadDir(dir); len(left) != 0 {
+		t.Fatalf("staged downloads left behind: %d", len(left))
+	}
+}
+
+func TestDownloadRefusesMissingOrBadPaths(t *testing.T) {
+	e := newSettingsEnv(t)
+	cookie := e.login(t, testEmail)
+	base := "/api/v1/sites/11111111-aaaa-4aaa-8aaa-111111111111/files/download"
+	for _, q := range []string{"", "?path=a%0Ab", "?path=" + strings.Repeat("a", 1025)} {
+		if rec := e.call(t, http.MethodGet, base+q, "", cookie, false); rec.Code != http.StatusBadRequest {
+			t.Errorf("query %q = %d, want 400", q[:min(len(q), 20)], rec.Code)
+		}
+	}
+	if rec := e.call(t, http.MethodGet, base+"?path=a", "", nil, false); rec.Code != http.StatusUnauthorized {
+		t.Errorf("signed out = %d, want 401", rec.Code)
 	}
 }

@@ -60,6 +60,11 @@ export const ChevronDown = icon("ChevronDown", <path d="m6 9 6 6 6-6" />);
 
 export const RotateCcw = icon("RotateCcw", <path d="M3 3v5h5M3.05 13A9 9 0 1 0 6 5.3L3 8" />);
 
+export const Download = icon(
+  "Download",
+  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" />,
+);
+
 export const Upload = icon(
   "Upload",
   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" />,
