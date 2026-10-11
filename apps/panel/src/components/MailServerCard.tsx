@@ -33,7 +33,7 @@ export function MailServerCard() {
         <CardDescription>
           The mail software and the webmail come installed with the panel. Choose the mail host name
           to turn the mail server on; the webmail opens at the same name. Use it again after you
-          change a domain's mail settings if mail does not pick them up.
+          change a domain's mail settings, and once after a panel update, so the webmail address is published.
         </CardDescription>
       </CardHeader>
       <CardContent class="space-y-4">

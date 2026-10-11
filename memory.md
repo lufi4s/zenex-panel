@@ -792,3 +792,8 @@ Next: httpapi/mail.go (MailStore interface, Deps.Mail, routes: GET/PUT /domains/
 - Live failure: update to 391b620 stopped at "the webmail database could not be created" (initdb: "table users already exists"). The DB file already held the full schema.
 - Fix in `infrastructure/deployment/install.sh`: new `webmail_db_ready` (PDO check for the `users` table). `install_webmail` runs initdb only when not ready, ignores its exit code, and fails only if the table is still missing; otherwise runs updatedb best-effort.
 - Next: user runs Update now again, then Settings > Mail server > Save and apply, then Open webmail (login akamai@ozima.cloud).
+
+## 63. Open webmail "can't provide a secure connection"
+- Cause: update 14:17 succeeded and Roundcube 1.7.4 is installed, but the Caddy site `zenex-webmail.caddy` did not exist yet: `webmail.setup` only runs on Settings > Mail server > Save and apply. The Open webmail link shows as soon as a host is saved, so it opened an unpublished host (no certificate).
+- Changed: `apps/panel/src/components/MailServerCard.tsx` text tells the admin to Save and apply once after an update.
+- Next: user clicks Save and apply, waits ~1 min for the certificate, opens webmail. If it still fails, check Cloudflare: `mail` must be DNS-only (grey cloud).
