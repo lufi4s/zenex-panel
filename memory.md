@@ -745,4 +745,5 @@ Next: httpapi/mail.go (MailStore interface, Deps.Mail, routes: GET/PUT /domains/
 - Other open items: per-site disk quota; SSH host key confirm; backup/restore resumable; security e2e tests; go test -race in CI; built dist is committed to git.
 - Test command: npm test at repo root runs Go (validation, agent, api) and panel UI suites; last run passed.
 - Working rules: auto-push finished, tested fixes to origin main (feedback_auto_push memory). Edit files in UTF-8 (a Windows text-mode write once corrupted app.test.tsx). Do not touch the live server without explicit permission.
+- Fix (user report: DKIM "Waiting" after turning mail on): MailDKIMValue required ZENEX_MAIL_HOST, so enabling mail failed with dkim_failed on servers without the mail server. The key does not need the mail server now. Test: manage/mail_dkim_test.go. Also the check summary now says "Almost there" when only the DKIM record is pending (MailPanel summary()). UI tests 81 pass.
 

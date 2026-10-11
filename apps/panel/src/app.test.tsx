@@ -1273,3 +1273,45 @@ describe("mail DNS check", () => {
     ).toBeTruthy();
   });
 });
+
+describe("mail DNS check summary", () => {
+  it("says almost there when the only open record is the DKIM key that mail creates", async () => {
+    const base = mockApi({ signedIn: true });
+    const pendingOnly = (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/api/v1/domains/d1/mail/check")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              checked_at: "2026-10-11T00:00:00Z",
+              all_ok: false,
+              results: [
+                {
+                  type: "MX",
+                  name: "@",
+                  status: "ok",
+                  found: ["mail.ozima.cloud"],
+                  message: "Mail for the domain is delivered to the mail host.",
+                },
+                {
+                  type: "TXT",
+                  name: "default._domainkey",
+                  status: "pending",
+                  found: [],
+                  message:
+                    "The DKIM key is created when mail is turned on. Turn mail on, then check again.",
+                },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      }
+      return base(input, init);
+    };
+    vi.stubGlobal("fetch", pendingOnly);
+    renderAt("/mail");
+    fireEvent.click(await screen.findByRole("button", { name: "Check DNS now" }));
+    expect(await screen.findByText(/Almost there\./)).toBeTruthy();
+    expect(screen.queryByText(/Some records are not in place yet/)).toBeNull();
+  });
+});

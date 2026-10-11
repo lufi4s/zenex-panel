@@ -31,6 +31,17 @@ const CHECK_TONE: Record<MailCheckResult["status"], string> = {
   pending: "text-muted-foreground",
 };
 
+/** One line for the whole check. Pending items (the DKIM key) are not a fault. */
+function summary(results: MailCheckResult[], allOK: boolean): string {
+  if (allOK) return "Every record is published and correct.";
+  const faults = results.some(
+    (r) => r.status === "missing" || r.status === "different" || r.status === "error",
+  );
+  if (faults)
+    return "Some records are not in place yet. DNS changes can take up to a day to spread.";
+  return "Almost there. The only open item is created when mail is turned on.";
+}
+
 const QUOTAS = [
   { mb: 1024, label: "1 GB" },
   { mb: 5120, label: "5 GB" },
@@ -253,9 +264,7 @@ export function MailPanel(props: { domain: Domain }) {
                 {(report) => (
                   <div class="space-y-2 rounded-md border border-border bg-card p-3 text-sm">
                     <p class={report().all_ok ? "font-medium text-success" : "font-medium"}>
-                      {report().all_ok
-                        ? "Every record is published and correct."
-                        : "Some records are not in place yet. DNS changes can take up to a day to spread."}
+                      {summary(report().results, report().all_ok)}
                     </p>
                     <ul class="space-y-1">
                       <For each={report().results}>

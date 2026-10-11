@@ -3,7 +3,6 @@ package manage
 import (
 	"context"
 	"encoding/json"
-	"errors"
 
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/mail"
 )
@@ -52,10 +51,8 @@ func (m *Manager) ApplyMailServer(ctx context.Context) error {
 }
 
 // MailDKIMValue returns the public DKIM value for a domain, creating its key the first time.
+// The key does not need the mail server to be installed, so mail can be turned on before it is.
 func (m *Manager) MailDKIMValue(ctx context.Context, apex string) (string, error) {
-	if m.MailServer.Host == "" {
-		return "", errors.New("the mail server is not set up on this server")
-	}
 	out, err := m.Helper.Output(ctx, "mail.dkim-key", map[string]string{"domain": apex})
 	if err != nil {
 		return "", err
