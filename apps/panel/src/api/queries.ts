@@ -320,7 +320,7 @@ export function useRemoveMailbox(domainId: string) {
 export function useMailServer() {
   return useQuery({
     queryKey: ["mail-server"],
-    queryFn: () => apiRequest<{ host: string }>("/api/v1/mail/server"),
+    queryFn: () => apiRequest<{ host: string; webmail_url: string }>("/api/v1/mail/server"),
   });
 }
 
@@ -329,7 +329,10 @@ export function useSetupMailServer() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (host: string) =>
-      apiRequest<{ host: string }>("/api/v1/mail/server", { method: "PUT", body: { host } }),
+      apiRequest<{ host: string; webmail_url: string }>("/api/v1/mail/server", {
+        method: "PUT",
+        body: { host },
+      }),
     meta: { silent: true },
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["mail-server"] }),
   });

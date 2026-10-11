@@ -26,8 +26,8 @@ type mailFilePayload struct {
 
 // ApplyMailServer sets the mail server up for host: the helper first prepares the certificate
 // and the firewall ports, makes sure every mail domain's DKIM key is where rspamd can read it,
-// then writes, checks and loads the configuration. If any check fails the helper restores the
-// old files.
+// writes, checks and loads the configuration, and finally publishes the webmail under the host
+// name. If a check fails the helper restores the old files.
 func (m *Manager) ApplyMailServer(ctx context.Context, host string, domains []string) error {
 	if !mail.ValidHostname(host) {
 		return refuse("the mail host must be a full host name such as mail.example.com (lower case)")
@@ -55,7 +55,11 @@ func (m *Manager) ApplyMailServer(ctx context.Context, host string, domains []st
 			return err
 		}
 	}
-	_, err = m.Helper.Do(ctx, "mail.apply", map[string]string{"files": string(raw), "dbpass": s.DBPass})
+	if _, err := m.Helper.Do(ctx, "mail.apply", map[string]string{"files": string(raw), "dbpass": s.DBPass}); err != nil {
+		return err
+	}
+	// Publish the webmail under the mail host name: Caddy fetches its HTTPS certificate.
+	_, err = m.Helper.Do(ctx, "webmail.setup", map[string]string{"host": host})
 	return err
 }
 

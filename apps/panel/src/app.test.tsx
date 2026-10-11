@@ -78,6 +78,7 @@ function mockApi(options: {
     domain: "ozima.cloud",
     enabled: mailOn,
     delivery_ready: false,
+    webmail_url: mailHost ? `https://${mailHost}/` : "",
     mailboxes: [...mailboxes],
     dns: [
       {
@@ -137,10 +138,11 @@ function mockApi(options: {
         ],
       });
     }
-    if (url.endsWith("/api/v1/mail/server") && method === "GET") return json({ host: mailHost });
+    if (url.endsWith("/api/v1/mail/server") && method === "GET")
+      return json({ host: mailHost, webmail_url: mailHost ? `https://${mailHost}/` : "" });
     if (url.endsWith("/api/v1/mail/server") && method === "PUT") {
       mailHost = JSON.parse(String(init?.body)).host;
-      return json({ host: mailHost });
+      return json({ host: mailHost, webmail_url: `https://${mailHost}/` });
     }
     if (url.endsWith("/api/v1/domains/d1/mail/check")) {
       return json({
@@ -1349,5 +1351,32 @@ describe("mail server", () => {
         (screen.getByRole("button", { name: "Set up mail server" }) as HTMLButtonElement).disabled,
       ).toBe(true);
     }
+  });
+});
+
+describe("webmail", () => {
+  it("offers the webmail from the mail panel and from the mail server card once mail is set up", async () => {
+    const fetchMock = mockApi({ signedIn: true });
+    vi.stubGlobal("fetch", fetchMock);
+    renderAt("/settings");
+    changeValue(await screen.findByLabelText("Mail host name"), {
+      target: { value: "mail.ozima.cloud" },
+    });
+    await waitFor(() =>
+      expect(
+        (screen.getByRole("button", { name: "Set up mail server" }) as HTMLButtonElement).disabled,
+      ).toBe(false),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Set up mail server" }));
+    const link = (await screen.findByRole("link", { name: "Open webmail" })) as HTMLAnchorElement;
+    expect(link.getAttribute("href")).toBe("https://mail.ozima.cloud/");
+    expect(link.getAttribute("rel")).toContain("noopener");
+  });
+
+  it("shows no webmail link before the mail server is set up", async () => {
+    vi.stubGlobal("fetch", mockApi({ signedIn: true }));
+    renderAt("/mail");
+    await screen.findByLabelText("Mail for ozima.cloud");
+    expect(screen.queryByRole("link", { name: "Open webmail" })).toBeNull();
   });
 });

@@ -48,9 +48,11 @@ type mailView struct {
 	Enabled bool   `json:"enabled"`
 	// DeliveryReady is false until the mail server is installed (phase 2). Mailboxes are
 	// saved now and start receiving mail then.
-	DeliveryReady bool               `json:"delivery_ready"`
-	Mailboxes     []store.Mailbox    `json:"mailboxes"`
-	DNS           []mailrules.Record `json:"dns"`
+	DeliveryReady bool `json:"delivery_ready"`
+	// WebmailURL is where the mailboxes are read in a browser, or "" until the mail server is set up.
+	WebmailURL string             `json:"webmail_url"`
+	Mailboxes  []store.Mailbox    `json:"mailboxes"`
+	DNS        []mailrules.Record `json:"dns"`
 }
 
 // loadZoneForUser returns a connected domain the caller may manage (owner or administrator).
@@ -88,11 +90,16 @@ func (d Deps) buildMailView(ctx context.Context, zone store.ZoneInfo) (mailView,
 	if err != nil {
 		return mailView{}, err
 	}
+	host, err := d.Mail.GetMailHost(ctx)
+	if err != nil {
+		return mailView{}, err
+	}
 	return mailView{
-		Domain:    zone.Apex,
-		Enabled:   md.Enabled,
-		Mailboxes: boxes,
-		DNS:       mailrules.DNSRecords(zone.Apex, d.Site.PublicIP, md.DKIMPublic),
+		WebmailURL: webmailURL(host),
+		Domain:     zone.Apex,
+		Enabled:    md.Enabled,
+		Mailboxes:  boxes,
+		DNS:        mailrules.DNSRecords(zone.Apex, d.Site.PublicIP, md.DKIMPublic),
 	}, nil
 }
 
@@ -306,6 +313,16 @@ func (d Deps) handleDeleteMailbox(w http.ResponseWriter, r *http.Request) {
 type mailServerView struct {
 	// Host is the mail server name set up on this server, or "" when none is.
 	Host string `json:"host"`
+	// WebmailURL is the browser address of the webmail under that name, or "".
+	WebmailURL string `json:"webmail_url"`
+}
+
+// webmailURL is the address of the webmail for a mail host, or "" when there is no host.
+func webmailURL(host string) string {
+	if host == "" {
+		return ""
+	}
+	return "https://" + host + "/"
 }
 
 // handleGetMailServer returns the saved mail server name. Administrators only.
@@ -322,7 +339,7 @@ func (d Deps) handleGetMailServer(w http.ResponseWriter, r *http.Request) {
 		d.internal(w, r, "mail.server.get", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, mailServerView{Host: host})
+	writeJSON(w, http.StatusOK, mailServerView{Host: host, WebmailURL: webmailURL(host)})
 }
 
 type mailServerRequest struct {
@@ -361,7 +378,7 @@ func (d Deps) handlePutMailServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d.audit(r.Context(), r, store.AuditEntry{ActorUserID: user.ID, ActorRole: primaryRole(user), Action: "mail.server.setup", TargetType: "settings", TargetID: "mail_server", Result: "success"})
-	writeJSON(w, http.StatusOK, mailServerView{Host: in.Host})
+	writeJSON(w, http.StatusOK, mailServerView{Host: in.Host, WebmailURL: webmailURL(in.Host)})
 }
 
 // handleCheckMailDNS looks up the records of a domain's mail setup on public DNS. It reports

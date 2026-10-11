@@ -73,6 +73,7 @@ type Paths struct {
 	SSHDropIn      string // /etc/ssh/sshd_config.d/zenex-sftp.conf (website SFTP access)
 	DKIMDir        string // /var/lib/rspamd/dkim (DKIM keys per mail domain, readable by rspamd)
 	DKIMLegacyDir  string // /var/lib/zenex/dkim (where the first keys were made; moved over on use)
+	WebmailDir     string // /usr/share/zenex-roundcube (the webmail program; empty means the default)
 }
 
 func DefaultPaths() Paths {
@@ -138,6 +139,8 @@ func (o *Ops) Do(ctx context.Context, op string, args map[string]string) (Result
 		return Result{}, o.poolWrite(ctx, args)
 	case "vhost.write":
 		return Result{}, o.vhostWrite(ctx, args)
+	case "webmail.setup":
+		return o.webmailSetup(ctx, args)
 	case "mail.prepare":
 		return o.mailPrepare(ctx, args)
 	case "mail.apply":

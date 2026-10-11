@@ -58,6 +58,13 @@ readonly GO_ROOT="/usr/local/go"
 readonly PMA_VERSION="5.2.3"
 readonly PMA_SHA256="12ba1c425fa4071abbd4e7668c9ebdeac0b0755a467a6d6d5026122bb47c102b"
 readonly PMA_DIR="/usr/share/zenex-phpmyadmin"
+# Webmail (Roundcube), installed with the panel. Pinned like Go and phpMyAdmin.
+readonly RC_VERSION="1.7.4"
+readonly RC_SHA256="2c6c878f0093f1bf7fb6086781d2dd9269d652c016b86939c157c5f1729139a2"
+readonly RC_DIR="/usr/share/zenex-roundcube"
+readonly RC_STATE="/var/lib/zenex-roundcube"
+readonly RC_LOG="/var/log/zenex-roundcube"
+readonly RC_USER="zenex-webmail"
 
 ZENEX_ADMIN_EMAIL="${ZENEX_ADMIN_EMAIL:-admin@zenex.local}"
 ZENEX_REPO_URL="${ZENEX_REPO_URL:-https://github.com/lufi4s/zenex-panel.git}"
@@ -523,6 +530,106 @@ existing_env_value() {
 
 wait_for_postgres() {
     retry 30 2 sudo -u postgres pg_isready -q
+}
+
+# Writes the Roundcube configuration into the directory given. The des_key (it protects stored
+# session data) is kept across re-runs and upgrades. The mail server is on this server, so
+# Roundcube talks to it on 127.0.0.1; its certificate is for the mail host name, so it is not
+# compared with the loopback address.
+write_roundcube_config() {
+    local dir="$1" des_key=""
+    if [[ -f "$RC_DIR/config/config.inc.php" ]]; then
+        des_key="$(sed -n "s/^\$config\['des_key'\] = '\(.*\)';\$/\1/p" "$RC_DIR/config/config.inc.php")"
+    fi
+    if [[ ${#des_key} -ne 24 ]]; then
+        des_key="$(openssl rand -hex 12)"
+    fi
+    cat >"$dir/config/config.inc.php" <<PHPCFG
+<?php
+// Managed by Zenex. Written by the installer.
+\$config['db_dsnw'] = 'sqlite:///${RC_STATE}/roundcube.db?mode=0640';
+\$config['imap_host'] = 'ssl://127.0.0.1:993';
+\$config['imap_conn_options'] = ['ssl' => ['verify_peer' => false, 'verify_peer_name' => false]];
+\$config['smtp_host'] = 'tls://127.0.0.1:587';
+\$config['smtp_conn_options'] = ['ssl' => ['verify_peer' => false, 'verify_peer_name' => false]];
+\$config['smtp_user'] = '%u';
+\$config['smtp_pass'] = '%p';
+\$config['des_key'] = '${des_key}';
+\$config['product_name'] = 'Zenex Webmail';
+\$config['skin'] = 'elastic';
+\$config['plugins'] = ['archive', 'zipdownload'];
+\$config['enable_installer'] = false;
+\$config['log_dir'] = '${RC_LOG}/';
+\$config['temp_dir'] = '${RC_STATE}/temp/';
+\$config['ip_check'] = true;
+\$config['session_lifetime'] = 30;
+\$config['login_rate_limit'] = 5;
+PHPCFG
+}
+
+# Installs the webmail (Roundcube) with the panel, with its own database and its own unprivileged
+# account. It is published later, when the administrator sets the mail server up in the panel:
+# that step creates the web address (and its HTTPS certificate) under the mail host name.
+install_webmail() {
+    retry 3 20 apt-get install -y -qq --no-install-recommends php-sqlite3 \
+        || fail "the webmail PHP extension could not be installed"
+
+    id -u "$RC_USER" >/dev/null 2>&1 \
+        || useradd --system --user-group --home-dir "$RC_STATE" --shell /usr/sbin/nologin "$RC_USER"
+    mkdir -p "$RC_STATE/temp" "$RC_LOG"
+    chown -R "$RC_USER:$RC_USER" "$RC_STATE" "$RC_LOG"
+    chmod 0750 "$RC_STATE" "$RC_LOG"
+
+    local installed=""
+    if [[ -f "$RC_DIR/.zenex-version" ]]; then
+        installed="$(cat "$RC_DIR/.zenex-version")"
+    fi
+    if [[ "$installed" == "$RC_VERSION" ]]; then
+        # Same release: only refresh the configuration.
+        write_roundcube_config "$RC_DIR"
+        chown "root:$RC_USER" "$RC_DIR/config/config.inc.php"
+        chmod 0640 "$RC_DIR/config/config.inc.php"
+        info "webmail $RC_VERSION already installed (configuration refreshed)"
+        return 0
+    fi
+
+    local tmp actual new old
+    tmp="$(mktemp)"
+    retry 3 5 curl -fsSL -o "$tmp" "https://github.com/roundcube/roundcubemail/releases/download/${RC_VERSION}/roundcubemail-${RC_VERSION}-complete.tar.gz"
+    actual="$(sha256sum "$tmp" | awk '{print $1}')"
+    if [[ "$actual" != "$RC_SHA256" ]]; then
+        rm -f "$tmp"
+        fail "the webmail download did not match its checksum. Re-run the command in a few minutes."
+    fi
+    new="${RC_DIR}.new"
+    old="${RC_DIR}.old"
+    rm -rf "$new"
+    mkdir -p "$new"
+    tar -xzf "$tmp" -C "$new" --strip-components=1
+    rm -f "$tmp"
+    # The web installer is never used; remove it so it cannot be reached by mistake.
+    rm -rf "$new/installer" "$new/public_html/installer.php"
+
+    write_roundcube_config "$new"
+    echo "$RC_VERSION" >"$new/.zenex-version"
+
+    rm -rf "$old"
+    if [[ -d "$RC_DIR" ]]; then mv "$RC_DIR" "$old"; fi
+    mv "$new" "$RC_DIR"
+    rm -rf "$old"
+    chown -R root:root "$RC_DIR"
+    chmod -R a+rX "$RC_DIR"
+    chown "root:$RC_USER" "$RC_DIR/config/config.inc.php"
+    chmod 0640 "$RC_DIR/config/config.inc.php"
+
+    # First install creates the database; an upgrade brings it up to date.
+    if [[ ! -s "$RC_STATE/roundcube.db" ]]; then
+        runuser -u "$RC_USER" -- php "$RC_DIR/bin/initdb.sh" --dir="$RC_DIR/SQL" >/dev/null \
+            || fail "the webmail database could not be created"
+    else
+        runuser -u "$RC_USER" -- php "$RC_DIR/bin/updatedb.sh" --package=roundcube --dir="$RC_DIR/SQL" >/dev/null 2>&1 || true
+    fi
+    info "webmail $RC_VERSION installed"
 }
 
 # Installs the mail software (Postfix, Dovecot, rspamd) with the panel, so mail is ready to use.
@@ -992,6 +1099,7 @@ main() {
     step "Setting up the panel database"
     setup_database
     install_mail_server
+    install_webmail
     write_env_file
 
     step "Creating the secure certificate"

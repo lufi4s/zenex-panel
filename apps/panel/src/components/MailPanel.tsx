@@ -10,7 +10,7 @@ import {
 import type { Domain, MailCheckResult } from "@/api/types";
 import { Check, Copy, Trash2 } from "@/components/icons";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
+import { Button, buttonClasses } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { formatBytes } from "@/lib/format";
@@ -120,6 +120,24 @@ export function MailPanel(props: { domain: Domain }) {
       <Show when={mail.data}>
         {(view) => (
           <>
+            <Show when={view().webmail_url}>
+              {(url) => (
+                <div class="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-card px-3 py-2 text-sm">
+                  <span>
+                    Read and send mail in your browser. Sign in with the full mailbox address and
+                    its password.
+                  </span>
+                  <a
+                    href={url()}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class={buttonClasses("default", "sm")}
+                  >
+                    Open webmail
+                  </a>
+                </div>
+              )}
+            </Show>
             <div class="flex flex-wrap items-center justify-between gap-3">
               <label class="flex items-center gap-2 text-sm font-medium">
                 <input

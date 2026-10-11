@@ -34,8 +34,11 @@ func TestApplyMailServerPreparesThenAppliesForTheHost(t *testing.T) {
 	if err := m.ApplyMailServer(context.Background(), "mail.ozima.cloud", nil); err != nil {
 		t.Fatal(err)
 	}
-	if len(h.calls) != 2 || h.calls[0] != "mail.prepare" || h.calls[1] != "mail.apply" {
-		t.Fatalf("calls = %v, want mail.prepare then mail.apply", h.calls)
+	if strings.Join(h.calls, ",") != "mail.prepare,mail.apply,webmail.setup" {
+		t.Fatalf("calls = %v, want mail.prepare, mail.apply, then webmail.setup", h.calls)
+	}
+	if h.args["webmail.setup"][0]["host"] != "mail.ozima.cloud" {
+		t.Fatalf("webmail published for %v", h.args["webmail.setup"])
 	}
 	if h.args["mail.prepare"][0]["host"] != "mail.ozima.cloud" {
 		t.Fatalf("prepare args = %v", h.args["mail.prepare"])
@@ -80,11 +83,20 @@ func TestApplyMailServerPutsEveryDomainsKeyWhereRspamdReadsItFirst(t *testing.T)
 	if err := m.ApplyMailServer(context.Background(), "mail.ozima.cloud", []string{"ozima.cloud", "example.org"}); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"mail.prepare", "mail.dkim-key", "mail.dkim-key", "mail.apply"}
+	want := []string{"mail.prepare", "mail.dkim-key", "mail.dkim-key", "mail.apply", "webmail.setup"}
 	if strings.Join(h.calls, ",") != strings.Join(want, ",") {
 		t.Fatalf("calls = %v, want %v", h.calls, want)
 	}
 	if h.args["mail.dkim-key"][0]["domain"] != "ozima.cloud" || h.args["mail.dkim-key"][1]["domain"] != "example.org" {
 		t.Fatalf("keys prepared for %v", h.args["mail.dkim-key"])
+	}
+}
+
+func TestApplyMailServerReportsAWebmailFailure(t *testing.T) {
+	m, h := mailTestManager()
+	h.fail["webmail.setup"] = errors.New("webmail is not installed on this server. Run the panel update, then try again")
+	err := m.ApplyMailServer(context.Background(), "mail.ozima.cloud", nil)
+	if err == nil || !strings.Contains(err.Error(), "panel update") {
+		t.Fatalf("err = %v, want the webmail message", err)
 	}
 }

@@ -468,6 +468,8 @@ export interface MailView {
   enabled: boolean;
   /** False until the mail server is set up; mailboxes are saved but receive no mail yet. */
   delivery_ready: boolean;
+  /** Where the mailboxes are read in a browser, or "" until the mail server is set up. */
+  webmail_url: string;
   mailboxes: Mailbox[];
   dns: MailDNSRecord[];
 }

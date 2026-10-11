@@ -2,7 +2,7 @@ import { createSignal, Show } from "solid-js";
 import { describeError } from "@/api/client";
 import { useMailServer, useSetupMailServer } from "@/api/queries";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
+import { Button, buttonClasses } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -31,9 +31,9 @@ export function MailServerCard() {
       <CardHeader>
         <CardTitle>Mail server</CardTitle>
         <CardDescription>
-          The mail software comes installed with the panel. Choose the mail host name to turn the
-          mail server on. Use it again after you change a domain's mail settings if mail does not
-          pick them up.
+          The mail software and the webmail come installed with the panel. Choose the mail host name
+          to turn the mail server on; the webmail opens at the same name. Use it again after you
+          change a domain's mail settings if mail does not pick them up.
         </CardDescription>
       </CardHeader>
       <CardContent class="space-y-4">
@@ -63,6 +63,18 @@ export function MailServerCard() {
           </Show>
           <Show when={!setup.isSuccess && saved()}>
             <span class="text-sm text-muted-foreground">Set up for {saved()}.</span>
+          </Show>
+          <Show when={server.data?.webmail_url}>
+            {(url) => (
+              <a
+                href={url()}
+                target="_blank"
+                rel="noopener noreferrer"
+                class={buttonClasses("outline", "sm")}
+              >
+                Open webmail
+              </a>
+            )}
           </Show>
         </div>
         <Show when={setup.isError}>

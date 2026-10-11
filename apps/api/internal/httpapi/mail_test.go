@@ -376,3 +376,22 @@ func TestMailServerSetupIsAdminOnlyAndChecksTheHost(t *testing.T) {
 		t.Fatalf("server set up for refused requests: %v", srv.hosts)
 	}
 }
+
+func TestMailViewAndServerShowTheWebmailAddressOnceMailIsSetUp(t *testing.T) {
+	e, fm, _ := newMailEnvWithServer(t)
+	customer := e.login(t, "customer@example.com")
+	view := e.call(t, http.MethodGet, "/api/v1/domains/"+mailZoneID+"/mail", "", customer, false)
+	if !strings.Contains(view.Body.String(), `"webmail_url":""`) {
+		t.Fatalf("webmail address before setup: %s", view.Body)
+	}
+	fm.host = "mail.ozima.cloud"
+	view = e.call(t, http.MethodGet, "/api/v1/domains/"+mailZoneID+"/mail", "", customer, false)
+	if !strings.Contains(view.Body.String(), `"webmail_url":"https://mail.ozima.cloud/"`) {
+		t.Fatalf("customer does not get the webmail address: %s", view.Body)
+	}
+	admin := e.login(t, "admin@example.com")
+	server := e.call(t, http.MethodGet, "/api/v1/mail/server", "", admin, false)
+	if !strings.Contains(server.Body.String(), `"webmail_url":"https://mail.ozima.cloud/"`) {
+		t.Fatalf("server view = %s", server.Body)
+	}
+}
