@@ -51,7 +51,7 @@ func (m *Manager) PrepareDBAdmin(ctx context.Context, site store.Site) error {
 		return err
 	}
 	_, err := m.Helper.Do(ctx, "vhost.write", map[string]string{
-		"user": site.LinuxUser, "domain": site.Domain, "maintenance": "0",
+		"user": site.LinuxUser, "domain": site.Domain, "maintenance": "0", "cache": cacheFlag(site.PageCache),
 	})
 	return err
 }

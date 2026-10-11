@@ -43,6 +43,7 @@ type Site struct {
 	Health      string    `json:"health"`
 	AutoUpdate  bool      `json:"auto_update"`
 	Maintenance bool      `json:"maintenance"`
+	PageCache   bool      `json:"page_cache"`
 	// SFTPEnabled and SFTPGeneration describe the website's SFTP login (see migration 0007).
 	SFTPEnabled    bool      `json:"sftp_enabled"`
 	SFTPGeneration int       `json:"-"`
@@ -234,13 +235,13 @@ func (s *Store) CreateSiteWithJob(ctx context.Context, in NewSite) (siteID, jobI
 const siteColumns = `
 	s.id::text, s.owner_user_id::text, s.node_id::text, s.slug, s.primary_domain::text,
 	s.linux_user, s.db_name, s.db_user, s.php_version, s.state, s.health,
-	s.auto_update, s.maintenance, s.sftp_enabled, s.sftp_generation, s.created_at`
+	s.auto_update, s.maintenance, s.page_cache, s.sftp_enabled, s.sftp_generation, s.created_at`
 
 func scanSite(row pgx.Row) (Site, error) {
 	var st Site
 	err := row.Scan(&st.ID, &st.OwnerID, &st.NodeID, &st.Slug, &st.Domain,
 		&st.LinuxUser, &st.DBName, &st.DBUser, &st.PHPVersion, &st.State, &st.Health,
-		&st.AutoUpdate, &st.Maintenance, &st.SFTPEnabled, &st.SFTPGeneration, &st.CreatedAt)
+		&st.AutoUpdate, &st.Maintenance, &st.PageCache, &st.SFTPEnabled, &st.SFTPGeneration, &st.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Site{}, ErrNotFound
 	}
@@ -303,6 +304,13 @@ func (s *Store) SetSiteSFTP(ctx context.Context, siteID string, enabled bool, ge
 	_, err := s.pool.Exec(ctx,
 		`UPDATE sites SET sftp_enabled = $2, sftp_generation = $3, updated_at = now() WHERE id = $1::uuid`,
 		siteID, enabled, generation)
+	return err
+}
+
+// SetSitePageCache records whether a site serves saved pages.
+func (s *Store) SetSitePageCache(ctx context.Context, siteID string, enabled bool) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE sites SET page_cache = $2, updated_at = now() WHERE id = $1::uuid`, siteID, enabled)
 	return err
 }
 

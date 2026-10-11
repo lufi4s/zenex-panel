@@ -45,6 +45,7 @@ func (f *featureStore) SetSiteSFTP(_ context.Context, id string, enabled bool, g
 	return nil
 }
 
+func (f *featureStore) SetSitePageCache(context.Context, string, bool) error { return nil }
 func (f *featureStore) SetSiteMaintenance(_ context.Context, id string, on bool) error {
 	f.maintenance[id] = on
 	return nil
@@ -479,5 +480,58 @@ func TestPasswordErrorsAreRedacted(t *testing.T) {
 	h.fail["backup.test"] = errors.New("dial failed for " + testPassword)
 	if err := m.TestSFTP(context.Background(), passwordDest()); err == nil || strings.Contains(err.Error(), testPassword) {
 		t.Fatalf("plain error = %v", err)
+	}
+}
+
+func TestPageCacheOnPutsThePluginInPlaceBeforeServingFromIt(t *testing.T) {
+	m, _, h := newFeatureTest("ready")
+	site := store.Site{ID: "s1", LinuxUser: "zx_a", Domain: "a.example.com", State: "ready"}
+	if err := m.SetPageCache(context.Background(), site, true); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(h.calls, ",") != "cache.enable,vhost.write" {
+		t.Fatalf("calls = %v, want the plugin first, then the site file", h.calls)
+	}
+	if got := h.args["vhost.write"][0]["cache"]; got != "1" {
+		t.Fatalf("vhost cache flag = %q", got)
+	}
+}
+
+func TestPageCacheOffStopsServingBeforeRemovingFiles(t *testing.T) {
+	m, _, h := newFeatureTest("ready")
+	site := store.Site{ID: "s1", LinuxUser: "zx_a", Domain: "a.example.com", State: "ready", PageCache: true}
+	if err := m.SetPageCache(context.Background(), site, false); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(h.calls, ",") != "vhost.write,cache.disable" {
+		t.Fatalf("calls = %v, want the site file first, then the removal", h.calls)
+	}
+	if got := h.args["vhost.write"][0]["cache"]; got != "0" {
+		t.Fatalf("vhost cache flag = %q", got)
+	}
+}
+
+func TestPageCacheStaysOnWhenTheSiteFileIsRejected(t *testing.T) {
+	m, _, h := newFeatureTest("ready")
+	h.fail["vhost.write"] = errors.New("rejected")
+	site := store.Site{ID: "s1", LinuxUser: "zx_a", Domain: "a.example.com", State: "ready", PageCache: true}
+	if err := m.SetPageCache(context.Background(), site, false); err == nil {
+		t.Fatal("a rejected site file was accepted")
+	}
+	for _, c := range h.calls {
+		if c == "cache.disable" {
+			t.Fatal("the cache files were removed although the site still serves them")
+		}
+	}
+}
+
+func TestMaintenanceKeepsThePageCacheSetting(t *testing.T) {
+	m, _, h := newFeatureTest("ready")
+	site := store.Site{ID: "s1", LinuxUser: "zx_a", Domain: "a.example.com", State: "ready", PageCache: true}
+	if err := m.SetMaintenance(context.Background(), site, true); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.args["vhost.write"][0]["cache"]; got != "1" {
+		t.Fatalf("maintenance dropped the cache flag: %q", got)
 	}
 }

@@ -38,6 +38,7 @@ const (
 // FeatureStore is the persistence surface for maintenance, backups and auto-updates.
 type FeatureStore interface {
 	SetSiteMaintenance(ctx context.Context, siteID string, enabled bool) error
+	SetSitePageCache(ctx context.Context, siteID string, enabled bool) error
 	SetSiteSFTP(ctx context.Context, siteID string, enabled bool, generation int) error
 	ListReadySites(ctx context.Context) ([]store.Site, error)
 	ListAutoUpdateSites(ctx context.Context) ([]store.Site, error)
@@ -64,12 +65,65 @@ func (m *Manager) SetMaintenance(ctx context.Context, site store.Site, enabled b
 		flag = "1"
 	}
 	_, err := m.Helper.Do(ctx, "vhost.write", map[string]string{
-		"user": site.LinuxUser, "domain": site.Domain, "maintenance": flag,
+		"user": site.LinuxUser, "domain": site.Domain, "maintenance": flag, "cache": cacheFlag(site.PageCache),
 	})
 	if err != nil {
 		return err
 	}
 	return m.Store.SetSiteMaintenance(ctx, site.ID, enabled)
+}
+
+func cacheFlag(on bool) string {
+	if on {
+		return "1"
+	}
+	return "0"
+}
+
+// SetPageCache turns the saved-page cache on or off. Turning it on puts the cache plugin in
+// place first and then lets the web server answer from saved pages; turning it off stops the web
+// server serving them first and then removes the plugin and the saved pages. The stored flag
+// changes only when both steps applied.
+func (m *Manager) SetPageCache(ctx context.Context, site store.Site, enabled bool) error {
+	if site.State != "ready" {
+		return refuse("the page cache can only be changed for a ready website (it is %s)", site.State)
+	}
+	vhost := func() error {
+		maint := "0"
+		if site.Maintenance {
+			maint = "1"
+		}
+		_, err := m.Helper.Do(ctx, "vhost.write", map[string]string{
+			"user": site.LinuxUser, "domain": site.Domain, "maintenance": maint, "cache": cacheFlag(enabled),
+		})
+		return err
+	}
+	user := map[string]string{"user": site.LinuxUser}
+	if enabled {
+		if _, err := m.Helper.Do(ctx, "cache.enable", user); err != nil {
+			return err
+		}
+		if err := vhost(); err != nil {
+			return err
+		}
+	} else {
+		if err := vhost(); err != nil {
+			return err
+		}
+		if _, err := m.Helper.Do(ctx, "cache.disable", user); err != nil {
+			return err
+		}
+	}
+	return m.Store.SetSitePageCache(ctx, site.ID, enabled)
+}
+
+// ClearPageCache deletes the saved pages of a website. The next visit to each page builds it again.
+func (m *Manager) ClearPageCache(ctx context.Context, site store.Site) error {
+	if site.State != "ready" {
+		return refuse("the page cache can only be cleared for a ready website (it is %s)", site.State)
+	}
+	_, err := m.Helper.Do(ctx, "cache.clear", map[string]string{"user": site.LinuxUser})
+	return err
 }
 
 // StartBackup starts a backup in the background and returns the job ID.

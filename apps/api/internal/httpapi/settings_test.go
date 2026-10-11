@@ -94,6 +94,8 @@ type settingsManage struct {
 	SiteManager
 	installed   []string
 	maintenance *bool
+	pageCache *bool
+	cacheCleared int
 	tested      []store.SFTPDestination
 	testErr     error
 	started     []string         // site IDs given a backup job, in order
@@ -130,6 +132,14 @@ func (m *settingsManage) PrepareDBAdmin(context.Context, store.Site) error {
 
 func (m *settingsManage) SetMaintenance(_ context.Context, _ store.Site, on bool) error {
 	m.maintenance = &on
+	return nil
+}
+func (m *settingsManage) SetPageCache(_ context.Context, _ store.Site, on bool) error {
+	m.pageCache = &on
+	return nil
+}
+func (m *settingsManage) ClearPageCache(context.Context, store.Site) error {
+	m.cacheCleared++
 	return nil
 }
 func (m *settingsManage) StartBackup(_ context.Context, site store.Site, _ string) (string, error) {
@@ -470,4 +480,25 @@ func (m *settingsManage) SFTPPublicKey(context.Context) (string, error) {
 func (m *settingsManage) TestSFTP(_ context.Context, dest store.SFTPDestination) error {
 	m.tested = append(m.tested, dest)
 	return m.testErr
+}
+
+func TestPageCacheToggleAndClear(t *testing.T) {
+	e := newSettingsEnv(t)
+	cookie := e.login(t, testEmail)
+	path := "/api/v1/sites/11111111-aaaa-4aaa-8aaa-111111111111/page-cache"
+	if rec := e.call(t, http.MethodPut, path, `{}`, cookie, true); rec.Code != http.StatusBadRequest {
+		t.Fatalf("missing enabled = %d, want 400", rec.Code)
+	}
+	if rec := e.call(t, http.MethodPut, path, `{"enabled":true}`, cookie, true); rec.Code != http.StatusOK {
+		t.Fatalf("enable = %d %s", rec.Code, rec.Body.String())
+	}
+	if e.manage.pageCache == nil || !*e.manage.pageCache {
+		t.Fatal("page cache not switched on")
+	}
+	if rec := e.call(t, http.MethodPost, path+"/clear", ``, cookie, true); rec.Code != http.StatusNoContent {
+		t.Fatalf("clear = %d %s", rec.Code, rec.Body.String())
+	}
+	if e.manage.cacheCleared != 1 {
+		t.Fatal("cache not cleared")
+	}
 }

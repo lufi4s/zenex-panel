@@ -23,6 +23,8 @@ type SiteManager interface {
 	Services(ctx context.Context) ([]manage.ServiceState, error)
 	Files(ctx context.Context, site store.Site, op, path, content string) (string, error)
 	SetMaintenance(ctx context.Context, site store.Site, enabled bool) error
+	SetPageCache(ctx context.Context, site store.Site, enabled bool) error
+	ClearPageCache(ctx context.Context, site store.Site) error
 	SetSFTP(ctx context.Context, site store.Site, enable, reset bool) error
 	PrepareDBAdmin(ctx context.Context, site store.Site) error
 	SiteUsages(ctx context.Context) (map[string]manage.SiteUsage, error)

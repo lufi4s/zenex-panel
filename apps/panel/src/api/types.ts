@@ -40,6 +40,7 @@ export interface Site {
   health: string;
   auto_update: boolean;
   maintenance: boolean;
+  page_cache: boolean;
   created_at: string;
 }
 

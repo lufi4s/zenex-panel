@@ -139,6 +139,12 @@ func (o *Ops) Do(ctx context.Context, op string, args map[string]string) (Result
 		return Result{}, o.poolWrite(ctx, args)
 	case "vhost.write":
 		return Result{}, o.vhostWrite(ctx, args)
+	case "cache.enable":
+		return Result{}, o.pageCacheEnable(args)
+	case "cache.disable":
+		return Result{}, o.pageCacheDisable(args)
+	case "cache.clear":
+		return Result{}, o.pageCacheClear(args)
 	case "webmail.setup":
 		return o.webmailSetup(ctx, args)
 	case "mail.prepare":
@@ -400,10 +406,14 @@ func (o *Ops) vhostWrite(ctx context.Context, args map[string]string) error {
 	if err != nil {
 		return err
 	}
+	cache, err := boolFlag(args, "cache")
+	if err != nil {
+		return err
+	}
 	avail := filepath.Join(o.Paths.CaddyAvailable, "zx-"+name+".caddy")
 	enabled := filepath.Join(o.Paths.CaddyEnabled, "zx-"+name+".caddy")
 
-	if err := writeFileAtomic(avail, []byte(vhostConfig(name, domain, o.docRoot(name), o.Paths.LogDir, maintenance)), 0o644); err != nil {
+	if err := writeFileAtomic(avail, []byte(vhostConfig(name, domain, o.docRoot(name), o.Paths.LogDir, maintenance, cache)), 0o644); err != nil {
 		return fmt.Errorf("write site config: %w", err)
 	}
 	_ = os.Remove(enabled)
@@ -422,13 +432,18 @@ func (o *Ops) vhostWrite(ctx context.Context, args map[string]string) error {
 
 // maintenanceFlag reads the optional "maintenance" argument. Missing means off.
 func maintenanceFlag(args map[string]string) (bool, error) {
-	switch args["maintenance"] {
+	return boolFlag(args, "maintenance")
+}
+
+// boolFlag reads an optional "0" or "1" argument. Missing means off.
+func boolFlag(args map[string]string, key string) (bool, error) {
+	switch args[key] {
 	case "", "0":
 		return false, nil
 	case "1":
 		return true, nil
 	}
-	return false, errors.New("invalid maintenance flag")
+	return false, fmt.Errorf("invalid %s flag", key)
 }
 
 func (o *Ops) wpRun(ctx context.Context, linuxUser string, wpArgs ...string) error {
@@ -618,11 +633,14 @@ php_admin_value[session.save_path] = /tmp
 
 // vhostConfig builds the site file. In maintenance mode the final handler answers
 // every request with 503 instead of running PHP; the blocks above it still apply.
-func vhostConfig(name, domain, docRoot, logDir string, maintenance bool) string {
+func vhostConfig(name, domain, docRoot, logDir string, maintenance, cache bool) string {
 	handler := fmt.Sprintf(`handle {
         php_fastcgi unix//run/php/zx-%s.sock
         file_server
     }`, name)
+	if cache && !maintenance {
+		handler = pageCacheHandler() + "\n    " + handler
+	}
 	if !maintenance {
 		// phpMyAdmin for this website. Its own handler, so the database login page
 		// is reached only under /zenex-dbadmin and PHP runs as the site account.

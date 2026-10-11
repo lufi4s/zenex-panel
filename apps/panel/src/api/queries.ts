@@ -92,7 +92,7 @@ export function useMetrics() {
   return useQuery({
     queryKey: keys.metrics,
     queryFn: () => apiRequest<Metrics>("/api/v1/system/metrics"),
-    refetchInterval: 5_000,
+    refetchInterval: 15_000,
   });
 }
 
@@ -257,7 +257,7 @@ export function useMetricSeries(range: TimeRange) {
   return useQuery({
     queryKey: ["monitoring", "metrics", range],
     queryFn: () => apiRequest<MetricSeries>(`/api/v1/monitoring/metrics?range=${range}`),
-    refetchInterval: 30_000,
+    refetchInterval: 60_000,
   });
 }
 
@@ -349,7 +349,7 @@ export function useServices() {
   return useQuery({
     queryKey: ["monitoring", "services"],
     queryFn: () => apiRequest<ServiceState[]>("/api/v1/monitoring/services"),
-    refetchInterval: 30_000,
+    refetchInterval: 60_000,
   });
 }
 
@@ -391,7 +391,7 @@ export function useNotifications() {
   return useQuery({
     queryKey: ["notifications"],
     queryFn: () => apiRequest<NotificationsPage>("/api/v1/notifications?limit=30"),
-    refetchInterval: 30_000,
+    refetchInterval: 60_000,
   });
 }
 
@@ -592,7 +592,7 @@ export function useSiteActivity() {
     refetchInterval: (query) =>
       (query.state.data ?? []).some((a) => a.status === "queued" || a.status === "running")
         ? 2_000
-        : 6_000,
+        : 20_000,
   });
 }
 
@@ -602,7 +602,7 @@ export function useSite(id: string) {
     queryFn: () => apiRequest<SiteDetail>(`/api/v1/sites/${id}`),
     refetchInterval: (query) => {
       const job = query.state.data?.job;
-      return job && (job.status === "queued" || job.status === "running") ? 2_000 : 15_000;
+      return job && (job.status === "queued" || job.status === "running") ? 2_000 : 30_000;
     },
   });
 }
@@ -634,8 +634,8 @@ export function useSystemUpdate(enabled: boolean) {
     queryKey: ["system-update"],
     queryFn: () => apiRequest<UpdateStatus>("/api/v1/system/update"),
     enabled,
-    // Check every minute, and every 3 seconds while an update is running.
-    refetchInterval: (query) => (query.state.data?.state === "running" ? 3_000 : 60_000),
+    // Check every five minutes, and every 3 seconds while an update is running.
+    refetchInterval: (query) => (query.state.data?.state === "running" ? 3_000 : 300_000),
   });
 }
 
@@ -902,6 +902,27 @@ export function useSetMaintenance(siteId: string) {
       }),
     meta: { silent: true },
     onSuccess: () => invalidateSite(qc, siteId),
+  });
+}
+
+export function useSetPageCache(siteId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (enabled: boolean) =>
+      apiRequest<void>(`/api/v1/sites/${siteId}/page-cache`, {
+        method: "PUT",
+        body: { enabled },
+      }),
+    meta: { silent: true },
+    onSuccess: () => invalidateSite(qc, siteId),
+  });
+}
+
+export function useClearPageCache(siteId: string) {
+  return useMutation({
+    mutationFn: () =>
+      apiRequest<void>(`/api/v1/sites/${siteId}/page-cache/clear`, { method: "POST" }),
+    meta: { silent: true },
   });
 }
 

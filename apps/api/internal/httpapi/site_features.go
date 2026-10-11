@@ -65,6 +65,40 @@ func (d Deps) handleSetMaintenance(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, updated)
 }
 
+// handleSetPageCache turns the saved-page cache on or off for a website.
+func (d Deps) handleSetPageCache(w http.ResponseWriter, r *http.Request) {
+	site, user, ok := d.loadSiteForUser(w, r)
+	if !ok {
+		return
+	}
+	var in toggleRequest
+	if err := decodeJSON(r, &in); err != nil || in.Enabled == nil {
+		writeError(w, requestIDFrom(r), ErrInvalidRequest)
+		return
+	}
+	if err := d.Manage.SetPageCache(r.Context(), site, *in.Enabled); err != nil {
+		d.manageError(w, r, "sites.page_cache", err)
+		return
+	}
+	d.audit(r.Context(), r, store.AuditEntry{ActorUserID: user.ID, ActorRole: primaryRole(user), Action: toggleAction("site.page_cache", *in.Enabled), TargetType: "site", TargetID: site.ID, Result: "success"})
+	updated, _ := d.Sites.GetSite(r.Context(), site.ID)
+	writeJSON(w, http.StatusOK, updated)
+}
+
+// handleClearPageCache deletes the saved pages of a website.
+func (d Deps) handleClearPageCache(w http.ResponseWriter, r *http.Request) {
+	site, user, ok := d.loadSiteForUser(w, r)
+	if !ok {
+		return
+	}
+	if err := d.Manage.ClearPageCache(r.Context(), site); err != nil {
+		d.manageError(w, r, "sites.page_cache_clear", err)
+		return
+	}
+	d.audit(r.Context(), r, store.AuditEntry{ActorUserID: user.ID, ActorRole: primaryRole(user), Action: "site.page_cache.clear", TargetType: "site", TargetID: site.ID, Result: "success"})
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // handleListBackups returns a website's backups, newest first.
 func (d Deps) handleListBackups(w http.ResponseWriter, r *http.Request) {
 	site, _, ok := d.loadSiteForUser(w, r)

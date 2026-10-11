@@ -202,7 +202,10 @@ export function useQuery<T>(opts: QueryOptions<T>) {
           ? opts.refetchInterval({ state: { data: entry.data as T | undefined } })
           : opts.refetchInterval;
       if (!enabled() || !interval) return;
-      const id = window.setInterval(() => void refetch(), interval);
+      const id = window.setInterval(() => {
+        // A hidden tab is not watching, so it does not ask the server anything.
+        if (!document.hidden) void refetch();
+      }, interval);
       onCleanup(() => window.clearInterval(id));
     });
   }
@@ -210,8 +213,15 @@ export function useQuery<T>(opts: QueryOptions<T>) {
   const onFocus = () => {
     if (enabled() && Date.now() - entry.fetchedAt >= staleTime) void refetch();
   };
+  const onVisible = () => {
+    if (!document.hidden) onFocus();
+  };
   window.addEventListener("focus", onFocus);
-  onCleanup(() => window.removeEventListener("focus", onFocus));
+  document.addEventListener("visibilitychange", onVisible);
+  onCleanup(() => {
+    window.removeEventListener("focus", onFocus);
+    document.removeEventListener("visibilitychange", onVisible);
+  });
 
   return {
     get data(): T | undefined {
@@ -315,7 +325,9 @@ export function useInfiniteQuery<T, P>(opts: InfiniteOptions<T, P>) {
   void loadFirst();
 
   if (opts.refetchInterval) {
-    const id = window.setInterval(() => void loadFirst(), opts.refetchInterval);
+    const id = window.setInterval(() => {
+      if (!document.hidden) void loadFirst();
+    }, opts.refetchInterval);
     onCleanup(() => window.clearInterval(id));
   }
 

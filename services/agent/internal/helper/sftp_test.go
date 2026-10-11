@@ -147,13 +147,13 @@ func TestSFTPRejectsBadPasswordAndUser(t *testing.T) {
 }
 
 func TestWebsiteConfigOffersPhpMyAdminOnlyWhenNotInMaintenance(t *testing.T) {
-	cfg := vhostConfig("zx_shop", "shop.example.com", "/var/www/zx_shop/htdocs", "/var/log/caddy", false)
+	cfg := vhostConfig("zx_shop", "shop.example.com", "/var/www/zx_shop/htdocs", "/var/log/caddy", false, false)
 	for _, want := range []string{"handle_path /zenex-dbadmin*", "root * " + PMADir, "php_fastcgi unix//run/php/zx-zx_shop.sock", "env SCRIPT_NAME /zenex-dbadmin/index.php"} {
 		if !strings.Contains(cfg, want) {
 			t.Errorf("site config missing %q", want)
 		}
 	}
-	maint := vhostConfig("zx_shop", "shop.example.com", "/var/www/zx_shop/htdocs", "/var/log/caddy", true)
+	maint := vhostConfig("zx_shop", "shop.example.com", "/var/www/zx_shop/htdocs", "/var/log/caddy", true, false)
 	if strings.Contains(maint, "zenex-dbadmin") {
 		t.Fatal("maintenance mode still exposes phpMyAdmin")
 	}

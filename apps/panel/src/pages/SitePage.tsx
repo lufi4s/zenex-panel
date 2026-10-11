@@ -9,7 +9,9 @@ import {
   useDeleteSite,
   usePHPVersions,
   useSetAutoUpdate,
+  useClearPageCache,
   useSetMaintenance,
+  useSetPageCache,
   useSite,
   useSiteAction,
   useSiteBackups,
@@ -220,6 +222,77 @@ function MaintenanceCard(props: { site: Site }) {
   );
 }
 
+/**
+ * Saves the finished pages for anonymous visitors so the web server answers without starting PHP
+ * or the database. Visitors who are signed in, carts and search results are never saved.
+ */
+function PageCacheCard(props: { site: Site }) {
+  const toggle = useSetPageCache(props.site.id);
+  const clear = useClearPageCache(props.site.id);
+  const on = () => props.site.page_cache;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Page cache</CardTitle>
+        <CardDescription>
+          Faster pages and less server load for visitors who are not signed in.
+        </CardDescription>
+      </CardHeader>
+      <CardContent class="space-y-4">
+        <div class="flex items-center justify-between gap-3">
+          <span class="text-sm font-medium">{on() ? "On" : "Off"}</span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={on()}
+            aria-label="Page cache"
+            disabled={toggle.isPending}
+            onClick={() => toggle.mutate(!on())}
+            class={cn(
+              "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:opacity-50",
+              on() ? "bg-primary" : "bg-muted",
+            )}
+          >
+            <span
+              class={cn(
+                "inline-block size-5 rounded-full bg-background shadow transition-transform",
+                on() ? "translate-x-5" : "translate-x-0.5",
+              )}
+            />
+          </button>
+        </div>
+        <Show when={on()}>
+          <div class="flex flex-wrap items-center gap-3">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={clear.isPending}
+              onClick={() => clear.mutate()}
+            >
+              {clear.isPending ? "Clearing…" : "Clear cache"}
+            </Button>
+            <Show when={clear.isSuccess}>
+              <span class="text-sm text-success">Saved pages deleted.</span>
+            </Show>
+          </div>
+          <p class="text-xs text-muted-foreground">
+            Saved pages are deleted automatically when you publish, edit or change a theme or
+            plugin. Clear the cache after you change something outside WordPress.
+          </p>
+        </Show>
+        <Show when={toggle.isError || clear.isError}>
+          <Alert variant="destructive">
+            <AlertDescription>
+              {errorOf(toggle.error ?? clear.error, "Could not change the page cache.")}
+            </AlertDescription>
+          </Alert>
+        </Show>
+      </CardContent>
+    </Card>
+  );
+}
+
 /** Lets WordPress core update this website automatically once a day. */
 function AutoUpdateCard(props: { site: Site }) {
   const toggle = useSetAutoUpdate(props.site.id);
@@ -350,6 +423,7 @@ function OverviewTab(props: { site: Site }) {
         <div class="grid gap-4 sm:grid-cols-2 lg:col-span-3">
           <MaintenanceCard site={props.site} />
           <AutoUpdateCard site={props.site} />
+          <PageCacheCard site={props.site} />
         </div>
       </Show>
 

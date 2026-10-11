@@ -803,3 +803,10 @@ Next: httpapi/mail.go (MailStore interface, Deps.Mail, routes: GET/PUT /domains/
 - Added `trim_server_resources` to `install.sh` (runs on every update): journald capped at 100 MB, ModemManager/udisks2/fwupd/motd-news disabled.
 - Seen but not changed: UI polls services.status ~33x per 10 min; MariaDB buffer pool 128 MB; PHP pools ondemand max_children 5; no page cache per site.
 - Next ideas: lower UI polling, rspamd worker count, site page-cache option, MariaDB buffer tune.
+
+## 65. Less polling + per-site page cache
+- UI polling: `apps/panel/src/api/query.ts` now skips timer refetches while the tab is hidden (`document.hidden`) and refetches on `visibilitychange`. Idle intervals in `queries.ts`: metrics 5s->15s, site activity 6s->20s, site 15s->30s, monitoring/services/notifications 30s->60s, panel update check 60s->300s (running jobs still 2-3s).
+- Page cache (off by default, Overview tab card "Page cache"): migration `0010_page_cache.sql` (`sites.page_cache`), `store.Site.PageCache`, `manage.SetPageCache`/`ClearPageCache` (`features.go`), routes `PUT /sites/{id}/page-cache` and `POST /sites/{id}/page-cache/clear`, helper ops `cache.enable|disable|clear` + `vhost.write` arg `cache` (`services/agent/internal/helper/pagecache.go`, `ops.go`).
+- How it works: mu-plugin `wp-content/mu-plugins/zenex-page-cache.php` (written by the helper, owned by the site user) saves anonymous GET pages without query string and with a trailing slash into `wp-content/cache/zenex/<host>/<path>/index.html`; Caddy block `@zxcached` (before the PHP handler, after phpMyAdmin) serves that file when no login/cart/comment cookie. Flushed on post/comment/theme/plugin/menu/term changes. Never used in maintenance mode. Scanner does not flag the plugin (test).
+- Caddy block syntax was checked on the server with `caddy adapt --validate` (read-only). Order: enable = plugin then vhost; disable = vhost then remove files. Maintenance and PrepareDBAdmin rewrites keep the cache flag.
+- Next: user runs Update now, then turns Page cache on for a site and checks the `X-Zenex-Cache: HIT` header on a second visit; not yet tested on the live server.

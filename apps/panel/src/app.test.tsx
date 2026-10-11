@@ -53,6 +53,7 @@ function mockApi(options: {
       health: "healthy",
       auto_update: false,
       maintenance: false,
+      page_cache: false,
       created_at: "2026-01-02T00:00:00Z",
     },
   ];
@@ -579,6 +580,15 @@ describe("navigation", () => {
     const toggle = await screen.findByRole("switch", { name: "Maintenance mode" });
     expect(toggle.getAttribute("aria-checked")).toBe("false");
     expect(screen.getByText("Update automatically every day")).toBeTruthy();
+  });
+
+  it("shows the page cache switch, off by default", async () => {
+    vi.stubGlobal("fetch", mockApi({ signedIn: true }));
+    renderAt("/websites/s1");
+    await screen.findByRole("heading", { name: "shop.ozima.cloud" });
+    const toggle = await screen.findByRole("switch", { name: "Page cache" });
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    expect(screen.queryByRole("button", { name: "Clear cache" })).toBeNull();
   });
 
   it("lists the site backups on its Settings tab", async () => {
