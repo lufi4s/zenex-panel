@@ -31,7 +31,7 @@ func mailTestManager() (*Manager, *scriptedHelper) {
 
 func TestApplyMailServerPreparesThenAppliesForTheHost(t *testing.T) {
 	m, h := mailTestManager()
-	if err := m.ApplyMailServer(context.Background(), "mail.ozima.cloud"); err != nil {
+	if err := m.ApplyMailServer(context.Background(), "mail.ozima.cloud", nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(h.calls) != 2 || h.calls[0] != "mail.prepare" || h.calls[1] != "mail.apply" {
@@ -52,7 +52,7 @@ func TestApplyMailServerPreparesThenAppliesForTheHost(t *testing.T) {
 func TestApplyMailServerRefusesABadHostBeforeTouchingTheServer(t *testing.T) {
 	m, h := mailTestManager()
 	for _, bad := range []string{"localhost", "Mail.Example.com", "mail.example.com; reboot", ""} {
-		if err := m.ApplyMailServer(context.Background(), bad); !asRefusal(err) {
+		if err := m.ApplyMailServer(context.Background(), bad, nil); !asRefusal(err) {
 			t.Errorf("host %q: err = %v, want refusal", bad, err)
 		}
 	}
@@ -64,12 +64,27 @@ func TestApplyMailServerRefusesABadHostBeforeTouchingTheServer(t *testing.T) {
 func TestApplyMailServerStopsIfPreparingFails(t *testing.T) {
 	m, h := mailTestManager()
 	h.fail["mail.prepare"] = errors.New("firewall refused")
-	if err := m.ApplyMailServer(context.Background(), "mail.ozima.cloud"); err == nil {
+	if err := m.ApplyMailServer(context.Background(), "mail.ozima.cloud", nil); err == nil {
 		t.Fatal("prepare failure was ignored")
 	}
 	for _, c := range h.calls {
 		if c == "mail.apply" {
 			t.Fatal("configuration was applied after a failed prepare")
 		}
+	}
+}
+
+func TestApplyMailServerPutsEveryDomainsKeyWhereRspamdReadsItFirst(t *testing.T) {
+	m, h := mailTestManager()
+	h.outputs["mail.dkim-key"] = "p=QUJD"
+	if err := m.ApplyMailServer(context.Background(), "mail.ozima.cloud", []string{"ozima.cloud", "example.org"}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"mail.prepare", "mail.dkim-key", "mail.dkim-key", "mail.apply"}
+	if strings.Join(h.calls, ",") != strings.Join(want, ",") {
+		t.Fatalf("calls = %v, want %v", h.calls, want)
+	}
+	if h.args["mail.dkim-key"][0]["domain"] != "ozima.cloud" || h.args["mail.dkim-key"][1]["domain"] != "example.org" {
+		t.Fatalf("keys prepared for %v", h.args["mail.dkim-key"])
 	}
 }

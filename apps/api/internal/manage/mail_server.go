@@ -25,9 +25,10 @@ type mailFilePayload struct {
 }
 
 // ApplyMailServer sets the mail server up for host: the helper first prepares the certificate
-// and the firewall ports, then writes, checks and loads the configuration. If any check fails
-// the helper restores the old files.
-func (m *Manager) ApplyMailServer(ctx context.Context, host string) error {
+// and the firewall ports, makes sure every mail domain's DKIM key is where rspamd can read it,
+// then writes, checks and loads the configuration. If any check fails the helper restores the
+// old files.
+func (m *Manager) ApplyMailServer(ctx context.Context, host string, domains []string) error {
 	if !mail.ValidHostname(host) {
 		return refuse("the mail host must be a full host name such as mail.example.com (lower case)")
 	}
@@ -48,6 +49,11 @@ func (m *Manager) ApplyMailServer(ctx context.Context, host string) error {
 	}
 	if _, err := m.Helper.Do(ctx, "mail.prepare", map[string]string{"host": host}); err != nil {
 		return err
+	}
+	for _, domain := range domains {
+		if _, err := m.MailDKIMValue(ctx, domain); err != nil {
+			return err
+		}
 	}
 	_, err = m.Helper.Do(ctx, "mail.apply", map[string]string{"files": string(raw), "dbpass": s.DBPass})
 	return err

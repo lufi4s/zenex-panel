@@ -71,7 +71,8 @@ type Paths struct {
 	UploadDir      string // /var/lib/zenex/uploads (uploads staged by the API before they are imported)
 	QuarantineDir  string // /var/lib/zenex/quarantine (scan reports and quarantined files, root only)
 	SSHDropIn      string // /etc/ssh/sshd_config.d/zenex-sftp.conf (website SFTP access)
-	DKIMDir        string // /var/lib/zenex/dkim (DKIM keys per mail domain, root only)
+	DKIMDir        string // /var/lib/rspamd/dkim (DKIM keys per mail domain, readable by rspamd)
+	DKIMLegacyDir  string // /var/lib/zenex/dkim (where the first keys were made; moved over on use)
 }
 
 func DefaultPaths() Paths {
@@ -87,6 +88,7 @@ func DefaultPaths() Paths {
 		UploadDir:      "/var/lib/zenex/uploads",
 		QuarantineDir:  "/var/lib/zenex/quarantine",
 		SSHDropIn:      "/etc/ssh/sshd_config.d/zenex-sftp.conf",
+		DKIMLegacyDir:  "/var/lib/zenex/dkim",
 	}
 }
 

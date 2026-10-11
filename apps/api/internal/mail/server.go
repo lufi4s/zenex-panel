@@ -26,10 +26,13 @@ const (
 	PostfixDomains     = "/etc/postfix/zenex-domains.cf"
 	PostfixMailboxes   = "/etc/postfix/zenex-mailboxes.cf"
 	DovecotSQL         = "/etc/dovecot/conf.d/zenex-sql.conf.ext"
-	DovecotLocal       = "/etc/dovecot/conf.d/99-zenex.conf"
+	DovecotMain        = "/etc/dovecot/dovecot.conf"
 	RspamdDKIM         = "/etc/rspamd/local.d/dkim_signing.conf"
 	MailTLSCertificate = "/etc/zenex/mail/tls/fullchain.pem"
 	MailTLSKey         = "/etc/zenex/mail/tls/privkey.pem"
+	// DKIMKeyDir holds one folder per domain with its DKIM key. It is under rspamd's own state
+	// folder so that rspamd (which signs the mail) can read the keys.
+	DKIMKeyDir = "/var/lib/rspamd/dkim"
 )
 
 // Settings are the values the configuration needs.
@@ -87,7 +90,7 @@ func Render(s Settings) ([]File, error) {
 				"JOIN mail_domains md ON md.zone_id = z.id "+
 				"WHERE md.enabled AND m.active AND z.apex_domain = '%d' AND m.local_part = '%u'")},
 		{Path: DovecotSQL, Mode: 0o640, Content: dovecotSQL(dovecotDSN)},
-		{Path: DovecotLocal, Mode: 0o644, Content: dovecotLocal(s)},
+		{Path: DovecotMain, Mode: 0o644, Content: dovecotMain()},
 		{Path: RspamdDKIM, Mode: 0o644, Content: rspamdDKIM()},
 	}, nil
 }
@@ -133,6 +136,12 @@ smtpd_tls_protocols = !SSLv2, !SSLv3, !TLSv1, !TLSv1.1
 smtp_tls_security_level = may
 smtp_tls_protocols = !SSLv2, !SSLv3, !TLSv1, !TLSv1.1
 
+# rspamd checks every message for spam and signs outgoing mail (DKIM) through the milter port.
+milter_protocol = 6
+milter_default_action = accept
+smtpd_milters = inet:127.0.0.1:11332
+non_smtpd_milters = $smtpd_milters
+
 message_size_limit = %[6]d
 mailbox_size_limit = 0
 `, s.Host, PostfixDomains, PostfixMailboxes, MailTLSCertificate, MailTLSKey, sizeBytes)
@@ -140,17 +149,44 @@ mailbox_size_limit = 0
 
 func postfixMaster() string {
 	return `# Managed by Zenex. Do not edit by hand.
-# Submission on 587: clients sign in with their mailbox and must use TLS.
-submission inet n - y - - smtpd
+# The standard Postfix services, plus submission on 587: clients sign in with their mailbox
+# and must use TLS.
+# service type  private unpriv  chroot  wakeup  maxproc command + args
+smtp      inet  n       -       y       -       -       smtpd
+submission inet n       -       y       -       -       smtpd
   -o syslog_name=postfix/submission
   -o smtpd_tls_security_level=encrypt
   -o smtpd_sasl_auth_enable=yes
   -o smtpd_tls_auth_only=yes
   -o smtpd_client_restrictions=permit_sasl_authenticated,reject
+pickup    unix  n       -       y       60      1       pickup
+cleanup   unix  n       -       y       -       0       cleanup
+qmgr      unix  n       -       n       300     1       qmgr
+tlsmgr    unix  -       -       y       1000?   1       tlsmgr
+rewrite   unix  -       -       y       -       -       trivial-rewrite
+bounce    unix  -       -       y       -       0       bounce
+defer     unix  -       -       y       -       0       bounce
+trace     unix  -       -       y       -       0       bounce
+verify    unix  -       -       y       -       1       verify
+flush     unix  n       -       y       1000?   0       flush
+proxymap  unix  -       -       n       -       -       proxymap
+proxywrite unix -       -       n       -       1       proxymap
+smtp      unix  -       -       y       -       -       smtp
+relay     unix  -       -       y       -       -       smtp
+        -o syslog_name=postfix/$service_name
+showq     unix  n       -       y       -       -       showq
+error     unix  -       -       y       -       -       error
+retry     unix  -       -       y       -       -       error
+discard   unix  -       -       y       -       -       discard
+local     unix  -       n       n       -       -       local
+virtual   unix  -       n       n       -       -       virtual
+lmtp      unix  -       -       y       -       -       lmtp
+anvil     unix  -       -       y       -       1       anvil
+scache    unix  -       -       y       -       1       scache
+postlog   unix-dgram n  -       n       -       1       postlogd
 `
 }
 
-// pgsqlMap builds a Postfix PostgreSQL lookup file. Postfix substitutes %s, %d and %u.
 func pgsqlMap(dsn, query string) string {
 	return fmt.Sprintf("# Managed by Zenex. Do not edit by hand.\n"+
 		"# Postfix lookup against the panel database (read-only role).\n"+
@@ -187,27 +223,54 @@ user_query = SELECT 'vmail' AS uid, 'vmail' AS gid, '/var/mail/vhosts/%%d/%%n' A
 `, dsn)
 }
 
-func dovecotLocal(s Settings) string {
-	return fmt.Sprintf(`# Managed by Zenex. Do not edit by hand.
+func dovecotMain() string {
+	return `# Managed by Zenex. Do not edit by hand.
+# This file replaces the distribution's configuration on purpose, so that only mailboxes from
+# the panel can sign in. System accounts (including website accounts) never can.
+# Written for Dovecot 2.3, the version in Ubuntu 24.04.
 protocols = imap lmtp
-mail_location = maildir:/var/mail/vhosts/%%d/%%n
+listen = *, ::
+
+mail_location = maildir:/var/mail/vhosts/%d/%n
 mail_uid = vmail
 mail_gid = vmail
-first_valid_uid = 1000
+first_valid_uid = 100
+last_valid_uid = 999
 
 ssl = required
-ssl_server_cert_file = %[1]s
-ssl_server_key_file = %[2]s
+ssl_cert = <` + MailTLSCertificate + `
+ssl_key = <` + MailTLSKey + `
 ssl_min_protocol = TLSv1.2
-
+disable_plaintext_auth = yes
 auth_mechanisms = plain login
+
 passdb {
   driver = sql
-  args = %[3]s
+  args = ` + DovecotSQL + `
 }
 userdb {
   driver = sql
-  args = %[3]s
+  args = ` + DovecotSQL + `
+}
+
+namespace inbox {
+  inbox = yes
+  mailbox Drafts {
+    special_use = \Drafts
+    auto = subscribe
+  }
+  mailbox Sent {
+    special_use = \Sent
+    auto = subscribe
+  }
+  mailbox Trash {
+    special_use = \Trash
+    auto = subscribe
+  }
+  mailbox Junk {
+    special_use = \Junk
+    auto = subscribe
+  }
 }
 
 service auth {
@@ -225,17 +288,18 @@ service lmtp {
     group = postfix
   }
 }
-`, MailTLSCertificate, MailTLSKey, DovecotSQL)
+`
 }
 
 func rspamdDKIM() string {
 	return `# Managed by Zenex. Do not edit by hand.
-# Signs outgoing mail with the domain's key. Keys live in /var/lib/zenex/dkim/<domain>/.
+# Signs outgoing mail with the domain's key. Keys live in ` + DKIMKeyDir + `/<domain>/, where
+# rspamd can read them.
 enabled = true;
 sign_authenticated = true;
 sign_local = true;
 use_domain = "header";
 selector = "default";
-path = "/var/lib/zenex/dkim/$domain/$selector.key";
+path = "` + DKIMKeyDir + `/$domain/$selector.key";
 `
 }

@@ -98,6 +98,27 @@ func (s *Store) SetMailHost(ctx context.Context, host, userID string) error {
 	return s.PutSetting(ctx, mailHostKey, host, userID)
 }
 
+// ListMailDomains returns the connected domains that have mail turned on, sorted.
+func (s *Store) ListMailDomains(ctx context.Context) ([]string, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT z.apex_domain::text FROM mail_domains md
+		JOIN dns_zones z ON z.id = md.zone_id
+		WHERE md.enabled ORDER BY 1`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var d string
+		if err := rows.Scan(&d); err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
 // ListMailboxes returns the mailboxes of a connected domain, sorted by address.
 func (s *Store) ListMailboxes(ctx context.Context, zoneID string) ([]Mailbox, error) {
 	rows, err := s.pool.Query(ctx, mailboxColumns+` WHERE zone_id = $1::uuid ORDER BY local_part`, zoneID)

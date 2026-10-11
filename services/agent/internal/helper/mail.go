@@ -51,7 +51,7 @@ var mailFileAllowlist = map[string][]uint32{
 	"/etc/postfix/zenex-domains.cf":          {0o640},
 	"/etc/postfix/zenex-mailboxes.cf":        {0o640},
 	"/etc/dovecot/conf.d/zenex-sql.conf.ext": {0o640},
-	"/etc/dovecot/conf.d/99-zenex.conf":      {0o644},
+	"/etc/dovecot/dovecot.conf":              {0o644},
 	"/etc/rspamd/local.d/dkim_signing.conf":  {0o644},
 }
 
@@ -246,7 +246,9 @@ func (o *Ops) mailPrepare(ctx context.Context, args map[string]string) (Result, 
 }
 
 // dkimKey returns the public DKIM value (the p= part of the DNS record) for a domain, creating
-// the key pair the first time. The private key stays in the root-only key folder.
+// the key pair the first time. The keys live under rspamd's own folder, readable by root and the
+// rspamd group only, because rspamd signs the outgoing mail. A key made in the old key folder
+// is moved over unchanged, so the DNS record the customer already published stays valid.
 func (o *Ops) dkimKey(ctx context.Context, args map[string]string) (Result, error) {
 	domain := args["domain"]
 	if err := validation.DomainName(domain); err != nil {
@@ -257,17 +259,34 @@ func (o *Ops) dkimKey(ctx context.Context, args map[string]string) (Result, erro
 	pubPath := filepath.Join(dir, dkimSelector+".pub")
 
 	if _, err := os.Stat(pubPath); os.IsNotExist(err) {
-		if err := os.MkdirAll(dir, 0o700); err != nil {
+		if err := os.MkdirAll(dir, 0o750); err != nil {
 			return Result{}, fmt.Errorf("create key folder: %w", err)
+		}
+		if o.copyLegacyDKIM(domain, keyPath, pubPath) {
+			return o.dkimResult(pubPath, keyPath, dir)
 		}
 		if res, err := o.Exec.Run(ctx, binOpenSSL, []string{"genpkey", "-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:" + dkimKeyBits, "-out", keyPath}, mailTimeout); err != nil || res.ExitCode != 0 {
 			return Result{}, fmt.Errorf("create DKIM key: %s", runDetail(res, err))
 		}
-		if err := os.Chmod(keyPath, 0o600); err != nil {
-			return Result{}, fmt.Errorf("protect DKIM key: %w", err)
-		}
 		if res, err := o.Exec.Run(ctx, binOpenSSL, []string{"pkey", "-in", keyPath, "-pubout", "-out", pubPath}, mailTimeout); err != nil || res.ExitCode != 0 {
 			return Result{}, fmt.Errorf("read DKIM public key: %s", runDetail(res, err))
+		}
+	}
+	return o.dkimResult(pubPath, keyPath, dir)
+}
+
+// dkimResult protects the key files (root and the rspamd group only) and returns the record value.
+func (o *Ops) dkimResult(pubPath, keyPath, dir string) (Result, error) {
+	if err := os.Chmod(keyPath, 0o640); err != nil {
+		return Result{}, fmt.Errorf("protect DKIM key: %w", err)
+	}
+	_ = os.Chmod(dir, 0o750)
+	// rspamd reads the key as its own group. Best effort: skipped where there is no such group.
+	if g, err := user.LookupGroup("_rspamd"); err == nil {
+		if gid, err := strconv.Atoi(g.Gid); err == nil {
+			_ = os.Chown(keyPath, -1, gid)
+			_ = os.Chown(dir, -1, gid)
+			_ = os.Chown(filepath.Dir(dir), -1, gid)
 		}
 	}
 	pem, err := os.ReadFile(pubPath)
@@ -275,6 +294,28 @@ func (o *Ops) dkimKey(ctx context.Context, args map[string]string) (Result, erro
 		return Result{}, fmt.Errorf("read DKIM public key: %w", err)
 	}
 	return Result{Output: dkimTXTValue(string(pem))}, nil
+}
+
+// copyLegacyDKIM copies a key pair from the old key folder, if there is one for the domain.
+// It reports whether the pair was copied.
+func (o *Ops) copyLegacyDKIM(domain, keyPath, pubPath string) bool {
+	if o.Paths.DKIMLegacyDir == "" {
+		return false
+	}
+	oldDir := filepath.Join(o.Paths.DKIMLegacyDir, domain)
+	key, kerr := os.ReadFile(filepath.Join(oldDir, dkimSelector+".key"))
+	pub, perr := os.ReadFile(filepath.Join(oldDir, dkimSelector+".pub"))
+	if kerr != nil || perr != nil {
+		return false
+	}
+	if err := writeFileAtomic(keyPath, key, 0o640); err != nil {
+		return false
+	}
+	if err := writeFileAtomic(pubPath, pub, 0o644); err != nil {
+		_ = os.Remove(keyPath)
+		return false
+	}
+	return true
 }
 
 // dkimTXTValue turns a PEM public key into the p= value a DKIM record needs (base64 of the DER).
@@ -294,7 +335,7 @@ func (o *Ops) dkimRoot() string {
 	if o.Paths.DKIMDir != "" {
 		return o.Paths.DKIMDir
 	}
-	return "/var/lib/zenex/dkim"
+	return "/var/lib/rspamd/dkim"
 }
 
 func runDetail(res executor.Result, err error) string {

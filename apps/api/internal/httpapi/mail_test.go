@@ -49,6 +49,16 @@ func newFakeMail() *fakeMail {
 	}
 }
 
+func (f *fakeMail) ListMailDomains(context.Context) ([]string, error) {
+	var out []string
+	for id, on := range f.enabled {
+		if on {
+			out = append(out, f.zones[id].Apex)
+		}
+	}
+	return out, nil
+}
+
 func (f *fakeMail) GetMailHost(context.Context) (string, error) { return f.host, nil }
 
 func (f *fakeMail) SetMailHost(_ context.Context, host, _ string) error {
@@ -91,12 +101,14 @@ func (emptyDNS) LookupHost(_ context.Context, name string) ([]string, error) {
 // fakeMailServer records the hosts it was set up for and answers DKIM requests.
 type fakeMailServer struct {
 	hosts    []string
+	domains  []string
 	applyErr error
 	dkimErr  error
 }
 
-func (f *fakeMailServer) ApplyMailServer(_ context.Context, host string) error {
+func (f *fakeMailServer) ApplyMailServer(_ context.Context, host string, domains []string) error {
 	f.hosts = append(f.hosts, host)
+	f.domains = domains
 	return f.applyErr
 }
 

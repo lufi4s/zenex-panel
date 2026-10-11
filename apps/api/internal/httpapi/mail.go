@@ -19,6 +19,7 @@ type MailStore interface {
 	SetMailDomain(ctx context.Context, zoneID string, enabled bool) error
 	SetMailDKIM(ctx context.Context, zoneID, value string) error
 	GetMailHost(ctx context.Context) (string, error)
+	ListMailDomains(ctx context.Context) ([]string, error)
 	SetMailHost(ctx context.Context, host, userID string) error
 	ListMailboxes(ctx context.Context, zoneID string) ([]store.Mailbox, error)
 	CreateMailbox(ctx context.Context, mb store.Mailbox) (store.Mailbox, error)
@@ -32,7 +33,7 @@ type MailResolver = mailrules.Resolver
 
 // MailServerOps sets up the mail server and creates DKIM keys. *manage.Manager satisfies it.
 type MailServerOps interface {
-	ApplyMailServer(ctx context.Context, host string) error
+	ApplyMailServer(ctx context.Context, host string, domains []string) error
 	MailDKIMValue(ctx context.Context, apex string) (string, error)
 }
 
@@ -345,7 +346,12 @@ func (d Deps) handlePutMailServer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, requestIDFrom(r), APIError{Status: http.StatusBadRequest, Code: "invalid_host", Message: "enter a full host name such as mail.example.com (lower case)"})
 		return
 	}
-	if err := d.MailServer.ApplyMailServer(r.Context(), in.Host); err != nil {
+	domains, err := d.Mail.ListMailDomains(r.Context())
+	if err != nil {
+		d.internal(w, r, "mail.server.domains", err)
+		return
+	}
+	if err := d.MailServer.ApplyMailServer(r.Context(), in.Host, domains); err != nil {
 		d.audit(r.Context(), r, store.AuditEntry{ActorUserID: user.ID, ActorRole: primaryRole(user), Action: "mail.server.setup", TargetType: "settings", TargetID: "mail_server", Result: "failure"})
 		d.manageError(w, r, "mail.server.setup", err)
 		return

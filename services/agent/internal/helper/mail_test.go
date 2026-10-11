@@ -187,8 +187,8 @@ func TestDKIMKeyCreatedOnceAndReturnsTheRecordValue(t *testing.T) {
 		t.Fatalf("private key missing: %v", err)
 	}
 	// Windows does not keep POSIX permission bits, so the mode is checked on Linux only.
-	if runtime.GOOS != "windows" && keyInfo.Mode().Perm() != 0o600 {
-		t.Fatalf("private key mode = %o, want 0600", keyInfo.Mode().Perm())
+	if runtime.GOOS != "windows" && keyInfo.Mode().Perm() != 0o640 {
+		t.Fatalf("private key mode = %o, want 0640 (root and the rspamd group)", keyInfo.Mode().Perm())
 	}
 	second, err := o.Do(context.Background(), "mail.dkim-key", map[string]string{"domain": "ozima.cloud"})
 	if err != nil || second.Output != first.Output {
@@ -222,7 +222,7 @@ func TestMailAllowlistMatchesTheAPIPaths(t *testing.T) {
 	for _, path := range []string{
 		"/etc/postfix/main.cf", "/etc/postfix/master.cf", "/etc/postfix/zenex-domains.cf",
 		"/etc/postfix/zenex-mailboxes.cf", "/etc/dovecot/conf.d/zenex-sql.conf.ext",
-		"/etc/dovecot/conf.d/99-zenex.conf", "/etc/rspamd/local.d/dkim_signing.conf",
+		"/etc/dovecot/dovecot.conf", "/etc/rspamd/local.d/dkim_signing.conf",
 	} {
 		if _, ok := mailFileAllowlist[path]; !ok {
 			t.Errorf("%s missing from the helper allowlist", path)
@@ -293,5 +293,39 @@ func TestMailPrepareStopsWhenAPortCannotBeOpened(t *testing.T) {
 	o, _ := mailTestOps(t, ex)
 	if _, err := o.Do(context.Background(), "mail.prepare", map[string]string{"host": "mail.example.com"}); err == nil {
 		t.Fatal("firewall failure was ignored")
+	}
+}
+
+// The first keys were made under /var/lib/zenex/dkim, where rspamd cannot read them. The key
+// moves to rspamd's folder unchanged: a new key would not match the DNS record already published.
+func TestDKIMKeyFromTheOldFolderIsMovedOverUnchanged(t *testing.T) {
+	ex := &mailExec{}
+	o, root := mailTestOps(t, ex)
+	o.Paths.DKIMLegacyDir = filepath.Join(root, "legacy")
+	oldDir := filepath.Join(o.Paths.DKIMLegacyDir, "ozima.cloud")
+	if err := os.MkdirAll(oldDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(oldDir, "default.key"), []byte("OLD PRIVATE KEY"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pem := "-----BEGIN PUBLIC KEY-----\nT0xE\nS0VZ\n-----END PUBLIC KEY-----\n"
+	if err := os.WriteFile(filepath.Join(oldDir, "default.pub"), []byte(pem), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := o.Do(context.Background(), "mail.dkim-key", map[string]string{"domain": "ozima.cloud"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Output != "p=T0xES0VZ" {
+		t.Fatalf("value = %q, want the old key's value", res.Output)
+	}
+	if got := countCalls(ex.calls, binOpenSSL); got != 0 {
+		t.Fatalf("openssl ran %d times; a new key would not match the published record", got)
+	}
+	moved, err := os.ReadFile(filepath.Join(o.Paths.DKIMDir, "ozima.cloud", "default.key"))
+	if err != nil || string(moved) != "OLD PRIVATE KEY" {
+		t.Fatalf("key in rspamd's folder = %q, %v", moved, err)
 	}
 }

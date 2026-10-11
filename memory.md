@@ -759,3 +759,13 @@ Next: httpapi/mail.go (MailStore interface, Deps.Mail, routes: GET/PUT /domains/
 - Server state on 2026-10-11: mail on for ozima.cloud (DKIM 394 chars), mailbox akamai@ozima.cloud, postfix not installed yet, ports closed, PTR panel-test.
 - Running the installer or any change on the VPS from this session is blocked by the permission system even with chat approval; the user cannot use SSH, so everything must be reachable from the panel (Update now + Set up mail server).
 
+## 59. First real apply on the VPS: config fixes (Dovecot 2.3.21, Postfix 3.8, rspamd)
+
+- The first "Set up mail server" on the VPS failed at the Dovecot check: "Unknown setting: ssl_server_cert_file" (Dovecot 2.3.21 on Ubuntu 24.04; those names are Dovecot 2.4). The helper rolled back, nothing was changed. The apply check worked as designed.
+- Review after that error found more faults that no check would catch. Fixed in apps/api/internal/mail/server.go (tests in server_test.go):
+  - Dovecot: ssl_cert = </path and ssl_key = </path (2.3 names). The whole /etc/dovecot/dovecot.conf is now written (replaces the distribution file) so no system/PAM login exists: website and system accounts cannot sign in to mail. vmail uid range first_valid_uid=100, last_valid_uid=999 (a system account is below 1000; 1000 made vmail invalid). Inbox namespace with Drafts/Sent/Trash/Junk. The conf.d/99-zenex.conf path is gone; helper allowlist now has /etc/dovecot/dovecot.conf.
+  - Postfix master.cf: the full standard service list plus submission (a master.cf with only submission would stop Postfix). main.cf: milter to rspamd (smtpd_milters inet:127.0.0.1:11332, milter_default_action accept).
+  - DKIM keys: now in /var/lib/rspamd/dkim/<domain>/ (readable by root and group _rspamd). Keys made earlier under /var/lib/zenex/dkim are copied unchanged (helper copyLegacyDKIM), so the DNS record already published stays valid. ApplyMailServer(ctx, host, domains) calls mail.dkim-key for every enabled mail domain before applying; store.ListMailDomains.
+- Still unverified until the next apply: Dovecot starts with the file; Postfix accepts mail; rspamd milter on 11332; Dovecot ARGON2ID against our PHC hashes; self-signed certificate.
+- The user needs to do Update now (new code), then press "Save and apply" in Settings > Mail server again.
+

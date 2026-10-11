@@ -113,7 +113,11 @@ func applyMailConfig(ctx context.Context, cfg config.Config, s *store.Store, log
 	m.MailServer = mailServerSettings(cfg)
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
-	if err := m.ApplyMailServer(ctx, host); err != nil {
+	domains, err := s.ListMailDomains(ctx)
+	if err != nil {
+		return err
+	}
+	if err := m.ApplyMailServer(ctx, host, domains); err != nil {
 		return err
 	}
 	log.Info("mail configuration applied", "host", host)

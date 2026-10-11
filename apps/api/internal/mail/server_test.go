@@ -166,7 +166,7 @@ func TestRenderDKIMKeysPerDomain(t *testing.T) {
 		t.Fatal(err)
 	}
 	dkim := findFile(t, files, RspamdDKIM).Content
-	if !strings.Contains(dkim, "/var/lib/zenex/dkim/$domain/$selector.key") || !strings.Contains(dkim, "sign_authenticated = true") {
+	if !strings.Contains(dkim, DKIMKeyDir+"/$domain/$selector.key") || !strings.Contains(dkim, "sign_authenticated = true") {
 		t.Errorf("rspamd signing config wrong:\n%s", dkim)
 	}
 }
@@ -176,5 +176,79 @@ func TestRenderRefusesInvalidSettings(t *testing.T) {
 	s.Host = "not a host"
 	if _, err := Render(s); err == nil {
 		t.Fatal("invalid settings rendered")
+	}
+}
+
+// The first real apply failed because Dovecot 2.3.21 (Ubuntu 24.04) does not know the 2.4
+// names ssl_server_cert_file and ssl_server_key_file. These tests keep the file in 2.3 syntax.
+func TestDovecotConfigUsesTheDovecot23Names(t *testing.T) {
+	files, err := Render(goodSettings())
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := findFile(t, files, DovecotMain).Content
+	for _, want := range []string{
+		"ssl_cert = <" + MailTLSCertificate,
+		"ssl_key = <" + MailTLSKey,
+		"disable_plaintext_auth = yes",
+		"first_valid_uid = 100",
+		"last_valid_uid = 999",
+	} {
+		if !strings.Contains(d, want) {
+			t.Errorf("dovecot.conf missing %q", want)
+		}
+	}
+	for _, banned := range []string{"ssl_server_cert_file", "ssl_server_key_file"} {
+		if strings.Contains(d, banned) {
+			t.Errorf("dovecot.conf uses the Dovecot 2.4 setting %q", banned)
+		}
+	}
+}
+
+func TestDovecotOnlyAuthenticatesMailboxesFromThePanel(t *testing.T) {
+	files, err := Render(goodSettings())
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := findFile(t, files, DovecotMain).Content
+	// The distribution's configuration includes a system (PAM) login. Replacing the whole file
+	// is what keeps system and website accounts from signing in to mail.
+	for _, banned := range []string{"!include", "driver = pam", "driver = passwd", "auth-system"} {
+		if strings.Contains(d, banned) {
+			t.Errorf("dovecot.conf allows another login source: %q", banned)
+		}
+	}
+	if strings.Count(d, "driver = sql") != 2 {
+		t.Errorf("dovecot.conf should use the panel database for both passdb and userdb")
+	}
+	if findFile(t, files, DovecotMain).Mode != 0o644 {
+		t.Error("dovecot.conf mode is not 0644")
+	}
+}
+
+func TestPostfixMasterHasEveryServicePostfixNeeds(t *testing.T) {
+	files, err := Render(goodSettings())
+	if err != nil {
+		t.Fatal(err)
+	}
+	master := findFile(t, files, PostfixMaster).Content
+	// A master.cf with only a submission service stops Postfix from running at all.
+	for _, service := range []string{"smtp      inet", "submission inet", "pickup", "cleanup", "qmgr", "tlsmgr", "rewrite", "bounce", "smtp      unix", "lmtp", "anvil", "scache"} {
+		if !strings.Contains(master, service) {
+			t.Errorf("master.cf is missing the %q service", service)
+		}
+	}
+}
+
+func TestPostfixHandsMailToRspamdThroughTheMilter(t *testing.T) {
+	files, err := Render(goodSettings())
+	if err != nil {
+		t.Fatal(err)
+	}
+	main := findFile(t, files, PostfixMain).Content
+	for _, want := range []string{"smtpd_milters = inet:127.0.0.1:11332", "non_smtpd_milters = $smtpd_milters", "milter_default_action = accept"} {
+		if !strings.Contains(main, want) {
+			t.Errorf("main.cf missing %q", want)
+		}
 	}
 }
