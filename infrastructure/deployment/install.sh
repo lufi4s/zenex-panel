@@ -532,7 +532,11 @@ wait_for_postgres() {
 install_mail_server() {
     export DEBIAN_FRONTEND=noninteractive
     echo "postfix postfix/main_mailer_type select No configuration" | debconf-set-selections
-    retry 3 20 apt-get install -y -qq --no-install-recommends         -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold         postfix dovecot-core dovecot-imapd dovecot-lmtpd dovecot-pgsql rspamd         || fail "mail packages could not be installed"
+    retry 3 20 apt-get install -y -qq --no-install-recommends         -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold         postfix postfix-pgsql dovecot-core dovecot-imapd dovecot-lmtpd dovecot-pgsql rspamd         || fail "mail packages could not be installed"
+    # A running Postfix learns about newly installed map types (such as pgsql) only after a restart.
+    if systemctl is-active --quiet postfix; then
+        systemctl restart postfix || true
+    fi
 
     # Mailboxes are stored under one system account that owns the mail folders.
     getent group vmail >/dev/null || groupadd --system vmail

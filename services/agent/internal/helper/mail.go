@@ -27,6 +27,7 @@ const (
 	binRspamadm  = "/usr/bin/rspamadm"
 	binOpenSSL   = "/usr/bin/openssl"
 	binUfw       = "/usr/sbin/ufw"
+	binPostconf  = "/usr/sbin/postconf"
 	mailTLSDir   = "/etc/zenex/mail/tls"
 	mailTimeout  = 2 * time.Minute
 	maxMailFile  = 1 << 20 // 1 MiB per configuration file
@@ -38,7 +39,7 @@ const (
 var mailHostRe = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$`)
 
 // mailBinaries are the programs the mail operations run; AllowedBinaries lists them.
-var mailBinaries = []string{binPostfix, binDoveconf, binRspamadm, binOpenSSL, binUfw}
+var mailBinaries = []string{binPostfix, binDoveconf, binRspamadm, binOpenSSL, binUfw, binPostconf}
 
 // mailPorts are the ports the mail server listens on: SMTP, submission and IMAP over TLS.
 var mailPorts = []string{"25", "587", "993"}
@@ -109,6 +110,12 @@ func (o *Ops) mailApply(ctx context.Context, args map[string]string) (Result, er
 	}
 	if err := validateMailFiles(files); err != nil {
 		return Result{}, err
+	}
+	// The mailbox lookups need Postfix's PostgreSQL support (the postfix-pgsql package). Without
+	// it "postfix check" still passes, but every incoming message would be refused. Ask before
+	// anything is written.
+	if res, err := o.Exec.Run(ctx, binPostconf, []string{"-m"}, mailTimeout); err != nil || res.ExitCode != 0 || !hasLine(res.Stdout, "pgsql") {
+		return Result{}, errors.New("Postfix has no PostgreSQL support (the postfix-pgsql package is missing). Run the panel update, then try again; nothing was changed")
 	}
 	redact := func(s string) string {
 		if pass := args["dbpass"]; pass != "" {
@@ -243,6 +250,16 @@ func (o *Ops) mailPrepare(ctx context.Context, args map[string]string) (Result, 
 		}
 	}
 	return Result{Output: "prepared"}, nil
+}
+
+// hasLine reports whether text has a line equal to want (ignoring spaces around it).
+func hasLine(text, want string) bool {
+	for _, line := range strings.Split(text, "\n") {
+		if strings.TrimSpace(line) == want {
+			return true
+		}
+	}
+	return false
 }
 
 // dkimKey returns the public DKIM value (the p= part of the DNS record) for a domain, creating

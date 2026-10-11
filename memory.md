@@ -769,3 +769,10 @@ Next: httpapi/mail.go (MailStore interface, Deps.Mail, routes: GET/PUT /domains/
 - Still unverified until the next apply: Dovecot starts with the file; Postfix accepts mail; rspamd milter on 11332; Dovecot ARGON2ID against our PHC hashes; self-signed certificate.
 - The user needs to do Update now (new code), then press "Save and apply" in Settings > Mail server again.
 
+## 60. First working apply; postfix-pgsql was missing (found by a read-only check)
+
+- After Update now (c3c3111) and "Save and apply", the VPS ran the mail server (2026-10-11 13:27): postfix, dovecot, rspamd active; ports 25, 587, 993 listening, open in ufw and reachable from outside (also from the user's PC); TLS self-signed CN mail.ozima.cloud; doveadm user akamai@ozima.cloud resolves (uid vmail), doveadm user root resolves to nothing (system accounts cannot sign in); rspamd configtest OK; mail_host saved as mail.ozima.cloud; DKIM key in /var/lib/rspamd/dkim/ozima.cloud (root:_rspamd).
+- Found: `postmap -q ... pgsql:` says "unsupported dictionary type: pgsql". The postfix-pgsql package was never installed, so Postfix could not look up domains/mailboxes and would refuse incoming mail; "postfix check" does not notice. Fix: install.sh installs postfix-pgsql and restarts a running Postfix after installing packages; helper mail.apply now runs `postconf -m` first and refuses (writing nothing) with a message naming the package if pgsql is not listed. Test: helper/mail_test.go.
+- User must do Update now again (installs postfix-pgsql and restarts Postfix). Then send a test mail to akamai@ozima.cloud and check `postmap -q ozima.cloud pgsql:/etc/postfix/zenex-domains.cf` (should print ok) and the mail log.
+- Still unverified: receiving a real message into /var/mail/vhosts/ozima.cloud/akamai, IMAP login with the mailbox password (Argon2id via {ARGON2ID} scheme), sending (587 with login), DKIM signing by rspamd, SPF/DKIM/DMARC results at Gmail, PTR record, real certificate.
+

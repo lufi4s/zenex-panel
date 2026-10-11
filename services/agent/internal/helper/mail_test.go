@@ -19,10 +19,19 @@ type mailExec struct {
 	calls   []string
 	failBin string
 	failArg string
+	// noPgsql makes "postconf -m" list the Postfix map types without pgsql.
+	noPgsql bool
 }
 
 func (m *mailExec) Run(_ context.Context, bin string, args []string, _ time.Duration) (executor.Result, error) {
 	m.calls = append(m.calls, bin+" "+strings.Join(args, " "))
+	if bin == binPostconf {
+		out := "btree\nhash\npgsql\n"
+		if m.noPgsql {
+			out = "btree\nhash\n"
+		}
+		return executor.Result{Stdout: out}, nil
+	}
 	if bin == binOpenSSL && args[0] == "req" {
 		// Like the real tool: write the key and the certificate to the paths it is given.
 		for i, a := range args {
@@ -96,6 +105,7 @@ func TestMailApplyWritesChecksAndReloads(t *testing.T) {
 		t.Fatalf("file not written: %v %q", err, got)
 	}
 	want := []string{
+		binPostconf + " -m",
 		binPostfix + " check",
 		binDoveconf + " -n",
 		binRspamadm + " configtest",
@@ -327,5 +337,24 @@ func TestDKIMKeyFromTheOldFolderIsMovedOverUnchanged(t *testing.T) {
 	moved, err := os.ReadFile(filepath.Join(o.Paths.DKIMDir, "ozima.cloud", "default.key"))
 	if err != nil || string(moved) != "OLD PRIVATE KEY" {
 		t.Fatalf("key in rspamd's folder = %q, %v", moved, err)
+	}
+}
+
+// "postfix check" passes without postfix-pgsql, but the server would then refuse all mail.
+func TestMailApplyStopsBeforeWritingWhenPostfixHasNoPostgreSQLSupport(t *testing.T) {
+	ex := &mailExec{noPgsql: true}
+	o, _ := mailTestOps(t, ex)
+	files := []mailFile{{Path: "/etc/postfix/main.cf", Mode: 0o644, Content: "myhostname = mail.example.com" + "\n"}}
+	_, err := o.Do(context.Background(), "mail.apply", applyArgs(t, files))
+	if err == nil || !strings.Contains(err.Error(), "postfix-pgsql") {
+		t.Fatalf("err = %v, want a message naming the postfix-pgsql package", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(o.MailRoot, "/etc/postfix/main.cf")); !os.IsNotExist(statErr) {
+		t.Fatal("a file was written although Postfix cannot use the database")
+	}
+	for _, c := range ex.calls {
+		if strings.Contains(c, "reload") || strings.Contains(c, "enable") {
+			t.Fatalf("services touched: %v", ex.calls)
+		}
 	}
 }
