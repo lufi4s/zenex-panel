@@ -140,6 +140,13 @@ export const FolderPlus = icon(
     <path d="M12 11v6M9 14h6" />
   </>,
 );
+export const Mail = icon(
+  "Mail",
+  <>
+    <rect x="2" y="4" width="20" height="16" rx="2" />
+    <path d="m22 6-10 7L2 6" />
+  </>,
+);
 export const Globe = icon(
   "Globe",
   <>

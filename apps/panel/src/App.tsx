@@ -9,6 +9,7 @@ import { AppLayout } from "@/layouts/AppLayout";
 const ActivityPage = lazy(() =>
   import("@/pages/ActivityPage").then((m) => ({ default: m.ActivityPage })),
 );
+const MailPage = lazy(() => import("@/pages/MailPage").then((m) => ({ default: m.MailPage })));
 const DomainsPage = lazy(() =>
   import("@/pages/DomainsPage").then((m) => ({ default: m.DomainsPage })),
 );
@@ -150,6 +151,7 @@ const PAGES: RouteDef[] = [
   { path: "/websites", component: () => <WebsitesPage /> },
   { path: "/websites/:id", component: () => <SitePage /> },
   { path: "/domains", component: () => <DomainsPage /> },
+  { path: "/mail", component: () => <MailPage /> },
   {
     path: "/server",
     component: () => (

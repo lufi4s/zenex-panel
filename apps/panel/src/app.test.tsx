@@ -1233,3 +1233,13 @@ describe("mail server", () => {
     ).toBe(true);
   });
 });
+
+describe("mail page", () => {
+  it("is in the menu and lists each connected domain with its mail switch", async () => {
+    vi.stubGlobal("fetch", mockApi({ signedIn: true }));
+    renderAt("/mail");
+    expect(await screen.findByRole("heading", { name: "Mail" })).toBeTruthy();
+    expect(await screen.findByLabelText("Mail for ozima.cloud")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Mail" })).toBeTruthy();
+  });
+});

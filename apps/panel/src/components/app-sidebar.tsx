@@ -2,6 +2,7 @@ import { For, Show } from "solid-js";
 import {
   Activity,
   Globe,
+  Mail,
   Layers,
   LayoutDashboard,
   LogOut,
@@ -18,6 +19,7 @@ const PLATFORM = [
   { to: "/", label: "Overview", icon: LayoutDashboard, end: true },
   { to: "/websites", label: "Websites", icon: Layers, end: false },
   { to: "/domains", label: "Domains", icon: Globe, end: false },
+  { to: "/mail", label: "Mail", icon: Mail, end: false },
 ];
 
 const OPERATIONS = [
