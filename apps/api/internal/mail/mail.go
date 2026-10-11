@@ -76,7 +76,7 @@ func DNSRecords(apex, serverIP, dkimValue string) []Record {
 // dkimRecord is the DKIM record. Until the key exists, the value says so.
 func dkimRecord(value string) Record {
 	if value == "" {
-		return Record{Type: "TXT", Name: dkimSelector + "._domainkey", Value: "", Note: "Created when mail is turned on and the mail server is set up. Signs outgoing mail."}
+		return Record{Type: "TXT", Name: dkimSelector + "._domainkey", Value: "", Note: "Created when you turn mail on above. Signs outgoing mail so receivers can trust it."}
 	}
 	return Record{Type: "TXT", Name: dkimSelector + "._domainkey", Value: "v=DKIM1; k=rsa; " + value, Note: "Signs outgoing mail so receivers can check it came from this server."}
 }

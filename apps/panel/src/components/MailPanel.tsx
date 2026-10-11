@@ -62,7 +62,9 @@ function DNSRow(props: { type: string; name: string; value: string; note: string
       <td class="px-3 py-2 font-mono text-xs">{props.type}</td>
       <td class="px-3 py-2 font-mono text-xs">{props.name}</td>
       <td class="px-3 py-2 font-mono text-xs break-all">
-        {props.value || <span class="text-muted-foreground">(added later)</span>}
+        {props.value || (
+          <span class="text-muted-foreground">Turn mail on above to create this value</span>
+        )}
       </td>
       <td class="px-3 py-2 text-xs text-muted-foreground">{props.note}</td>
       <td class="px-3 py-2">
@@ -135,6 +137,14 @@ export function MailPanel(props: { domain: Domain }) {
                 </span>
               </Show>
             </div>
+            <Show when={!view().enabled}>
+              <Alert>
+                <AlertDescription>
+                  Mail is off. Turn on the switch above to create the DKIM value and to add
+                  mailboxes.
+                </AlertDescription>
+              </Alert>
+            </Show>
             <Show when={setMail.error}>
               <Alert variant="destructive">
                 <AlertDescription>{describeError(setMail.error)}</AlertDescription>

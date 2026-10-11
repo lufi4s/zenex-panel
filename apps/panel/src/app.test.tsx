@@ -97,6 +97,12 @@ function mockApi(options: {
         value: "v=spf1 mx ~all",
         note: "Lists this server as allowed to send mail for the domain.",
       },
+      {
+        type: "TXT",
+        name: "default._domainkey",
+        value: "",
+        note: "Created when you turn mail on above. Signs outgoing mail so receivers can trust it.",
+      },
     ],
   });
   const accessView = () => ({
@@ -1215,6 +1221,8 @@ describe("mail on a connected domain", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Mail" }));
     const toggle = (await screen.findByLabelText("Mail for ozima.cloud")) as HTMLInputElement;
     expect(toggle.checked).toBe(false);
+    expect(screen.getByText(/Mail is off\./)).toBeTruthy();
+    expect(screen.getByText("Turn mail on above to create this value")).toBeTruthy();
     expect(screen.getByText("DNS records to add at your DNS provider")).toBeTruthy();
     expect(screen.getByText("10 mail.ozima.cloud.")).toBeTruthy();
 
