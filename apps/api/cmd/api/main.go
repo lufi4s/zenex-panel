@@ -113,6 +113,12 @@ func serve(cfg config.Config, log *slog.Logger) error {
 	manager.SFTPPasswordFor = func(siteID string, generation int) string {
 		return provision.SFTPPassword([]byte(cfg.SecretKey), siteID, generation)
 	}
+	// The mail server is optional: it is set up only when ZENEX_MAIL_HOST is given. Its database
+	// password belongs to the read-only role the installer creates for the mail server.
+	manager.MailServer = manage.MailServerSettings{
+		Host: cfg.MailHost, DBHost: "127.0.0.1", DBName: "zenex_panel", DBUser: "zenex_mail",
+		DBPass: cfg.MailDBPassword, MaxMB: 64,
+	}
 	manager.DBPassword = func(siteID string) string {
 		return provision.DBPassword([]byte(cfg.SecretKey), siteID)
 	}
@@ -163,14 +169,15 @@ func serve(cfg config.Config, log *slog.Logger) error {
 	srv := &http.Server{
 		Addr: cfg.ListenAddr,
 		Handler: httpapi.NewRouter(httpapi.Deps{
-			Log:     log,
-			Users:   s,
-			Sites:   s,
-			Manage:  manager,
-			Monitor: s,
-			Mail:    s,
-			Updates: update.New(helpers),
-			Alerts:  alertSvc,
+			Log:        log,
+			Users:      s,
+			Sites:      s,
+			Manage:     manager,
+			Monitor:    s,
+			Mail:       s,
+			MailServer: manager,
+			Updates:    update.New(helpers),
+			Alerts:     alertSvc,
 			Site: httpapi.SiteSettings{
 				NodeID:     nodeID,
 				PHPVersion: cfg.PHPVersion,

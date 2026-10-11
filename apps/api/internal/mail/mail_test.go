@@ -40,7 +40,7 @@ func TestValidQuota(t *testing.T) {
 }
 
 func TestDNSRecordsForAMailDomain(t *testing.T) {
-	recs := DNSRecords("ozima.cloud", "162.4.35.76")
+	recs := DNSRecords("ozima.cloud", "162.4.35.76", "p=QUJD")
 	want := map[string]string{
 		"MX":       "10 mail.ozima.cloud.",
 		"A":        "162.4.35.76",
@@ -64,7 +64,7 @@ func TestDNSRecordsForAMailDomain(t *testing.T) {
 			t.Errorf("%s = %q, want %q", k, got[k], v)
 		}
 	}
-	if !strings.Contains(DNSRecords("ozima.cloud", "")[0].Value, "this server") {
+	if !strings.Contains(DNSRecords("ozima.cloud", "", "")[0].Value, "this server") {
 		t.Error("unknown server IP not explained")
 	}
 }

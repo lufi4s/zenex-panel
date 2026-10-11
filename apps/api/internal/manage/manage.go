@@ -58,6 +58,8 @@ type Manager struct {
 	Log    *slog.Logger
 	// usage remembers the last disk measurement of every website (see storage.go).
 	usage usageCache
+	// MailServer holds the mail server settings from the environment (see mail_server.go).
+	MailServer MailServerSettings
 	// DeleteTimeout bounds the background deletion.
 	DeleteTimeout time.Duration
 	// BackupTimeout bounds one website backup.

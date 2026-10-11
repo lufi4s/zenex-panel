@@ -15,11 +15,18 @@ type MailStore interface {
 	ZoneOwner(ctx context.Context, zoneID string) (store.ZoneInfo, error)
 	GetMailDomain(ctx context.Context, zoneID string) (store.MailDomain, error)
 	SetMailDomain(ctx context.Context, zoneID string, enabled bool) error
+	SetMailDKIM(ctx context.Context, zoneID, value string) error
 	ListMailboxes(ctx context.Context, zoneID string) ([]store.Mailbox, error)
 	CreateMailbox(ctx context.Context, mb store.Mailbox) (store.Mailbox, error)
 	GetMailbox(ctx context.Context, id string) (store.Mailbox, error)
 	UpdateMailbox(ctx context.Context, mb store.Mailbox) error
 	DeleteMailbox(ctx context.Context, id string) error
+}
+
+// MailServerOps sets up the mail server and creates DKIM keys. *manage.Manager satisfies it.
+type MailServerOps interface {
+	ApplyMailServer(ctx context.Context) error
+	MailDKIMValue(ctx context.Context, apex string) (string, error)
 }
 
 var (
@@ -77,7 +84,7 @@ func (d Deps) buildMailView(ctx context.Context, zone store.ZoneInfo) (mailView,
 		Domain:    zone.Apex,
 		Enabled:   md.Enabled,
 		Mailboxes: boxes,
-		DNS:       mailrules.DNSRecords(zone.Apex, d.Site.PublicIP),
+		DNS:       mailrules.DNSRecords(zone.Apex, d.Site.PublicIP, md.DKIMPublic),
 	}, nil
 }
 
@@ -107,6 +114,19 @@ func (d Deps) handleSetMail(w http.ResponseWriter, r *http.Request) {
 	if err := decodeJSON(r, &in); err != nil {
 		writeError(w, requestIDFrom(r), ErrInvalidRequest)
 		return
+	}
+	// Turning mail on creates the domain's DKIM key (once) and stores its public part, so the
+	// DNS records can show it. Without a mail server on this host there is no key yet.
+	if in.Enabled && d.MailServer != nil {
+		value, err := d.MailServer.MailDKIMValue(r.Context(), zone.Apex)
+		if err != nil {
+			writeError(w, requestIDFrom(r), APIError{Status: http.StatusUnprocessableEntity, Code: "dkim_failed", Message: "the signing key could not be created: " + err.Error()})
+			return
+		}
+		if err := d.Mail.SetMailDKIM(r.Context(), zone.ID, value); err != nil {
+			d.internal(w, r, "mail.dkim", err)
+			return
+		}
 	}
 	if err := d.Mail.SetMailDomain(r.Context(), zone.ID, in.Enabled); err != nil {
 		d.internal(w, r, "mail.set", err)
@@ -272,4 +292,23 @@ func (d Deps) handleDeleteMailbox(w http.ResponseWriter, r *http.Request) {
 	}
 	d.audit(r.Context(), r, store.AuditEntry{ActorUserID: user.ID, ActorRole: primaryRole(user), Action: "mailbox.delete", TargetType: "mailbox", TargetID: mb.ID, Result: "success"})
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleApplyMailServer writes the mail server configuration and reloads the services.
+// Administrators only: it changes the server's mail setup for every hosted domain.
+func (d Deps) handleApplyMailServer(w http.ResponseWriter, r *http.Request) {
+	user, ok := d.requireAdminUser(w, r)
+	if !ok {
+		return
+	}
+	if d.MailServer == nil {
+		writeError(w, requestIDFrom(r), ErrUnavailable)
+		return
+	}
+	if err := d.MailServer.ApplyMailServer(r.Context()); err != nil {
+		d.manageError(w, r, "mail.server.apply", err)
+		return
+	}
+	d.audit(r.Context(), r, store.AuditEntry{ActorUserID: user.ID, ActorRole: primaryRole(user), Action: "mail.server.apply", TargetType: "settings", TargetID: "mail_server", Result: "success"})
+	writeJSON(w, http.StatusOK, map[string]bool{"applied": true})
 }

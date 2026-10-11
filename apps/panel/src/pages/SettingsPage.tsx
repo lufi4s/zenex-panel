@@ -1,4 +1,5 @@
 import { AlertSettingsCard } from "@/components/AlertSettingsCard";
+import { MailServerCard } from "@/components/MailServerCard";
 import { BackupSettingsCard } from "@/components/BackupSettingsCard";
 import { BrandingCard } from "@/components/BrandingCard";
 import { RemoteBackupsCard } from "@/components/RemoteBackupsCard";
@@ -19,6 +20,7 @@ export function SettingsPage() {
       <BackupSettingsCard />
       <RemoteBackupsCard />
       <AlertSettingsCard />
+      <MailServerCard />
       <BrandingCard />
     </>
   );

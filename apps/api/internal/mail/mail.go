@@ -56,9 +56,9 @@ type Record struct {
 func MailHost(apex string) string { return "mail." + apex }
 
 // DNSRecords returns the records a domain needs before its mail works. serverIP may be empty
-// when the server does not know its address yet; the A record then says so.
-// The DKIM key is created when the mail server is installed (phase 2), so its value is empty.
-func DNSRecords(apex, serverIP string) []Record {
+// when the server does not know its address yet; the A record then says so. dkimValue is the
+// p= value of the domain's DKIM key; it stays empty until the mail server has created the key.
+func DNSRecords(apex, serverIP, dkimValue string) []Record {
 	host := MailHost(apex)
 	aValue, aNote := serverIP, "Points the mail host name at this server."
 	if serverIP == "" {
@@ -69,6 +69,17 @@ func DNSRecords(apex, serverIP string) []Record {
 		{Type: "MX", Name: "@", Value: "10 " + host + ".", Note: "Sends incoming mail for the domain to the mail host."},
 		{Type: "TXT", Name: "@", Value: "v=spf1 mx ~all", Note: "Lists this server as allowed to send mail for the domain."},
 		{Type: "TXT", Name: "_dmarc", Value: "v=DMARC1; p=none; rua=mailto:postmaster@" + apex, Note: "Tells receivers what to do with unsigned mail. Start with p=none."},
-		{Type: "TXT", Name: "default._domainkey", Value: "", Note: "Added once the mail server is installed. Signs outgoing mail."},
+		dkimRecord(dkimValue),
 	}
 }
+
+// dkimRecord is the DKIM record. Until the key exists, the value says so.
+func dkimRecord(value string) Record {
+	if value == "" {
+		return Record{Type: "TXT", Name: dkimSelector + "._domainkey", Value: "", Note: "Created when mail is turned on and the mail server is set up. Signs outgoing mail."}
+	}
+	return Record{Type: "TXT", Name: dkimSelector + "._domainkey", Value: "v=DKIM1; k=rsa; " + value, Note: "Signs outgoing mail so receivers can check it came from this server."}
+}
+
+// dkimSelector is the DKIM selector used for every hosted domain.
+const dkimSelector = "default"

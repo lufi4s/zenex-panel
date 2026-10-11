@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -29,6 +30,7 @@ type fakeMail struct {
 	zones   map[string]store.ZoneInfo
 	enabled map[string]bool
 	boxes   map[string]store.Mailbox
+	dkim    map[string]string
 	seq     int
 }
 
@@ -40,7 +42,13 @@ func newFakeMail() *fakeMail {
 		},
 		enabled: map[string]bool{},
 		boxes:   map[string]store.Mailbox{},
+		dkim:    map[string]string{},
 	}
+}
+
+func (f *fakeMail) SetMailDKIM(_ context.Context, id, value string) error {
+	f.dkim[id] = value
+	return nil
 }
 
 func (f *fakeMail) ZoneOwner(_ context.Context, id string) (store.ZoneInfo, error) {
@@ -52,7 +60,25 @@ func (f *fakeMail) ZoneOwner(_ context.Context, id string) (store.ZoneInfo, erro
 }
 
 func (f *fakeMail) GetMailDomain(_ context.Context, id string) (store.MailDomain, error) {
-	return store.MailDomain{ZoneID: id, Enabled: f.enabled[id]}, nil
+	return store.MailDomain{ZoneID: id, Enabled: f.enabled[id], DKIMPublic: f.dkim[id]}, nil
+}
+
+// fakeMailServer records the apply calls and answers DKIM requests.
+type fakeMailServer struct {
+	applied int
+	dkimErr error
+}
+
+func (f *fakeMailServer) ApplyMailServer(context.Context) error {
+	f.applied++
+	return nil
+}
+
+func (f *fakeMailServer) MailDKIMValue(context.Context, string) (string, error) {
+	if f.dkimErr != nil {
+		return "", f.dkimErr
+	}
+	return "p=QUJD", nil
 }
 
 func (f *fakeMail) SetMailDomain(_ context.Context, id string, on bool) error {
@@ -104,18 +130,26 @@ func (f *fakeMail) DeleteMailbox(_ context.Context, id string) error {
 // newMailEnv builds the settings fixture with a Mail store attached.
 func newMailEnv(t *testing.T) (settingsEnv, *fakeMail) {
 	t.Helper()
+	e, fm, _ := newMailEnvWithServer(t)
+	return e, fm
+}
+
+func newMailEnvWithServer(t *testing.T) (settingsEnv, *fakeMail, *fakeMailServer) {
+	t.Helper()
 	e := newSettingsEnv(t)
 	fm := newFakeMail()
+	srv := &fakeMailServer{}
 	e.h = NewRouter(Deps{
-		Log:    slog.New(slog.NewTextHandler(io.Discard, nil)),
-		Users:  e.fs,
-		Sites:  e.sites,
-		Manage: e.manage,
-		Alerts: e.alert,
-		Mail:   fm,
-		Site:   SiteSettings{NodeID: "node-1", PHPVersion: "8.3", SecretKey: []byte(testServerSecret), StartJob: func(string) {}, PublicIP: "162.4.35.76"},
+		MailServer: srv,
+		Log:        slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Users:      e.fs,
+		Sites:      e.sites,
+		Manage:     e.manage,
+		Alerts:     e.alert,
+		Mail:       fm,
+		Site:       SiteSettings{NodeID: "node-1", PHPVersion: "8.3", SecretKey: []byte(testServerSecret), StartJob: func(string) {}, PublicIP: "162.4.35.76"},
 	})
-	return e, fm
+	return e, fm, srv
 }
 
 func TestMailboxNeedsMailTurnedOnFirst(t *testing.T) {
@@ -190,5 +224,51 @@ func TestMailOnlyForOwnerAndNeedsCSRF(t *testing.T) {
 	}
 	if rec := e.call(t, http.MethodGet, "/api/v1/domains/"+mailZoneID+"/mail", "", nil, false); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("anonymous = %d, want 401", rec.Code)
+	}
+}
+
+func TestEnablingMailCreatesTheDKIMKeyAndShowsItInDNS(t *testing.T) {
+	e, fm, _ := newMailEnvWithServer(t)
+	customer := e.login(t, "customer@example.com")
+	rec := e.call(t, http.MethodPut, "/api/v1/domains/"+mailZoneID+"/mail", `{"enabled":true}`, customer, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("enable = %d %s", rec.Code, rec.Body)
+	}
+	if fm.dkim[mailZoneID] != "p=QUJD" {
+		t.Fatalf("DKIM public value not stored: %q", fm.dkim[mailZoneID])
+	}
+	if !strings.Contains(rec.Body.String(), "v=DKIM1; k=rsa; p=QUJD") {
+		t.Fatalf("DKIM record not shown: %s", rec.Body)
+	}
+}
+
+func TestDKIMFailureKeepsMailOff(t *testing.T) {
+	e, fm, srv := newMailEnvWithServer(t)
+	srv.dkimErr = errors.New("helper not running")
+	customer := e.login(t, "customer@example.com")
+	rec := e.call(t, http.MethodPut, "/api/v1/domains/"+mailZoneID+"/mail", `{"enabled":true}`, customer, true)
+	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "dkim_failed") {
+		t.Fatalf("DKIM failure = %d %s", rec.Code, rec.Body)
+	}
+	if fm.enabled[mailZoneID] {
+		t.Fatal("mail was turned on although its key could not be created")
+	}
+}
+
+func TestApplyMailServerIsAdminOnly(t *testing.T) {
+	e, _, srv := newMailEnvWithServer(t)
+	customer := e.login(t, "customer@example.com")
+	if rec := e.call(t, http.MethodPost, "/api/v1/mail/server/apply", "", customer, true); rec.Code != http.StatusForbidden {
+		t.Fatalf("customer apply = %d, want 403", rec.Code)
+	}
+	admin := e.login(t, "admin@example.com")
+	if rec := e.call(t, http.MethodPost, "/api/v1/mail/server/apply", "", admin, false); rec.Code != http.StatusForbidden {
+		t.Fatalf("apply without CSRF = %d, want 403", rec.Code)
+	}
+	if rec := e.call(t, http.MethodPost, "/api/v1/mail/server/apply", "", admin, true); rec.Code != http.StatusOK {
+		t.Fatalf("admin apply = %d %s", rec.Code, rec.Body)
+	}
+	if srv.applied != 1 {
+		t.Fatalf("apply ran %d times, want 1", srv.applied)
 	}
 }

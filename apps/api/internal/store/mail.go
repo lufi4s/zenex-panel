@@ -17,8 +17,9 @@ type ZoneInfo struct {
 
 // MailDomain says whether mail is turned on for a connected domain.
 type MailDomain struct {
-	ZoneID  string
-	Enabled bool
+	ZoneID     string
+	Enabled    bool
+	DKIMPublic string // the p= value of the domain's DKIM key, empty until it exists
 }
 
 // Mailbox is one address on a connected domain. PasswordHash is never sent to clients.
@@ -49,7 +50,7 @@ func (s *Store) ZoneOwner(ctx context.Context, zoneID string) (ZoneInfo, error) 
 func (s *Store) GetMailDomain(ctx context.Context, zoneID string) (MailDomain, error) {
 	m := MailDomain{ZoneID: zoneID}
 	err := s.pool.QueryRow(ctx,
-		`SELECT enabled FROM mail_domains WHERE zone_id = $1::uuid`, zoneID).Scan(&m.Enabled)
+		`SELECT enabled, dkim_public FROM mail_domains WHERE zone_id = $1::uuid`, zoneID).Scan(&m.Enabled, &m.DKIMPublic)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return m, nil
 	}
@@ -61,6 +62,14 @@ func (s *Store) SetMailDomain(ctx context.Context, zoneID string, enabled bool) 
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO mail_domains (zone_id, enabled) VALUES ($1::uuid, $2)
 		ON CONFLICT (zone_id) DO UPDATE SET enabled = EXCLUDED.enabled, updated_at = now()`, zoneID, enabled)
+	return err
+}
+
+// SetMailDKIM stores the public DKIM value of a domain.
+func (s *Store) SetMailDKIM(ctx context.Context, zoneID, value string) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO mail_domains (zone_id, enabled, dkim_public) VALUES ($1::uuid, false, $2)
+		ON CONFLICT (zone_id) DO UPDATE SET dkim_public = EXCLUDED.dkim_public, updated_at = now()`, zoneID, value)
 	return err
 }
 

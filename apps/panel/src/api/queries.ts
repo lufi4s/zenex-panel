@@ -307,6 +307,15 @@ export function useRemoveMailbox(domainId: string) {
   });
 }
 
+/** Writes the mail server configuration and reloads the mail services (administrators). */
+export function useApplyMailServer() {
+  return useMutation({
+    mutationFn: () =>
+      apiRequest<{ applied: boolean }>("/api/v1/mail/server/apply", { method: "POST" }),
+    meta: { silent: true },
+  });
+}
+
 export function useStorage() {
   return useQuery({
     queryKey: ["storage"],

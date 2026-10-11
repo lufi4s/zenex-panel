@@ -130,6 +130,8 @@ function mockApi(options: {
         ],
       });
     }
+    if (url.endsWith("/api/v1/mail/server/apply") && method === "POST")
+      return json({ applied: true });
     if (url.endsWith("/api/v1/domains/d1/mail") && method === "GET") return json(mailView());
     if (url.endsWith("/api/v1/domains/d1/mail") && method === "PUT") {
       mailOn = JSON.parse(String(init?.body)).enabled === true;
@@ -1213,5 +1215,21 @@ describe("mail on a connected domain", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Add mailbox" }));
     expect(await screen.findByText("info@ozima.cloud")).toBeTruthy();
+  });
+});
+
+describe("mail server", () => {
+  it("applies the mail configuration from the Settings page", async () => {
+    const fetchMock = mockApi({ signedIn: true });
+    vi.stubGlobal("fetch", fetchMock);
+    renderAt("/settings");
+    fireEvent.click(await screen.findByRole("button", { name: "Apply mail configuration" }));
+    expect(await screen.findByText("Mail configuration applied.")).toBeTruthy();
+    expect(
+      fetchMock.mock.calls.some(
+        ([url, init]) =>
+          String(url).endsWith("/api/v1/mail/server/apply") && init?.method === "POST",
+      ),
+    ).toBe(true);
   });
 });

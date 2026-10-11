@@ -71,6 +71,7 @@ type Paths struct {
 	UploadDir      string // /var/lib/zenex/uploads (uploads staged by the API before they are imported)
 	QuarantineDir  string // /var/lib/zenex/quarantine (scan reports and quarantined files, root only)
 	SSHDropIn      string // /etc/ssh/sshd_config.d/zenex-sftp.conf (website SFTP access)
+	DKIMDir        string // /var/lib/zenex/dkim (DKIM keys per mail domain, root only)
 }
 
 func DefaultPaths() Paths {
@@ -110,7 +111,9 @@ type Ops struct {
 	Paths Paths
 	// Lookup lets tests avoid touching the real account database.
 	LookupUser func(string) (*user.User, error)
-	mu         sync.Mutex
+	// MailRoot, when set, is prepended to every mail configuration path (tests only).
+	MailRoot string
+	mu       sync.Mutex
 }
 
 // Do dispatches a named operation with its arguments.
@@ -133,6 +136,10 @@ func (o *Ops) Do(ctx context.Context, op string, args map[string]string) (Result
 		return Result{}, o.poolWrite(ctx, args)
 	case "vhost.write":
 		return Result{}, o.vhostWrite(ctx, args)
+	case "mail.apply":
+		return o.mailApply(ctx, args)
+	case "mail.dkim-key":
+		return o.dkimKey(ctx, args)
 	case "usage.sites":
 		return o.sitesUsage(ctx)
 	case "sftp.enable":
@@ -710,6 +717,7 @@ func trim(s string) string {
 func AllowedBinaries(phpFPM []string) []string {
 	base := []string{binUseradd, binUserdel, binRunuser, binEnv, binMariadb, binMariadbDump, binTar, binSystemctl, binWP, binGit, binSystemdRun, binBash, binSSHKeygen, binSFTP, binSSHPass, binSSH}
 	base = append(base, sftpBinaries...)
+	base = append(base, mailBinaries...)
 	base = append(base, caddy.AllowedBinaries...)
 	return append(base, phpFPM...)
 }

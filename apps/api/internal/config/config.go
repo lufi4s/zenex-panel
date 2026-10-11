@@ -19,6 +19,10 @@ type Config struct {
 	HelperSocket string
 	// SecretKey derives site passwords. Never logged. Required in production.
 	SecretKey string
+	// MailHost is the mail server's name (for example mail.example.com). Empty means the mail
+	// server is not set up. MailDBPassword is the password of the read-only mail database role.
+	MailHost       string
+	MailDBPassword string
 	// PHPVersion is the PHP-FPM version new sites use, e.g. "8.3".
 	PHPVersion string
 	// NodeName identifies this server in the panel.
@@ -44,16 +48,18 @@ func loadFrom(lookup func(string) (string, bool)) (Config, error) {
 	}
 
 	cfg := Config{
-		Env:          get("ZENEX_ENV", "development"),
-		ListenAddr:   get("ZENEX_API_ADDR", "127.0.0.1:8080"),
-		DatabaseURL:  get("ZENEX_DATABASE_URL", ""),
-		TLSCertFile:  get("ZENEX_TLS_CERT", ""),
-		TLSKeyFile:   get("ZENEX_TLS_KEY", ""),
-		HelperSocket: get("ZENEX_HELPER_SOCKET", "/run/zenex/helper.sock"),
-		SecretKey:    get("ZENEX_SECRET_KEY", ""),
-		PHPVersion:   get("ZENEX_PHP_VERSION", "8.3"),
-		NodeName:     get("ZENEX_NODE_NAME", "this-server"),
-		PublicIP:     get("ZENEX_PUBLIC_IP", ""),
+		Env:            get("ZENEX_ENV", "development"),
+		ListenAddr:     get("ZENEX_API_ADDR", "127.0.0.1:8080"),
+		DatabaseURL:    get("ZENEX_DATABASE_URL", ""),
+		TLSCertFile:    get("ZENEX_TLS_CERT", ""),
+		TLSKeyFile:     get("ZENEX_TLS_KEY", ""),
+		HelperSocket:   get("ZENEX_HELPER_SOCKET", "/run/zenex/helper.sock"),
+		SecretKey:      get("ZENEX_SECRET_KEY", ""),
+		MailHost:       get("ZENEX_MAIL_HOST", ""),
+		MailDBPassword: get("ZENEX_MAIL_DB_PASSWORD", ""),
+		PHPVersion:     get("ZENEX_PHP_VERSION", "8.3"),
+		NodeName:       get("ZENEX_NODE_NAME", "this-server"),
+		PublicIP:       get("ZENEX_PUBLIC_IP", ""),
 	}
 
 	if cfg.Env != "development" && cfg.Env != "production" {
