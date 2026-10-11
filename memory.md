@@ -578,7 +578,7 @@ Per-website scanner in the Security tab of a website (visible when the site is r
 - Note: headless Chrome cannot go below ~500 px window width; test phone width by putting the page in a 390 px iframe.
 - Not covered: Security tab and dialogs visually, login page, light theme.
 
-## 45. Customers no longer see server data; first-run checklist (latest, NOT committed)
+## 45. Customers no longer see server data; first-run checklist (pushed 4b71614)
 
 Approved by the user (from tech_report.txt 5.2 and report.txt H2). This round touched backend code, which section 19 had restricted; the user explicitly asked for it.
 
@@ -600,7 +600,7 @@ Not verified: a real customer account on the VPS; the API returns 403 for these 
 
 Still open (from tech_report.txt and report.txt, in order): Go toolchain + pgx/x/text upgrade in install.sh (needs a test Ubuntu VPS); WP-CLI database password in argv (5.3); upload quota (5.4); real-browser tests; backup/restore/migration resumability; label backups and add delete/download (report M5).
 
-## 46. Production hardening pass (latest, NOT committed, NOT deployed)
+## 46. Production hardening pass (pushed; installer change needs a server test)
 
 Closes tech_report.txt 5.1, 5.3, 5.4 (partly). Backend and installer changes, approved by the user ("make it production ready").
 
@@ -621,7 +621,7 @@ Upload guard (5.4, partial):
 
 Still open: SSH host keys trust-on-first-use (5.9, needs a fingerprint confirmation UI); committed built dist (5.12, a repo decision); real-browser tests; backup/restore/migration resumability (5.5); end-to-end security tests on a Linux VM (5.6); test on a real Ubuntu server and with a real cPanel / SFTP / SMTP.
 
-## 47. Rate limit on expensive actions (latest, NOT committed)
+## 47. Rate limit on expensive actions (pushed 4b71614)
 
 - httpapi/ratelimit.go: limitActions wrapper (inside requireSession) with Deps.ActionLimiter, default 20 per user per 10 minutes, 429 rate_limited after that.
 - Applied to: cpanel scan + migrate, security scan, run-now, backup-all, backup restore, remote restore.
@@ -635,7 +635,7 @@ Remaining tech_report.txt items and why they are not done here:
 - 5.11 go test -race: needs gcc (not installed here); run in CI or on the VM.
 - 5.12 built dist committed to git: needs a decision (build in CI/at install time requires Node on the server or a release artifact).
 
-## 48. phpMyAdmin per website, per-site SFTP, restore (latest, NOT committed, NOT deployed)
+## 48. phpMyAdmin per website, per-site SFTP, restore (pushed 4b71614; needs server test)
 
 User request: phpMyAdmin per website, SFTP login per website, restore from each website's backups. Decisions from the user: shared phpMyAdmin with one-click login; per-site SFTP account locked to its folder.
 
@@ -662,21 +662,21 @@ New tests: helper sftp_test.go (6), dbadmin/vhost in sftp_test.go; manage/access
 NOT verified on a real server: sshd Match block + ChrootDirectory %h with the real site home (must be root-owned and not writable by group/other: /var/www/zx_<site> is root 0751); phpMyAdmin running through the site's PHP pool and Caddy route; install of phpMyAdmin by install.sh; SFTP login from an FTP client. Risk: a bad sshd drop-in would block SSH; sshd -t gates it and the old file is restored on failure. Test on the VPS first, and keep a root SSH session open while testing.
 Existing sites: the phpMyAdmin route appears after "Open phpMyAdmin" is clicked once per site (or any vhost rewrite).
 
-## 49. Gmail settings button (latest, NOT committed)
+## 49. Gmail settings button (pushed e6eae91)
 
 - components/AlertSettingsCard.tsx: "Use Gmail settings" now also copies the Username (Gmail address) into From. The App Password is still typed by the administrator and never filled in by the panel.
 - Test: app.test.tsx "fills in Gmail's server and copies the Gmail address to From". vitest 72/72, tsc, vp check, build pass.
 - The Gmail App Password file on the Desktop was NOT read (access to credential files was denied). Nothing secret was written to the repo or memory.
 - Test email button ("Send test email") uses the saved settings: Save first, then send.
 
-## 50. Alert settings: "invalid request" fixed, per-section Save (latest, NOT committed)
+## 50. Alert settings: "invalid request" fixed, per-section Save (pushed e6eae91)
 
 - Cause of "invalid request": the form sent the Telegram token as bot_token, but the API reads token and rejects unknown keys (DisallowUnknownFields). Every save failed. Fixed: toWire() in components/AlertSettingsCard.tsx builds the body the API reads (token; view-only flags left out). New type AlertSettingsBody (api/types.ts), used by useSaveAlerts.
 - Three sections now save on their own: Email (with Send test email), Telegram, Alert thresholds. Each has a Save button (enabled only when that section changed and is valid) and shows "Saved" with a tick for 2.5 s after it is stored. Other sections are sent as stored, so saving one never changes another. Secrets typed are cleared from the form after a successful save.
 - Test: app.test.tsx "saves Telegram with its token under the name the API reads, and only that section". vitest 73/73, tsc, vp check, build pass.
 - Not done: auto-save on change (chosen: explicit Save per section).
 
-## 51. Alert emails: sender name, professional layout (latest, NOT committed)
+## 51. Alert emails: sender name, professional layout (pushed 89c90f3)
 
 - Sender name: EmailSettings.FromName (json from_name), default "Zenex Cloud" (DefaultFromName). Max 64 chars, no control characters (Validate). The From header is `"Zenex Cloud" <address>`; the address is still what the server checks (Gmail rule unchanged). Panel: "Sender name" field in the Email section, sent with the Email Save.
 - Alert text (alerts/service.go Describe, now takes the time): subject "[Zenex Cloud] High CPU load on node-1" / "... is back to normal"; body: greeting, one sentence, indented details (Server, Measure, Current, Limit, Time), next step. Test email body reworded to match.
@@ -685,7 +685,7 @@ Existing sites: the phpMyAdmin route appears after "Open phpMyAdmin" is clicked 
 - Tests: alerts_test.go (sender name default and validation, From header with name and Auto-Submitted, wording; HTML escape test now decodes quoted-printable first, since QP can split an entity). app.test.tsx: sender name sent with the email save. api go test ./... and panel vitest 74/74, tsc, vp check, build pass.
 - Not verified against a real Gmail inbox or spam filter. Check the first alert in Gmail (Show original / spam score) after deploy.
 
-## 52. phpMyAdmin redirect fix (latest, NOT deployed)
+## 52. phpMyAdmin redirect fix (pushed 625da09; needs panel update + Open phpMyAdmin per site)
 
 - Cause (confirmed in candy Caddy log): handle_path strips /zenex-dbadmin, so phpMyAdmin built its redirects from SCRIPT_NAME=/index.php. After login it went to / (WordPress).
 - Fix: services/agent/internal/helper/ops.go vhostConfig: php_fastcgi gets `env SCRIPT_NAME /zenex-dbadmin/index.php`. Generated site config validated with caddy 2.6.2 (adapt). Test assertion added in sftp_test.go.
@@ -698,7 +698,7 @@ Existing sites: the phpMyAdmin route appears after "Open phpMyAdmin" is clicked 
 - Storage: helper op usage.sites (read-only, unlocked), manage.SiteUsages (5-minute cache), GET /api/v1/storage (admin also gets server disk), Websites page StorageCard. Tests in helper usage_test.go, manage storage_test.go, httpapi storage_test.go, app.test.tsx (2). Pushed fc29bd8.
 - phpMyAdmin warning "configuration storage is not completely configured": the optional pma__ tables are not set up. Config now sets $cfg['PmaNoRelation_DisableWarning'] = true. install.sh: write_phpmyadmin_config runs on every install/update, so an existing install gets it without a version change. Not deployed yet.
 
-## 54. Mailbox hosting, phase 1 (DONE in code, pending push)
+## 54. Mailbox hosting, phase 1 (pushed b9265af)
 
 Decision (user): full mail hosting on the same VPS. Plan: Desktop\zenex_mailbox_plan.md. Phase 1 is code only; no server changes. Outbound port 25 open; PTR is panel-test (must become mail host, provider panel).
 Done so far:
@@ -712,7 +712,7 @@ Next: httpapi/mail.go (MailStore interface, Deps.Mail, routes: GET/PUT /domains/
 - Note: app.test.tsx was briefly corrupted by a Windows text-mode write (middle dot became U+FFFD). Restored from HEAD and re-applied with explicit UTF-8. Always edit files in binary/UTF-8 mode.
 - Next: Phase 2 (mail server on the VPS) only after the user approves server changes and gives the mail host name and PTR.
 
-## 55. Mailbox hosting, phase 2 (STARTED: configuration text only, NOT deployed)
+## 55. Mailbox hosting, phase 2, first part (superseded by 56; pushed 5e7ac7c)
 
 - apps/api/internal/mail/server.go: builds the text of the Postfix (main.cf, master.cf, pgsql lookups), Dovecot (sql passdb/userdb with {ARGON2ID}, lmtp and auth sockets, ssl) and rspamd DKIM signing files. Nothing is written to disk here.
 - Relay rules: only signed-in mailboxes may send (smtpd_relay_restrictions, reject_unauth_destination); submission on 587 needs TLS and login.
@@ -721,7 +721,7 @@ Next: httpapi/mail.go (MailStore interface, Deps.Mail, routes: GET/PUT /domains/
 - NOT done yet: helper ops that write these files and run the checks (postfix check, doveconf -n, rspamadm configtest) with a reload gate; DKIM keygen op (openssl) and the DKIM value in the DNS records; TLS certificate for the mail host; installer step (opt-in via ZENEX_MAIL_HOST: packages, read-only role, ufw 25/587/993); PTR record and a test domain.
 - Unverified until run on a VPS: Dovecot ARGON2ID scheme support on Ubuntu 24.04's Dovecot version; the pgsql lookup syntax; Postfix pgsql map file permissions for the postfix user.
 
-## 56. Mail phase 2 (code complete, NOT activated on any server)
+## 56. Mail phase 2 (pushed 48e5b4b; NOT activated on any server)
 
 - Helper (services/agent/internal/helper/mail.go): mail.apply writes the mail config files (fixed allowlist of 7 paths, modes 0640/0644, 1 MiB max), runs postfix check, doveconf -n, rspamadm configtest, rolls back every file if one fails, then reloads postfix, dovecot, rspamd. mail.dkim-key creates the domain's RSA 2048 key once (root-only folder /var/lib/zenex/dkim/<domain>) and returns the p= value. Tests in helper/mail_test.go (6). MailRoot lets tests write into a temp folder.
 - API: manage/mail_server.go (ApplyMailServer renders via apps/api/internal/mail, MailDKIMValue); httpapi/mail.go: enabling mail creates and stores the DKIM value (migration 0009 mail_domains.dkim_public); DNS record shows "v=DKIM1; k=rsa; p=..."; POST /api/v1/mail/server/apply (admin, CSRF, audited). Config: ZENEX_MAIL_HOST, ZENEX_MAIL_DB_PASSWORD (main.go wires the manager). Tests: httpapi/mail_test.go (6), mail/server_test.go (13).
@@ -732,4 +732,17 @@ Next: httpapi/mail.go (MailStore interface, Deps.Mail, routes: GET/PUT /domains/
 - DNS check system: apps/api/internal/mail/check.go (CheckRecords: MX, A mail host, SPF incl. mx and single record, DMARC, DKIM value match ignoring spaces; statuses ok/missing/different/error/pending). GET /api/v1/domains/{id}/mail/check (owner/admin, read-only, 20 s timeout, Deps.MailResolver defaults to net.DefaultResolver). Panel: "Check DNS now" button in the mail panel. Tests: mail/check_test.go (8), httpapi mail_test (check route), app.test.tsx "mail DNS check". 80 UI tests pass.
 - Review of the shown records: A, MX, SPF (~all soft fail), DMARC p=none, DKIM p= value are the intended set. The DKIM value is long (~390 characters); some DNS providers need it split into 255-character strings, which the user may have to do manually.
 - Not checked against real public DNS yet (no domain pointed at a server with this code).
+
+## 57. Current state (2026-10-11, read this first)
+
+- GitHub main: ee8db92 (all project code pushed). Only untracked local item: .claude/ (hook config).
+- VPS 162.4.35.76 (panel-test): last panel update OK at commit 48e5b4b. Commits after that (Mail page 6cef1ec, Mail DNS check ee8db92) are NOT on the server yet. Run Settings > Panel updates > Update now.
+- Candy site (candy.ozima.cloud): WordPress down because the malware scanner quarantined three core files (wp-includes/embed.php, plupload/moxie.js, moxie.min.js). Fix: Security tab > Quarantine > Restore those three, then re-check. Scanner bug (core files quarantinable) is NOT fixed.
+- Security items open (see Desktop zenex_security_report.md): root SSH password login enabled; root and Gmail App Password were pasted in chat (rotate); suspicious logins from 160.250.197.70 and 59.153.100.203 to verify; /tmp leftovers (zj*, ex.json etc.); /root/zenex-admin-credentials.txt plaintext; Caddy 2.6.2 old.
+- phpMyAdmin: redirect fix pushed (SCRIPT_NAME). Needs panel update, then Open phpMyAdmin once per site. Not yet confirmed on the live server.
+- Storage card, Gmail alert changes, sender name, mail page, mail DNS check: pushed; need the panel update to appear on the VPS.
+- Mail: Phase 1 done (mailboxes, DNS records, DKIM value, Mail page, DNS check). Phase 2 code done (config text, helper apply+checks+rollback, DKIM keygen, opt-in installer, Settings apply card). NOT activated: needs mail hostname, PTR record, test domain, and permission to install/apply on the VPS. Phase 3 (webmail, enforced quotas, mail backup) not started.
+- Other open items: per-site disk quota; SSH host key confirm; backup/restore resumable; security e2e tests; go test -race in CI; built dist is committed to git.
+- Test command: npm test at repo root runs Go (validation, agent, api) and panel UI suites; last run passed.
+- Working rules: auto-push finished, tested fixes to origin main (feedback_auto_push memory). Edit files in UTF-8 (a Windows text-mode write once corrupted app.test.tsx). Do not touch the live server without explicit permission.
 
