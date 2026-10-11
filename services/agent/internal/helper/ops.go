@@ -136,6 +136,8 @@ func (o *Ops) Do(ctx context.Context, op string, args map[string]string) (Result
 		return Result{}, o.poolWrite(ctx, args)
 	case "vhost.write":
 		return Result{}, o.vhostWrite(ctx, args)
+	case "mail.prepare":
+		return o.mailPrepare(ctx, args)
 	case "mail.apply":
 		return o.mailApply(ctx, args)
 	case "mail.dkim-key":
@@ -205,7 +207,7 @@ func (o *Ops) Do(ctx context.Context, op string, args map[string]string) (Result
 	case "panel.latest":
 		return o.panelLatest(ctx)
 	case "panel.update-start":
-		return o.updateStart(ctx, args)
+		return o.updateStart(ctx)
 	case "panel.update-status":
 		return o.updateStatusOutput(ctx)
 	default:

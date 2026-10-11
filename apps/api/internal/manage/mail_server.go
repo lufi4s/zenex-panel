@@ -7,10 +7,9 @@ import (
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/mail"
 )
 
-// MailServerSettings come from the environment (ZENEX_MAIL_HOST, ZENEX_MAIL_DB_PASSWORD).
-// Host empty means the mail server is not set up on this server.
+// MailServerSettings are the fixed mail server settings. The host name is chosen in the panel
+// and passed to ApplyMailServer. DBPass is the password of the read-only mail database role.
 type MailServerSettings struct {
-	Host   string
 	DBHost string
 	DBName string
 	DBUser string
@@ -25,15 +24,16 @@ type mailFilePayload struct {
 	Content string `json:"content"`
 }
 
-// ApplyMailServer renders the mail configuration from the current settings and has the helper
-// write, check and reload it. The helper restores the old files if any check fails.
-func (m *Manager) ApplyMailServer(ctx context.Context) error {
-	s := m.MailServer
-	if s.Host == "" {
-		return refuse("the mail server is not set up on this server (ZENEX_MAIL_HOST is empty)")
+// ApplyMailServer sets the mail server up for host: the helper first prepares the certificate
+// and the firewall ports, then writes, checks and loads the configuration. If any check fails
+// the helper restores the old files.
+func (m *Manager) ApplyMailServer(ctx context.Context, host string) error {
+	if !mail.ValidHostname(host) {
+		return refuse("the mail host must be a full host name such as mail.example.com (lower case)")
 	}
+	s := m.MailServer
 	files, err := mail.Render(mail.Settings{
-		Host: s.Host, DBHost: s.DBHost, DBName: s.DBName, DBUser: s.DBUser, DBPass: s.DBPass, MaxMB: s.MaxMB,
+		Host: host, DBHost: s.DBHost, DBName: s.DBName, DBUser: s.DBUser, DBPass: s.DBPass, MaxMB: s.MaxMB,
 	})
 	if err != nil {
 		return refuse("%s", err.Error())
@@ -46,12 +46,15 @@ func (m *Manager) ApplyMailServer(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if _, err := m.Helper.Do(ctx, "mail.prepare", map[string]string{"host": host}); err != nil {
+		return err
+	}
 	_, err = m.Helper.Do(ctx, "mail.apply", map[string]string{"files": string(raw), "dbpass": s.DBPass})
 	return err
 }
 
 // MailDKIMValue returns the public DKIM value for a domain, creating its key the first time.
-// The key does not need the mail server to be installed, so mail can be turned on before it is.
+// The key does not need the mail server to be set up, so mail can be turned on before it is.
 func (m *Manager) MailDKIMValue(ctx context.Context, apex string) (string, error) {
 	out, err := m.Helper.Output(ctx, "mail.dkim-key", map[string]string{"domain": apex})
 	if err != nil {

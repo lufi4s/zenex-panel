@@ -77,16 +77,6 @@ func (s *Service) Status(ctx context.Context) (Status, error) {
 // Start begins an update to the latest version. It returns ErrRunning when one
 // is already in progress.
 func (s *Service) Start(ctx context.Context) error {
-	return s.start(ctx, map[string]string{})
-}
-
-// StartWithMail is Start, and the installer also sets up the mail server under mailHost.
-// The helper checks the host name again before it passes it on.
-func (s *Service) StartWithMail(ctx context.Context, mailHost string) error {
-	return s.start(ctx, map[string]string{"mail_host": mailHost})
-}
-
-func (s *Service) start(ctx context.Context, args map[string]string) error {
 	st, err := s.Status(ctx)
 	if err != nil {
 		return err
@@ -94,6 +84,6 @@ func (s *Service) start(ctx context.Context, args map[string]string) error {
 	if st.State == "running" {
 		return ErrRunning
 	}
-	_, err = s.helper.Do(ctx, "panel.update-start", args)
+	_, err = s.helper.Do(ctx, "panel.update-start", map[string]string{})
 	return err
 }

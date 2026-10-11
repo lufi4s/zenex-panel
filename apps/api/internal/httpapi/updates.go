@@ -13,7 +13,6 @@ import (
 type UpdateService interface {
 	Status(ctx context.Context) (update.Status, error)
 	Start(ctx context.Context) error
-	StartWithMail(ctx context.Context, mailHost string) error
 }
 
 // handleGetUpdate reports the installed and latest panel versions. Administrators only.

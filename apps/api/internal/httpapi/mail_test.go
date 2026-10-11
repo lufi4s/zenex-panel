@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/zenexcloud/zenex-panel/apps/api/internal/manage"
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/store"
-	"github.com/zenexcloud/zenex-panel/apps/api/internal/update"
 )
 
 const (
@@ -33,6 +33,7 @@ type fakeMail struct {
 	enabled map[string]bool
 	boxes   map[string]store.Mailbox
 	dkim    map[string]string
+	host    string
 	seq     int
 }
 
@@ -46,6 +47,13 @@ func newFakeMail() *fakeMail {
 		boxes:   map[string]store.Mailbox{},
 		dkim:    map[string]string{},
 	}
+}
+
+func (f *fakeMail) GetMailHost(context.Context) (string, error) { return f.host, nil }
+
+func (f *fakeMail) SetMailHost(_ context.Context, host, _ string) error {
+	f.host = host
+	return nil
 }
 
 func (f *fakeMail) SetMailDKIM(_ context.Context, id, value string) error {
@@ -80,15 +88,16 @@ func (emptyDNS) LookupHost(_ context.Context, name string) ([]string, error) {
 	return nil, &net.DNSError{Name: name, IsNotFound: true}
 }
 
-// fakeMailServer records the apply calls and answers DKIM requests.
+// fakeMailServer records the hosts it was set up for and answers DKIM requests.
 type fakeMailServer struct {
-	applied int
-	dkimErr error
+	hosts    []string
+	applyErr error
+	dkimErr  error
 }
 
-func (f *fakeMailServer) ApplyMailServer(context.Context) error {
-	f.applied++
-	return nil
+func (f *fakeMailServer) ApplyMailServer(_ context.Context, host string) error {
+	f.hosts = append(f.hosts, host)
+	return f.applyErr
 }
 
 func (f *fakeMailServer) MailDKIMValue(context.Context, string) (string, error) {
@@ -273,24 +282,6 @@ func TestDKIMFailureKeepsMailOff(t *testing.T) {
 	}
 }
 
-func TestApplyMailServerIsAdminOnly(t *testing.T) {
-	e, _, srv := newMailEnvWithServer(t)
-	customer := e.login(t, "customer@example.com")
-	if rec := e.call(t, http.MethodPost, "/api/v1/mail/server/apply", "", customer, true); rec.Code != http.StatusForbidden {
-		t.Fatalf("customer apply = %d, want 403", rec.Code)
-	}
-	admin := e.login(t, "admin@example.com")
-	if rec := e.call(t, http.MethodPost, "/api/v1/mail/server/apply", "", admin, false); rec.Code != http.StatusForbidden {
-		t.Fatalf("apply without CSRF = %d, want 403", rec.Code)
-	}
-	if rec := e.call(t, http.MethodPost, "/api/v1/mail/server/apply", "", admin, true); rec.Code != http.StatusOK {
-		t.Fatalf("admin apply = %d %s", rec.Code, rec.Body)
-	}
-	if srv.applied != 1 {
-		t.Fatalf("apply ran %d times, want 1", srv.applied)
-	}
-}
-
 func TestMailDNSCheckReportsWhatIsMissing(t *testing.T) {
 	e, _ := newMailEnv(t)
 	customer := e.login(t, "customer@example.com")
@@ -321,75 +312,55 @@ func TestMailDNSCheckReportsWhatIsMissing(t *testing.T) {
 	}
 }
 
-// fakeUpdates records the hosts the installer was started with.
-type fakeUpdates struct {
-	hosts []string
-	err   error
-}
-
-func (f *fakeUpdates) Status(context.Context) (update.Status, error) { return update.Status{}, nil }
-func (f *fakeUpdates) Start(context.Context) error                   { return nil }
-func (f *fakeUpdates) StartWithMail(_ context.Context, host string) error {
-	f.hosts = append(f.hosts, host)
-	return f.err
-}
-
-func newMailInstallEnv(t *testing.T) (settingsEnv, *fakeUpdates) {
-	t.Helper()
-	e := newSettingsEnv(t)
-	upd := &fakeUpdates{}
-	e.h = NewRouter(Deps{
-		Log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
-		Users:   e.fs,
-		Sites:   e.sites,
-		Manage:  e.manage,
-		Alerts:  e.alert,
-		Mail:    newFakeMail(),
-		Updates: upd,
-		Site:    SiteSettings{NodeID: "node-1", PHPVersion: "8.3", SecretKey: []byte(testServerSecret), StartJob: func(string) {}},
-	})
-	return e, upd
-}
-
-func TestInstallMailServerStartsTheInstallerWithTheHost(t *testing.T) {
-	e, upd := newMailInstallEnv(t)
+func TestSettingUpMailAppliesTheServerThenSavesTheHost(t *testing.T) {
+	e, fm, srv := newMailEnvWithServer(t)
 	admin := e.login(t, "admin@example.com")
-	rec := e.call(t, http.MethodPost, "/api/v1/mail/server/install", `{"host":"mail.example.com"}`, admin, true)
-	if rec.Code != http.StatusAccepted {
-		t.Fatalf("install = %d %s", rec.Code, rec.Body)
+	rec := e.call(t, http.MethodPut, "/api/v1/mail/server", `{"host":"mail.ozima.cloud"}`, admin, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("set up = %d %s", rec.Code, rec.Body)
 	}
-	if len(upd.hosts) != 1 || upd.hosts[0] != "mail.example.com" {
-		t.Fatalf("installer hosts = %v", upd.hosts)
+	if len(srv.hosts) != 1 || srv.hosts[0] != "mail.ozima.cloud" || fm.host != "mail.ozima.cloud" {
+		t.Fatalf("applied for %v, saved %q", srv.hosts, fm.host)
+	}
+	get := e.call(t, http.MethodGet, "/api/v1/mail/server", "", admin, false)
+	if get.Code != http.StatusOK || !strings.Contains(get.Body.String(), "mail.ozima.cloud") {
+		t.Fatalf("get = %d %s", get.Code, get.Body)
 	}
 }
 
-func TestInstallMailServerRefusesBadHostsCustomersAndMissingCSRF(t *testing.T) {
-	e, upd := newMailInstallEnv(t)
+func TestMailHostIsNotSavedWhenTheSetupFails(t *testing.T) {
+	e, fm, srv := newMailEnvWithServer(t)
+	srv.applyErr = &manage.Refusal{Message: "the Postfix check failed"}
 	admin := e.login(t, "admin@example.com")
-	for _, host := range []string{"localhost", "Mail.Example.com", "mail.example.com; reboot", ""} {
-		body := `{"host":"` + host + `"}`
-		if rec := e.call(t, http.MethodPost, "/api/v1/mail/server/install", body, admin, true); rec.Code != http.StatusBadRequest {
-			t.Errorf("host %q = %d, want 400", host, rec.Code)
+	rec := e.call(t, http.MethodPut, "/api/v1/mail/server", `{"host":"mail.ozima.cloud"}`, admin, true)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("failed setup = %d %s", rec.Code, rec.Body)
+	}
+	if fm.host != "" {
+		t.Fatalf("host saved after a failed setup: %q", fm.host)
+	}
+}
+
+func TestMailServerSetupIsAdminOnlyAndChecksTheHost(t *testing.T) {
+	e, _, srv := newMailEnvWithServer(t)
+	customer := e.login(t, "customer@example.com")
+	if rec := e.call(t, http.MethodPut, "/api/v1/mail/server", `{"host":"mail.ozima.cloud"}`, customer, true); rec.Code != http.StatusForbidden {
+		t.Errorf("customer set up = %d, want 403", rec.Code)
+	}
+	if rec := e.call(t, http.MethodGet, "/api/v1/mail/server", "", customer, false); rec.Code != http.StatusForbidden {
+		t.Errorf("customer read = %d, want 403", rec.Code)
+	}
+	admin := e.login(t, "admin@example.com")
+	if rec := e.call(t, http.MethodPut, "/api/v1/mail/server", `{"host":"mail.ozima.cloud"}`, admin, false); rec.Code != http.StatusForbidden {
+		t.Errorf("set up without CSRF = %d, want 403", rec.Code)
+	}
+	for _, bad := range []string{"localhost", "Mail.Example.com", "mail.example.com; reboot", ""} {
+		body := `{"host":"` + bad + `"}`
+		if rec := e.call(t, http.MethodPut, "/api/v1/mail/server", body, admin, true); rec.Code != http.StatusBadRequest {
+			t.Errorf("host %q = %d, want 400", bad, rec.Code)
 		}
 	}
-	customer := e.login(t, "customer@example.com")
-	if rec := e.call(t, http.MethodPost, "/api/v1/mail/server/install", `{"host":"mail.example.com"}`, customer, true); rec.Code != http.StatusForbidden {
-		t.Errorf("customer install = %d, want 403", rec.Code)
-	}
-	if rec := e.call(t, http.MethodPost, "/api/v1/mail/server/install", `{"host":"mail.example.com"}`, admin, false); rec.Code != http.StatusForbidden {
-		t.Errorf("install without CSRF = %d, want 403", rec.Code)
-	}
-	if len(upd.hosts) != 0 {
-		t.Fatalf("installer started for refused requests: %v", upd.hosts)
-	}
-}
-
-func TestInstallMailServerSaysSoWhenAnUpdateIsRunning(t *testing.T) {
-	e, upd := newMailInstallEnv(t)
-	upd.err = update.ErrRunning
-	admin := e.login(t, "admin@example.com")
-	rec := e.call(t, http.MethodPost, "/api/v1/mail/server/install", `{"host":"mail.example.com"}`, admin, true)
-	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "update_running") {
-		t.Fatalf("running = %d %s", rec.Code, rec.Body)
+	if len(srv.hosts) != 0 {
+		t.Fatalf("server set up for refused requests: %v", srv.hosts)
 	}
 }

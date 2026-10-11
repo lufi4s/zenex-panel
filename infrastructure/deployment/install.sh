@@ -23,7 +23,6 @@
 #    ZENEX_ADMIN_EMAIL=you@example.com   login email (default admin@zenex.local)
 #    ZENEX_PUBLIC_IP=1.2.3.4             server IP, if auto-detection is wrong
 #    ZENEX_REF=main                      branch or tag to install
-#    ZENEX_MAIL_HOST=mail.example.com    install the mail server under this name (optional)
 # ============================================================================
 
 set -Eeuo pipefail
@@ -72,8 +71,7 @@ PUBLIC_IP=""
 DB_PASSWORD=""
 PHP_VER=""
 SECRET_KEY=""
-# Mail server (optional). Set ZENEX_MAIL_HOST to a full host name such as mail.example.com.
-MAIL_HOST="${ZENEX_MAIL_HOST:-}"
+# Password of the read-only database role the mail server uses (created below, kept across runs).
 MAIL_DB_PASSWORD=""
 ADMIN_PASSWORD_NEW=""
 
@@ -527,20 +525,11 @@ wait_for_postgres() {
     retry 30 2 sudo -u postgres pg_isready -q
 }
 
-# Installs the mail server (Postfix, Dovecot, rspamd) when ZENEX_MAIL_HOST is set. Nothing is
-# configured for mail until an administrator applies it from the panel (Settings).
+# Installs the mail software (Postfix, Dovecot, rspamd) with the panel, so mail is ready to use.
+# The services stay stopped and the mail ports stay closed until an administrator sets the mail
+# server up in the panel (Settings, Mail server): that step picks the host name, creates the
+# certificate, opens the ports and writes the configuration.
 install_mail_server() {
-    if [[ -z "$MAIL_HOST" ]]; then
-        MAIL_HOST="$(existing_env_value ZENEX_MAIL_HOST)"
-    fi
-    if [[ -z "$MAIL_HOST" ]]; then
-        info "mail server not requested (set ZENEX_MAIL_HOST to install it)"
-        return 0
-    fi
-    if [[ ! "$MAIL_HOST" =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$ ]]; then
-        fail "ZENEX_MAIL_HOST must be a full host name such as mail.example.com"
-    fi
-
     export DEBIAN_FRONTEND=noninteractive
     echo "postfix postfix/main_mailer_type select No configuration" | debconf-set-selections
     retry 3 20 apt-get install -y -qq --no-install-recommends         -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold         postfix dovecot-core dovecot-imapd dovecot-lmtpd dovecot-pgsql rspamd         || fail "mail packages could not be installed"
@@ -567,19 +556,21 @@ END $role$;
 ALTER ROLE zenex_mail WITH LOGIN PASSWORD :'pw';
 GRANT CONNECT ON DATABASE zenex_panel TO zenex_mail;
 GRANT USAGE ON SCHEMA public TO zenex_mail;
-GRANT SELECT ON dns_zones, mail_domains, mailboxes TO zenex_mail;
 SQL
 
-    # Until a real certificate is in place, clients see a warning. Replace it with a certificate
-    # for the mail host (for example from certbot) when the host name points here.
-    mkdir -p /etc/zenex/mail/tls
-    if [[ ! -s /etc/zenex/mail/tls/fullchain.pem ]]; then
-        openssl req -x509 -newkey rsa:2048 -nodes -days 825             -keyout /etc/zenex/mail/tls/privkey.pem -out /etc/zenex/mail/tls/fullchain.pem             -subj "/CN=${MAIL_HOST}" -addext "subjectAltName=DNS:${MAIL_HOST}" >/dev/null 2>&1
+    # Until the panel has applied the mail settings the services must not run on their defaults.
+    # Already configured servers keep running: only a service that has no Zenex configuration is stopped.
+    if [[ ! -f /etc/postfix/zenex-domains.cf ]]; then
+        systemctl disable --now postfix dovecot rspamd >/dev/null 2>&1 || true
     fi
-    chown root:postfix /etc/zenex/mail/tls/privkey.pem 2>/dev/null || true
-    chmod 0640 /etc/zenex/mail/tls/privkey.pem
-    chmod 0644 /etc/zenex/mail/tls/fullchain.pem
-    info "mail server installed for ${MAIL_HOST} (apply the mail configuration from Settings to start it)"
+    info "mail software installed (set it up in the panel under Settings, Mail server)"
+}
+
+# The mail role may read the mail tables once the migrations have created them.
+grant_mail_role() {
+    runuser -u postgres -- psql -v ON_ERROR_STOP=1 -q -d "$DB_NAME" >/dev/null <<'SQL' || true
+GRANT SELECT ON dns_zones, mail_domains, mailboxes TO zenex_mail;
+SQL
 }
 
 setup_database() {
@@ -635,14 +626,8 @@ ZENEX_PHP_VERSION=${php_ver}
 ZENEX_HELPER_SOCKET=${HELPER_SOCKET}
 ZENEX_NODE_NAME=this-server
 EOF
-    if [[ -z "$MAIL_HOST" ]]; then
-        MAIL_HOST="$(existing_env_value ZENEX_MAIL_HOST)"
-    fi
-    if [[ -n "$MAIL_HOST" ]]; then
-        printf 'ZENEX_MAIL_HOST=%s
-ZENEX_MAIL_DB_PASSWORD=%s
-' "$MAIL_HOST" "$MAIL_DB_PASSWORD" >> "$tmp"
-    fi
+    printf 'ZENEX_MAIL_DB_PASSWORD=%s
+' "$MAIL_DB_PASSWORD" >> "$tmp"
     mv -f "$tmp" "$ENV_FILE"
     fix_file_permissions
     info "settings saved"
@@ -721,11 +706,6 @@ configure_firewall() {
     ufw allow 80/tcp comment 'http' >/dev/null
     ufw allow 443/tcp comment 'https' >/dev/null
     ufw allow "${PANEL_PORT}/tcp" comment 'zenex panel' >/dev/null
-    if [[ -n "$MAIL_HOST" ]]; then
-        ufw allow 25/tcp comment 'mail smtp' >/dev/null
-        ufw allow 587/tcp comment 'mail submission' >/dev/null
-        ufw allow 993/tcp comment 'mail imaps' >/dev/null
-    fi
     ufw --force enable >/dev/null
     info "firewall on (SSH ${ssh_port}, web 80/443, panel ${PANEL_PORT})"
 }
@@ -1022,6 +1002,7 @@ main() {
     step "Starting the Zenex panel"
     install_unit
     start_panel
+    grant_mail_role
 
     step "Creating your administrator account"
     ensure_admin

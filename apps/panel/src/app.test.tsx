@@ -72,6 +72,7 @@ function mockApi(options: {
   let sftpOn = options.sftpEnabled ?? false;
   // Mail on the connected domain d1 (ozima.cloud): the switch and the mailbox list.
   let mailOn = false;
+  let mailHost = "";
   const mailboxes: Array<Record<string, unknown>> = [];
   const mailView = () => ({
     domain: "ozima.cloud",
@@ -136,10 +137,11 @@ function mockApi(options: {
         ],
       });
     }
-    if (url.endsWith("/api/v1/mail/server/apply") && method === "POST")
-      return json({ applied: true });
-    if (url.endsWith("/api/v1/mail/server/install") && method === "POST")
-      return json({ state: "running" }, 202);
+    if (url.endsWith("/api/v1/mail/server") && method === "GET") return json({ host: mailHost });
+    if (url.endsWith("/api/v1/mail/server") && method === "PUT") {
+      mailHost = JSON.parse(String(init?.body)).host;
+      return json({ host: mailHost });
+    }
     if (url.endsWith("/api/v1/domains/d1/mail/check")) {
       return json({
         checked_at: "2026-10-11T00:00:00Z",
@@ -1243,22 +1245,6 @@ describe("mail on a connected domain", () => {
   });
 });
 
-describe("mail server", () => {
-  it("applies the mail configuration from the Settings page", async () => {
-    const fetchMock = mockApi({ signedIn: true });
-    vi.stubGlobal("fetch", fetchMock);
-    renderAt("/settings");
-    fireEvent.click(await screen.findByRole("button", { name: "Apply mail configuration" }));
-    expect(await screen.findByText("Mail configuration applied.")).toBeTruthy();
-    expect(
-      fetchMock.mock.calls.some(
-        ([url, init]) =>
-          String(url).endsWith("/api/v1/mail/server/apply") && init?.method === "POST",
-      ),
-    ).toBe(true);
-  });
-});
-
 describe("mail page", () => {
   it("is in the menu and lists each connected domain with its mail switch", async () => {
     vi.stubGlobal("fetch", mockApi({ signedIn: true }));
@@ -1326,41 +1312,41 @@ describe("mail DNS check summary", () => {
   });
 });
 
-describe("mail server install", () => {
-  it("installs the mail software with the host name, then offers the apply step", async () => {
+describe("mail server", () => {
+  it("sets the mail server up under the chosen host name", async () => {
     const fetchMock = mockApi({ signedIn: true });
     vi.stubGlobal("fetch", fetchMock);
     renderAt("/settings");
-    const install = (await screen.findByRole("button", {
-      name: "Install mail server",
+    const button = (await screen.findByRole("button", {
+      name: "Set up mail server",
     })) as HTMLButtonElement;
-    expect(install.disabled).toBe(true);
+    expect(button.disabled).toBe(true);
     changeValue(screen.getByLabelText("Mail host name"), { target: { value: "mail.ozima.cloud" } });
     await waitFor(() =>
       expect(
-        (screen.getByRole("button", { name: "Install mail server" }) as HTMLButtonElement).disabled,
+        (screen.getByRole("button", { name: "Set up mail server" }) as HTMLButtonElement).disabled,
       ).toBe(false),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Install mail server" }));
+    fireEvent.click(screen.getByRole("button", { name: "Set up mail server" }));
     await waitFor(() => {
       const call = fetchMock.mock.calls.find(
-        ([url, init]) =>
-          String(url).endsWith("/api/v1/mail/server/install") && init?.method === "POST",
+        ([url, init]) => String(url).endsWith("/api/v1/mail/server") && init?.method === "PUT",
       );
       expect(call).toBeTruthy();
       expect(JSON.parse(String(call?.[1]?.body))).toEqual({ host: "mail.ozima.cloud" });
     });
-    expect(screen.getByRole("button", { name: "Apply mail configuration" })).toBeTruthy();
+    expect(await screen.findByText("Mail server is set up for mail.ozima.cloud.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Save and apply" })).toBeTruthy();
   });
 
   it("does not accept a host name that is not a full lower-case name", async () => {
     vi.stubGlobal("fetch", mockApi({ signedIn: true }));
     renderAt("/settings");
-    await screen.findByRole("button", { name: "Install mail server" });
+    await screen.findByRole("button", { name: "Set up mail server" });
     for (const bad of ["localhost", "mail example.com"]) {
       changeValue(screen.getByLabelText("Mail host name"), { target: { value: bad } });
       expect(
-        (screen.getByRole("button", { name: "Install mail server" }) as HTMLButtonElement).disabled,
+        (screen.getByRole("button", { name: "Set up mail server" }) as HTMLButtonElement).disabled,
       ).toBe(true);
     }
   });

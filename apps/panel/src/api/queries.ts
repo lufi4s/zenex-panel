@@ -316,26 +316,22 @@ export function useRemoveMailbox(domainId: string) {
   });
 }
 
-/** Installs the mail software by running the panel installer with the mail host name. */
-export function useInstallMailServer() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (host: string) =>
-      apiRequest<{ state: string }>("/api/v1/mail/server/install", {
-        method: "POST",
-        body: { host },
-      }),
-    meta: { silent: true },
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["system-update"] }),
+/** The saved mail server name (administrators). Empty until the mail server is set up. */
+export function useMailServer() {
+  return useQuery({
+    queryKey: ["mail-server"],
+    queryFn: () => apiRequest<{ host: string }>("/api/v1/mail/server"),
   });
 }
 
-/** Writes the mail server configuration and reloads the mail services (administrators). */
-export function useApplyMailServer() {
+/** Sets the mail server up under a host name: certificate, firewall ports and configuration. */
+export function useSetupMailServer() {
+  const qc = useQueryClient();
   return useMutation({
-    mutationFn: () =>
-      apiRequest<{ applied: boolean }>("/api/v1/mail/server/apply", { method: "POST" }),
+    mutationFn: (host: string) =>
+      apiRequest<{ host: string }>("/api/v1/mail/server", { method: "PUT", body: { host } }),
     meta: { silent: true },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["mail-server"] }),
   });
 }
 

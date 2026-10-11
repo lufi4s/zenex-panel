@@ -10,7 +10,6 @@ import (
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/auth"
 	mailrules "github.com/zenexcloud/zenex-panel/apps/api/internal/mail"
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/store"
-	"github.com/zenexcloud/zenex-panel/apps/api/internal/update"
 )
 
 // MailStore keeps mail settings and mailboxes. *store.Store satisfies it.
@@ -19,6 +18,8 @@ type MailStore interface {
 	GetMailDomain(ctx context.Context, zoneID string) (store.MailDomain, error)
 	SetMailDomain(ctx context.Context, zoneID string, enabled bool) error
 	SetMailDKIM(ctx context.Context, zoneID, value string) error
+	GetMailHost(ctx context.Context) (string, error)
+	SetMailHost(ctx context.Context, host, userID string) error
 	ListMailboxes(ctx context.Context, zoneID string) ([]store.Mailbox, error)
 	CreateMailbox(ctx context.Context, mb store.Mailbox) (store.Mailbox, error)
 	GetMailbox(ctx context.Context, id string) (store.Mailbox, error)
@@ -31,7 +32,7 @@ type MailResolver = mailrules.Resolver
 
 // MailServerOps sets up the mail server and creates DKIM keys. *manage.Manager satisfies it.
 type MailServerOps interface {
-	ApplyMailServer(ctx context.Context) error
+	ApplyMailServer(ctx context.Context, host string) error
 	MailDKIMValue(ctx context.Context, apex string) (string, error)
 }
 
@@ -300,23 +301,61 @@ func (d Deps) handleDeleteMailbox(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleApplyMailServer writes the mail server configuration and reloads the services.
-// Administrators only: it changes the server's mail setup for every hosted domain.
-func (d Deps) handleApplyMailServer(w http.ResponseWriter, r *http.Request) {
+// mailServerView is what the Settings page shows about the mail server.
+type mailServerView struct {
+	// Host is the mail server name set up on this server, or "" when none is.
+	Host string `json:"host"`
+}
+
+// handleGetMailServer returns the saved mail server name. Administrators only.
+func (d Deps) handleGetMailServer(w http.ResponseWriter, r *http.Request) {
+	if _, ok := d.requireAdminUser(w, r); !ok {
+		return
+	}
+	if d.Mail == nil {
+		writeError(w, requestIDFrom(r), ErrUnavailable)
+		return
+	}
+	host, err := d.Mail.GetMailHost(r.Context())
+	if err != nil {
+		d.internal(w, r, "mail.server.get", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, mailServerView{Host: host})
+}
+
+type mailServerRequest struct {
+	Host string `json:"host"`
+}
+
+// handlePutMailServer sets the mail server up under the given name: certificate, firewall
+// ports and configuration. The name is saved only after the server accepted the setup, so the
+// saved name always belongs to a working setup. Administrators only.
+func (d Deps) handlePutMailServer(w http.ResponseWriter, r *http.Request) {
 	user, ok := d.requireAdminUser(w, r)
 	if !ok {
 		return
 	}
-	if d.MailServer == nil {
+	if d.Mail == nil || d.MailServer == nil {
 		writeError(w, requestIDFrom(r), ErrUnavailable)
 		return
 	}
-	if err := d.MailServer.ApplyMailServer(r.Context()); err != nil {
-		d.manageError(w, r, "mail.server.apply", err)
+	var in mailServerRequest
+	if err := decodeJSON(r, &in); err != nil || !mailrules.ValidHostname(in.Host) {
+		writeError(w, requestIDFrom(r), APIError{Status: http.StatusBadRequest, Code: "invalid_host", Message: "enter a full host name such as mail.example.com (lower case)"})
 		return
 	}
-	d.audit(r.Context(), r, store.AuditEntry{ActorUserID: user.ID, ActorRole: primaryRole(user), Action: "mail.server.apply", TargetType: "settings", TargetID: "mail_server", Result: "success"})
-	writeJSON(w, http.StatusOK, map[string]bool{"applied": true})
+	if err := d.MailServer.ApplyMailServer(r.Context(), in.Host); err != nil {
+		d.audit(r.Context(), r, store.AuditEntry{ActorUserID: user.ID, ActorRole: primaryRole(user), Action: "mail.server.setup", TargetType: "settings", TargetID: "mail_server", Result: "failure"})
+		d.manageError(w, r, "mail.server.setup", err)
+		return
+	}
+	if err := d.Mail.SetMailHost(r.Context(), in.Host, user.ID); err != nil {
+		d.internal(w, r, "mail.server.save", err)
+		return
+	}
+	d.audit(r.Context(), r, store.AuditEntry{ActorUserID: user.ID, ActorRole: primaryRole(user), Action: "mail.server.setup", TargetType: "settings", TargetID: "mail_server", Result: "success"})
+	writeJSON(w, http.StatusOK, mailServerView{Host: in.Host})
 }
 
 // handleCheckMailDNS looks up the records of a domain's mail setup on public DNS. It reports
@@ -347,40 +386,4 @@ func (d Deps) handleCheckMailDNS(w http.ResponseWriter, r *http.Request) {
 		"all_ok":     allOK,
 		"results":    results,
 	})
-}
-
-type mailInstallRequest struct {
-	Host string `json:"host"`
-}
-
-// handleInstallMailServer installs the mail software on this server by running the panel's
-// installer with the mail host name. Administrators only. Progress shows in the update log.
-func (d Deps) handleInstallMailServer(w http.ResponseWriter, r *http.Request) {
-	user, ok := d.requireAdminUser(w, r)
-	if !ok {
-		return
-	}
-	var in mailInstallRequest
-	if err := decodeJSON(r, &in); err != nil || !mailrules.ValidHostname(in.Host) {
-		writeError(w, requestIDFrom(r), APIError{Status: http.StatusBadRequest, Code: "invalid_host", Message: "enter a full host name such as mail.example.com (lower case)"})
-		return
-	}
-	if d.Updates == nil {
-		writeError(w, requestIDFrom(r), ErrUnavailable)
-		return
-	}
-	err := d.Updates.StartWithMail(r.Context(), in.Host)
-	outcome := "success"
-	if err != nil {
-		outcome = "failure"
-	}
-	d.audit(r.Context(), r, store.AuditEntry{ActorUserID: user.ID, ActorRole: primaryRole(user), Action: "mail.server.install", TargetType: "settings", TargetID: "mail_server", Result: outcome})
-	switch {
-	case errors.Is(err, update.ErrRunning):
-		writeError(w, requestIDFrom(r), APIError{Status: http.StatusConflict, Code: "update_running", Message: "An update or install is already running. Wait for it to finish."})
-	case err != nil:
-		writeError(w, requestIDFrom(r), APIError{Status: http.StatusBadGateway, Code: "install_failed", Message: err.Error()})
-	default:
-		writeJSON(w, http.StatusAccepted, map[string]string{"state": "running"})
-	}
 }

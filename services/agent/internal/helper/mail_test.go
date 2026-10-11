@@ -23,6 +23,17 @@ type mailExec struct {
 
 func (m *mailExec) Run(_ context.Context, bin string, args []string, _ time.Duration) (executor.Result, error) {
 	m.calls = append(m.calls, bin+" "+strings.Join(args, " "))
+	if bin == binOpenSSL && args[0] == "req" {
+		// Like the real tool: write the key and the certificate to the paths it is given.
+		for i, a := range args {
+			if (a == "-keyout" || a == "-out") && i+1 < len(args) {
+				if err := os.WriteFile(args[i+1], []byte("PEM "+a), 0o644); err != nil {
+					return executor.Result{}, err
+				}
+			}
+		}
+		return executor.Result{}, nil
+	}
 	if bin == binOpenSSL {
 		out := args[len(args)-1]
 		if args[0] == "genpkey" {
@@ -88,8 +99,11 @@ func TestMailApplyWritesChecksAndReloads(t *testing.T) {
 		binPostfix + " check",
 		binDoveconf + " -n",
 		binRspamadm + " configtest",
+		binSystemctl + " enable --now postfix",
 		binSystemctl + " reload postfix",
+		binSystemctl + " enable --now dovecot",
 		binSystemctl + " reload dovecot",
+		binSystemctl + " enable --now rspamd",
 		binSystemctl + " reload rspamd",
 	}
 	if strings.Join(ex.calls, "\n") != strings.Join(want, "\n") {
@@ -213,5 +227,71 @@ func TestMailAllowlistMatchesTheAPIPaths(t *testing.T) {
 		if _, ok := mailFileAllowlist[path]; !ok {
 			t.Errorf("%s missing from the helper allowlist", path)
 		}
+	}
+}
+
+func countCalls(calls []string, prefix string) int {
+	n := 0
+	for _, c := range calls {
+		if strings.HasPrefix(c, prefix) {
+			n++
+		}
+	}
+	return n
+}
+
+func TestMailPrepareCreatesACertificateOnceAndOpensThePorts(t *testing.T) {
+	ex := &mailExec{}
+	o, _ := mailTestOps(t, ex)
+	if _, err := o.Do(context.Background(), "mail.prepare", map[string]string{"host": "mail.example.com"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := countCalls(ex.calls, binOpenSSL+" req"); got != 1 {
+		t.Fatalf("certificate created %d times, want once", got)
+	}
+	for _, port := range []string{"25/tcp", "587/tcp", "993/tcp"} {
+		if countCalls(ex.calls, binUfw+" allow "+port) != 1 {
+			t.Errorf("port %s was not opened: %v", port, ex.calls)
+		}
+	}
+	marker, err := os.ReadFile(filepath.Join(o.MailRoot, mailTLSDir, "host"))
+	if err != nil || strings.TrimSpace(string(marker)) != "mail.example.com" {
+		t.Fatalf("host marker = %q, %v", marker, err)
+	}
+
+	// Same host again: the existing certificate (maybe a real one) is kept.
+	if _, err := o.Do(context.Background(), "mail.prepare", map[string]string{"host": "mail.example.com"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := countCalls(ex.calls, binOpenSSL+" req"); got != 1 {
+		t.Fatalf("certificate replaced for the same host (%d creations)", got)
+	}
+	// A different host gets its own certificate.
+	if _, err := o.Do(context.Background(), "mail.prepare", map[string]string{"host": "mx.example.org"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := countCalls(ex.calls, binOpenSSL+" req"); got != 2 {
+		t.Fatalf("no new certificate for a new host (%d creations)", got)
+	}
+}
+
+func TestMailPrepareRejectsBadHostsBeforeRunningAnything(t *testing.T) {
+	ex := &mailExec{}
+	o, _ := mailTestOps(t, ex)
+	for _, bad := range []string{"localhost", "mail.example.com; reboot", "Mail.Example.com", "", "a b.com"} {
+		if _, err := o.Do(context.Background(), "mail.prepare", map[string]string{"host": bad}); err == nil {
+			t.Errorf("host %q accepted", bad)
+		}
+	}
+	if len(ex.calls) != 0 {
+		t.Fatalf("programs ran for rejected hosts: %v", ex.calls)
+	}
+}
+
+func TestMailPrepareStopsWhenAPortCannotBeOpened(t *testing.T) {
+	ex := &mailExec{failBin: binUfw}
+	o, _ := mailTestOps(t, ex)
+	if _, err := o.Do(context.Background(), "mail.prepare", map[string]string{"host": "mail.example.com"}); err == nil {
+		t.Fatal("firewall failure was ignored")
 	}
 }

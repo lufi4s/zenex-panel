@@ -3,7 +3,7 @@
 //	api serve            run the HTTP(S) server (applies pending migrations first)
 //	api migrate          apply pending migrations and exit
 //	api create-admin     create an administrator; reads email and password from stdin
-//	api mail-apply       write and check the mail server configuration through the helper
+//	api mail-apply       set the mail server up again for the saved mail host name
 package main
 
 import (
@@ -63,7 +63,9 @@ func main() {
 			return createAdmin(ctx, s, cfg.NodeName, cfg.PublicIP, os.Stdin, os.Stdout)
 		})
 	case "mail-apply":
-		err = applyMailConfig(cfg, log)
+		err = withStore(cfg, func(ctx context.Context, s *store.Store) error {
+			return applyMailConfig(ctx, cfg, s, log)
+		})
 	default:
 		err = fmt.Errorf("unknown command %q", cmd)
 	}
@@ -87,26 +89,34 @@ func withStore(cfg config.Config, fn func(context.Context, *store.Store) error) 
 	return fn(ctx, s)
 }
 
-// mailServerSettings builds the mail server settings from the environment.
+// mailServerSettings builds the fixed mail server settings from the environment. The host name
+// is not here: an administrator chooses it in the panel and it is saved in the database.
 func mailServerSettings(cfg config.Config) manage.MailServerSettings {
 	return manage.MailServerSettings{
-		Host: cfg.MailHost, DBHost: "127.0.0.1", DBName: "zenex_panel", DBUser: "zenex_mail",
+		DBHost: "127.0.0.1", DBName: "zenex_panel", DBUser: "zenex_mail",
 		DBPass: cfg.MailDBPassword, MaxMB: 64,
 	}
 }
 
-// applyMailConfig does what the Settings button "Apply mail configuration" does, from the
-// server's command line (run as root with /etc/zenex/panel.env loaded). The helper checks the
+// applyMailConfig sets the mail server up again for the saved mail host name, from the server's
+// command line (run as root with /etc/zenex/panel.env loaded). The helper checks the
 // configuration first and restores the old files if any check fails.
-func applyMailConfig(cfg config.Config, log *slog.Logger) error {
-	m := manage.New(nil, helperclient.New(cfg.HelperSocket), log)
-	m.MailServer = mailServerSettings(cfg)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-	if err := m.ApplyMailServer(ctx); err != nil {
+func applyMailConfig(ctx context.Context, cfg config.Config, s *store.Store, log *slog.Logger) error {
+	host, err := s.GetMailHost(ctx)
+	if err != nil {
 		return err
 	}
-	log.Info("mail configuration applied", "host", cfg.MailHost)
+	if host == "" {
+		return errors.New("no mail host is saved yet: set it up in the panel under Settings, Mail server")
+	}
+	m := manage.New(s, helperclient.New(cfg.HelperSocket), log)
+	m.MailServer = mailServerSettings(cfg)
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	if err := m.ApplyMailServer(ctx, host); err != nil {
+		return err
+	}
+	log.Info("mail configuration applied", "host", host)
 	return nil
 }
 

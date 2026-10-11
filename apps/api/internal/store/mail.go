@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -71,6 +72,30 @@ func (s *Store) SetMailDKIM(ctx context.Context, zoneID, value string) error {
 		INSERT INTO mail_domains (zone_id, enabled, dkim_public) VALUES ($1::uuid, false, $2)
 		ON CONFLICT (zone_id) DO UPDATE SET dkim_public = EXCLUDED.dkim_public, updated_at = now()`, zoneID, value)
 	return err
+}
+
+// mailHostKey is the system setting that holds the name of the mail server.
+const mailHostKey = "mail_host"
+
+// GetMailHost returns the saved mail server name, or "" when none is saved.
+func (s *Store) GetMailHost(ctx context.Context) (string, error) {
+	raw, err := s.GetSetting(ctx, mailHostKey)
+	if errors.Is(err, ErrNotFound) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	var host string
+	if err := json.Unmarshal(raw, &host); err != nil {
+		return "", err
+	}
+	return host, nil
+}
+
+// SetMailHost saves the mail server name and records who set it.
+func (s *Store) SetMailHost(ctx context.Context, host, userID string) error {
+	return s.PutSetting(ctx, mailHostKey, host, userID)
 }
 
 // ListMailboxes returns the mailboxes of a connected domain, sorted by address.
