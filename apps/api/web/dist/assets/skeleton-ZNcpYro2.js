@@ -1,1 +1,0 @@
-import{aJ as t,bs as l,aG as n,g as o,t as p}from"./index-BokkrIm0.js";var m=p("<div>");function c(e){const[a,r]=t(e,["class"]);return(()=>{var s=m();return l(s,n({get class(){return o("animate-pulse rounded-md bg-muted",a.class)}},r),!1,!1),s})()}export{c as S};

@@ -132,6 +132,21 @@ function mockApi(options: {
     }
     if (url.endsWith("/api/v1/mail/server/apply") && method === "POST")
       return json({ applied: true });
+    if (url.endsWith("/api/v1/domains/d1/mail/check")) {
+      return json({
+        checked_at: "2026-10-11T00:00:00Z",
+        all_ok: false,
+        results: [
+          {
+            type: "MX",
+            name: "@",
+            status: "missing",
+            found: [],
+            message: "No MX record. Add it at your DNS provider.",
+          },
+        ],
+      });
+    }
     if (url.endsWith("/api/v1/domains/d1/mail") && method === "GET") return json(mailView());
     if (url.endsWith("/api/v1/domains/d1/mail") && method === "PUT") {
       mailOn = JSON.parse(String(init?.body)).enabled === true;
@@ -1241,5 +1256,20 @@ describe("mail page", () => {
     expect(await screen.findByRole("heading", { name: "Mail" })).toBeTruthy();
     expect(await screen.findByLabelText("Mail for ozima.cloud")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Mail" })).toBeTruthy();
+  });
+});
+
+describe("mail DNS check", () => {
+  it("shows which mail records are missing when the check runs", async () => {
+    vi.stubGlobal("fetch", mockApi({ signedIn: true }));
+    renderAt("/mail");
+    fireEvent.click(await screen.findByRole("button", { name: "Check DNS now" }));
+    expect(await screen.findByText("Not published")).toBeTruthy();
+    expect(screen.getByText("No MX record. Add it at your DNS provider.")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Some records are not in place yet. DNS changes can take up to a day to spread.",
+      ),
+    ).toBeTruthy();
   });
 });

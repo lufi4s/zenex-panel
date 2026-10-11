@@ -1,13 +1,35 @@
 import { createSignal, For, Show } from "solid-js";
 import { describeError } from "@/api/client";
-import { useAddMailbox, useMail, useRemoveMailbox, useSetMail } from "@/api/queries";
-import type { Domain } from "@/api/types";
+import {
+  useAddMailbox,
+  useCheckMailDNS,
+  useMail,
+  useRemoveMailbox,
+  useSetMail,
+} from "@/api/queries";
+import type { Domain, MailCheckResult } from "@/api/types";
 import { Check, Copy, Trash2 } from "@/components/icons";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { formatBytes } from "@/lib/format";
+
+const CHECK_LABEL: Record<MailCheckResult["status"], string> = {
+  ok: "Correct",
+  missing: "Not published",
+  different: "Different",
+  error: "Lookup failed",
+  pending: "Waiting",
+};
+
+const CHECK_TONE: Record<MailCheckResult["status"], string> = {
+  ok: "text-success",
+  missing: "text-warning",
+  different: "text-destructive",
+  error: "text-muted-foreground",
+  pending: "text-muted-foreground",
+};
 
 const QUOTAS = [
   { mb: 1024, label: "1 GB" },
@@ -53,6 +75,7 @@ export function MailPanel(props: { domain: Domain }) {
   const mail = useMail(props.domain.id);
   const setMail = useSetMail(props.domain.id);
   const addBox = useAddMailbox(props.domain.id);
+  const check = useCheckMailDNS(props.domain.id);
   const removeBox = useRemoveMailbox(props.domain.id);
   const [localPart, setLocalPart] = createSignal("");
   const [password, setPassword] = createSignal("");
@@ -210,7 +233,48 @@ export function MailPanel(props: { domain: Domain }) {
             </section>
 
             <section class="space-y-2">
-              <h4 class="text-sm font-semibold">DNS records to add at your DNS provider</h4>
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <h4 class="text-sm font-semibold">DNS records to add at your DNS provider</h4>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={check.isPending}
+                  onClick={() => check.mutate(undefined)}
+                >
+                  {check.isPending ? "Checking…" : "Check DNS now"}
+                </Button>
+              </div>
+              <Show when={check.error}>
+                <Alert variant="destructive">
+                  <AlertDescription>{describeError(check.error)}</AlertDescription>
+                </Alert>
+              </Show>
+              <Show when={check.data}>
+                {(report) => (
+                  <div class="space-y-2 rounded-md border border-border bg-card p-3 text-sm">
+                    <p class={report().all_ok ? "font-medium text-success" : "font-medium"}>
+                      {report().all_ok
+                        ? "Every record is published and correct."
+                        : "Some records are not in place yet. DNS changes can take up to a day to spread."}
+                    </p>
+                    <ul class="space-y-1">
+                      <For each={report().results}>
+                        {(r) => (
+                          <li class="flex flex-wrap gap-2">
+                            <span class="font-mono text-xs">
+                              {r.type} {r.name}
+                            </span>
+                            <span class={`text-xs font-medium ${CHECK_TONE[r.status]}`}>
+                              {CHECK_LABEL[r.status]}
+                            </span>
+                            <span class="text-xs text-muted-foreground">{r.message}</span>
+                          </li>
+                        )}
+                      </For>
+                    </ul>
+                  </div>
+                )}
+              </Show>
               <div class="overflow-x-auto rounded-md border border-border bg-card">
                 <table class="w-full text-left text-sm">
                   <thead class="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">

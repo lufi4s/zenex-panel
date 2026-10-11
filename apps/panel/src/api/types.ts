@@ -446,6 +446,22 @@ export interface MailDNSRecord {
   note: string;
 }
 
+/** The outcome of checking one mail DNS record on public DNS. */
+export interface MailCheckResult {
+  type: string;
+  name: string;
+  status: "ok" | "missing" | "different" | "error" | "pending";
+  found: string[];
+  message: string;
+}
+
+/** The result of a DNS check for a domain's mail setup. */
+export interface MailCheck {
+  checked_at: string;
+  all_ok: boolean;
+  results: MailCheckResult[];
+}
+
 /** The mail settings of a connected domain. */
 export interface MailView {
   domain: string;

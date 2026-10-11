@@ -3,7 +3,9 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
+	"time"
 
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/auth"
 	mailrules "github.com/zenexcloud/zenex-panel/apps/api/internal/mail"
@@ -22,6 +24,9 @@ type MailStore interface {
 	UpdateMailbox(ctx context.Context, mb store.Mailbox) error
 	DeleteMailbox(ctx context.Context, id string) error
 }
+
+// MailResolver answers the DNS lookups of the mail check. Nil means the system resolver.
+type MailResolver = mailrules.Resolver
 
 // MailServerOps sets up the mail server and creates DKIM keys. *manage.Manager satisfies it.
 type MailServerOps interface {
@@ -311,4 +316,34 @@ func (d Deps) handleApplyMailServer(w http.ResponseWriter, r *http.Request) {
 	}
 	d.audit(r.Context(), r, store.AuditEntry{ActorUserID: user.ID, ActorRole: primaryRole(user), Action: "mail.server.apply", TargetType: "settings", TargetID: "mail_server", Result: "success"})
 	writeJSON(w, http.StatusOK, map[string]bool{"applied": true})
+}
+
+// handleCheckMailDNS looks up the records of a domain's mail setup on public DNS. It reports
+// what is published; it changes nothing.
+func (d Deps) handleCheckMailDNS(w http.ResponseWriter, r *http.Request) {
+	zone, _, ok := d.loadZoneForUser(w, r)
+	if !ok {
+		return
+	}
+	md, err := d.Mail.GetMailDomain(r.Context(), zone.ID)
+	if err != nil {
+		d.internal(w, r, "mail.check", err)
+		return
+	}
+	var resolver MailResolver = net.DefaultResolver
+	if d.MailResolver != nil {
+		resolver = d.MailResolver
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+	results := mailrules.CheckRecords(ctx, resolver, zone.Apex, d.Site.PublicIP, md.DKIMPublic)
+	allOK := true
+	for _, res := range results {
+		allOK = allOK && res.Status == mailrules.StatusOK
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"checked_at": time.Now().UTC(),
+		"all_ok":     allOK,
+		"results":    results,
+	})
 }

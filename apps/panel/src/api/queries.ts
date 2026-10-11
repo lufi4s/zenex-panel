@@ -37,6 +37,7 @@ import type {
   SiteHealth,
   TimeRange,
   User,
+  MailCheck,
   MailView,
   Mailbox,
   SiteAccess,
@@ -285,6 +286,14 @@ export function useSetMail(domainId: string) {
       }),
     meta: { silent: true },
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["mail", domainId] }),
+  });
+}
+
+/** Looks up the mail DNS records on public DNS. Changes nothing. */
+export function useCheckMailDNS(domainId: string) {
+  return useMutation({
+    mutationFn: () => apiRequest<MailCheck>(`/api/v1/domains/${domainId}/mail/check`),
+    meta: { silent: true },
   });
 }
 

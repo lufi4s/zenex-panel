@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -61,6 +62,21 @@ func (f *fakeMail) ZoneOwner(_ context.Context, id string) (store.ZoneInfo, erro
 
 func (f *fakeMail) GetMailDomain(_ context.Context, id string) (store.MailDomain, error) {
 	return store.MailDomain{ZoneID: id, Enabled: f.enabled[id], DKIMPublic: f.dkim[id]}, nil
+}
+
+// emptyDNS answers every lookup with "not found", so tests never ask the real DNS.
+type emptyDNS struct{}
+
+func (emptyDNS) LookupMX(_ context.Context, name string) ([]*net.MX, error) {
+	return nil, &net.DNSError{Name: name, IsNotFound: true}
+}
+
+func (emptyDNS) LookupTXT(_ context.Context, name string) ([]string, error) {
+	return nil, &net.DNSError{Name: name, IsNotFound: true}
+}
+
+func (emptyDNS) LookupHost(_ context.Context, name string) ([]string, error) {
+	return nil, &net.DNSError{Name: name, IsNotFound: true}
 }
 
 // fakeMailServer records the apply calls and answers DKIM requests.
@@ -140,14 +156,15 @@ func newMailEnvWithServer(t *testing.T) (settingsEnv, *fakeMail, *fakeMailServer
 	fm := newFakeMail()
 	srv := &fakeMailServer{}
 	e.h = NewRouter(Deps{
-		MailServer: srv,
-		Log:        slog.New(slog.NewTextHandler(io.Discard, nil)),
-		Users:      e.fs,
-		Sites:      e.sites,
-		Manage:     e.manage,
-		Alerts:     e.alert,
-		Mail:       fm,
-		Site:       SiteSettings{NodeID: "node-1", PHPVersion: "8.3", SecretKey: []byte(testServerSecret), StartJob: func(string) {}, PublicIP: "162.4.35.76"},
+		MailServer:   srv,
+		MailResolver: emptyDNS{},
+		Log:          slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Users:        e.fs,
+		Sites:        e.sites,
+		Manage:       e.manage,
+		Alerts:       e.alert,
+		Mail:         fm,
+		Site:         SiteSettings{NodeID: "node-1", PHPVersion: "8.3", SecretKey: []byte(testServerSecret), StartJob: func(string) {}, PublicIP: "162.4.35.76"},
 	})
 	return e, fm, srv
 }
@@ -270,5 +287,35 @@ func TestApplyMailServerIsAdminOnly(t *testing.T) {
 	}
 	if srv.applied != 1 {
 		t.Fatalf("apply ran %d times, want 1", srv.applied)
+	}
+}
+
+func TestMailDNSCheckReportsWhatIsMissing(t *testing.T) {
+	e, _ := newMailEnv(t)
+	customer := e.login(t, "customer@example.com")
+	rec := e.call(t, http.MethodGet, "/api/v1/domains/"+mailZoneID+"/mail/check", "", customer, false)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("check = %d %s", rec.Code, rec.Body)
+	}
+	var got struct {
+		AllOK   bool `json:"all_ok"`
+		Results []struct {
+			Type   string `json:"type"`
+			Status string `json:"status"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.AllOK || len(got.Results) != 5 {
+		t.Fatalf("all_ok = %v, results = %+v", got.AllOK, got.Results)
+	}
+	for _, r := range got.Results {
+		if r.Status == "ok" {
+			t.Errorf("%s reported ok with nothing published", r.Type)
+		}
+	}
+	if rec := e.call(t, http.MethodGet, "/api/v1/domains/"+mailOtherZone+"/mail/check", "", customer, false); rec.Code != http.StatusNotFound {
+		t.Fatalf("another owner's check = %d, want 404", rec.Code)
 	}
 }
