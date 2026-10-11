@@ -712,3 +712,12 @@ Next: httpapi/mail.go (MailStore interface, Deps.Mail, routes: GET/PUT /domains/
 - Note: app.test.tsx was briefly corrupted by a Windows text-mode write (middle dot became U+FFFD). Restored from HEAD and re-applied with explicit UTF-8. Always edit files in binary/UTF-8 mode.
 - Next: Phase 2 (mail server on the VPS) only after the user approves server changes and gives the mail host name and PTR.
 
+## 55. Mailbox hosting, phase 2 (STARTED: configuration text only, NOT deployed)
+
+- apps/api/internal/mail/server.go: builds the text of the Postfix (main.cf, master.cf, pgsql lookups), Dovecot (sql passdb/userdb with {ARGON2ID}, lmtp and auth sockets, ssl) and rspamd DKIM signing files. Nothing is written to disk here.
+- Relay rules: only signed-in mailboxes may send (smtpd_relay_restrictions, reject_unauth_destination); submission on 587 needs TLS and login.
+- Database access: a read-only mail role (zenex_mail) for the lookups. Postfix uses "hosts=", Dovecot uses "host=" (different keys). Lookup files are 0640; the password appears only in them.
+- Tests: mail/server_test.go (13 tests). npm test (repo root) passes all suites.
+- NOT done yet: helper ops that write these files and run the checks (postfix check, doveconf -n, rspamadm configtest) with a reload gate; DKIM keygen op (openssl) and the DKIM value in the DNS records; TLS certificate for the mail host; installer step (opt-in via ZENEX_MAIL_HOST: packages, read-only role, ufw 25/587/993); PTR record and a test domain.
+- Unverified until run on a VPS: Dovecot ARGON2ID scheme support on Ubuntu 24.04's Dovecot version; the pgsql lookup syntax; Postfix pgsql map file permissions for the postfix user.
+
