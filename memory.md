@@ -787,3 +787,8 @@ Next: httpapi/mail.go (MailStore interface, Deps.Mail, routes: GET/PUT /domains/
 - Not verified on the VPS: Roundcube starts and logs in against Dovecot (ARGON2ID), Caddy obtains the certificate, PHP pool runs as zenex-webmail, sending through 587.
 - Next idea: let Postfix/Dovecot use Caddy's real certificate for mail.ozima.cloud instead of the self-signed one (needs a copy/permission step and renewal handling).
 
+
+## 62. Webmail installer: existing database no longer stops the update
+- Live failure: update to 391b620 stopped at "the webmail database could not be created" (initdb: "table users already exists"). The DB file already held the full schema.
+- Fix in `infrastructure/deployment/install.sh`: new `webmail_db_ready` (PDO check for the `users` table). `install_webmail` runs initdb only when not ready, ignores its exit code, and fails only if the table is still missing; otherwise runs updatedb best-effort.
+- Next: user runs Update now again, then Settings > Mail server > Save and apply, then Open webmail (login akamai@ozima.cloud).

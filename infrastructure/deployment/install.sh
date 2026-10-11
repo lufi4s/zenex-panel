@@ -567,6 +567,12 @@ write_roundcube_config() {
 PHPCFG
 }
 
+# True when the webmail database has the users table.
+webmail_db_ready() {
+    [[ -s "$RC_STATE/roundcube.db" ]] || return 1
+    runuser -u "$RC_USER" -- php -r '$p = new PDO("sqlite:" . $argv[1]); $r = $p->query("SELECT name FROM sqlite_master WHERE type=\"table\" AND name=\"users\""); exit($r && $r->fetchColumn() ? 0 : 1);' "$RC_STATE/roundcube.db" >/dev/null 2>&1
+}
+
 # Installs the webmail (Roundcube) with the panel, with its own database and its own unprivileged
 # account. It is published later, when the administrator sets the mail server up in the panel:
 # that step creates the web address (and its HTTPS certificate) under the mail host name.
@@ -622,10 +628,12 @@ install_webmail() {
     chown "root:$RC_USER" "$RC_DIR/config/config.inc.php"
     chmod 0640 "$RC_DIR/config/config.inc.php"
 
-    # First install creates the database; an upgrade brings it up to date.
-    if [[ ! -s "$RC_STATE/roundcube.db" ]]; then
-        runuser -u "$RC_USER" -- php "$RC_DIR/bin/initdb.sh" --dir="$RC_DIR/SQL" >/dev/null \
-            || fail "the webmail database could not be created"
+    # First install creates the database; an upgrade brings it up to date. The database counts as
+    # ready when it holds the users table, whatever the tool reported, so a re-run never fails on
+    # a database that already exists.
+    if ! webmail_db_ready; then
+        runuser -u "$RC_USER" -- php "$RC_DIR/bin/initdb.sh" --dir="$RC_DIR/SQL" >/dev/null 2>&1 || true
+        webmail_db_ready || fail "the webmail database could not be created"
     else
         runuser -u "$RC_USER" -- php "$RC_DIR/bin/updatedb.sh" --package=roundcube --dir="$RC_DIR/SQL" >/dev/null 2>&1 || true
     fi
