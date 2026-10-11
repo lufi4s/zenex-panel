@@ -1,0 +1,8 @@
+{
+  "name": "zenex-panel",
+  "private": true,
+  "description": "Repository-level commands. The panel UI has its own package.json in apps/panel.",
+  "scripts": {
+    "test": "node scripts/test-all.mjs"
+  }
+}

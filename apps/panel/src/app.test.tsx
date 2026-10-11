@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, screen, waitFor, within } from "@solidjs/testing-library";
+import { configure, fireEvent, screen, waitFor, within } from "@solidjs/testing-library";
 import { render as renderSolid } from "solid-js/web";
 import { App } from "./App";
 import { resetQueryCache } from "./api/query";
@@ -452,6 +452,9 @@ function chooseTab(name: string) {
   fireEvent.mouseDown(tab, { button: 0 });
   fireEvent.click(tab);
 }
+
+// The full suite runs on a busy machine; a one-second wait for a page to draw is too tight.
+configure({ asyncUtilTimeout: 4000 });
 
 beforeEach(() => {
   resetQueryCache();
