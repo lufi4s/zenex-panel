@@ -3,6 +3,7 @@
 //	api serve            run the HTTP(S) server (applies pending migrations first)
 //	api migrate          apply pending migrations and exit
 //	api create-admin     create an administrator; reads email and password from stdin
+//	api mail-apply       write and check the mail server configuration through the helper
 package main
 
 import (
@@ -61,6 +62,8 @@ func main() {
 			}
 			return createAdmin(ctx, s, cfg.NodeName, cfg.PublicIP, os.Stdin, os.Stdout)
 		})
+	case "mail-apply":
+		err = applyMailConfig(cfg, log)
 	default:
 		err = fmt.Errorf("unknown command %q", cmd)
 	}
@@ -82,6 +85,29 @@ func withStore(cfg config.Config, fn func(context.Context, *store.Store) error) 
 	}
 	defer s.Close()
 	return fn(ctx, s)
+}
+
+// mailServerSettings builds the mail server settings from the environment.
+func mailServerSettings(cfg config.Config) manage.MailServerSettings {
+	return manage.MailServerSettings{
+		Host: cfg.MailHost, DBHost: "127.0.0.1", DBName: "zenex_panel", DBUser: "zenex_mail",
+		DBPass: cfg.MailDBPassword, MaxMB: 64,
+	}
+}
+
+// applyMailConfig does what the Settings button "Apply mail configuration" does, from the
+// server's command line (run as root with /etc/zenex/panel.env loaded). The helper checks the
+// configuration first and restores the old files if any check fails.
+func applyMailConfig(cfg config.Config, log *slog.Logger) error {
+	m := manage.New(nil, helperclient.New(cfg.HelperSocket), log)
+	m.MailServer = mailServerSettings(cfg)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	if err := m.ApplyMailServer(ctx); err != nil {
+		return err
+	}
+	log.Info("mail configuration applied", "host", cfg.MailHost)
+	return nil
 }
 
 func serve(cfg config.Config, log *slog.Logger) error {
@@ -115,10 +141,7 @@ func serve(cfg config.Config, log *slog.Logger) error {
 	}
 	// The mail server is optional: it is set up only when ZENEX_MAIL_HOST is given. Its database
 	// password belongs to the read-only role the installer creates for the mail server.
-	manager.MailServer = manage.MailServerSettings{
-		Host: cfg.MailHost, DBHost: "127.0.0.1", DBName: "zenex_panel", DBUser: "zenex_mail",
-		DBPass: cfg.MailDBPassword, MaxMB: 64,
-	}
+	manager.MailServer = mailServerSettings(cfg)
 	manager.DBPassword = func(siteID string) string {
 		return provision.DBPassword([]byte(cfg.SecretKey), siteID)
 	}
