@@ -10,6 +10,7 @@ import (
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/auth"
 	mailrules "github.com/zenexcloud/zenex-panel/apps/api/internal/mail"
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/store"
+	"github.com/zenexcloud/zenex-panel/apps/api/internal/update"
 )
 
 // MailStore keeps mail settings and mailboxes. *store.Store satisfies it.
@@ -346,4 +347,40 @@ func (d Deps) handleCheckMailDNS(w http.ResponseWriter, r *http.Request) {
 		"all_ok":     allOK,
 		"results":    results,
 	})
+}
+
+type mailInstallRequest struct {
+	Host string `json:"host"`
+}
+
+// handleInstallMailServer installs the mail software on this server by running the panel's
+// installer with the mail host name. Administrators only. Progress shows in the update log.
+func (d Deps) handleInstallMailServer(w http.ResponseWriter, r *http.Request) {
+	user, ok := d.requireAdminUser(w, r)
+	if !ok {
+		return
+	}
+	var in mailInstallRequest
+	if err := decodeJSON(r, &in); err != nil || !mailrules.ValidHostname(in.Host) {
+		writeError(w, requestIDFrom(r), APIError{Status: http.StatusBadRequest, Code: "invalid_host", Message: "enter a full host name such as mail.example.com (lower case)"})
+		return
+	}
+	if d.Updates == nil {
+		writeError(w, requestIDFrom(r), ErrUnavailable)
+		return
+	}
+	err := d.Updates.StartWithMail(r.Context(), in.Host)
+	outcome := "success"
+	if err != nil {
+		outcome = "failure"
+	}
+	d.audit(r.Context(), r, store.AuditEntry{ActorUserID: user.ID, ActorRole: primaryRole(user), Action: "mail.server.install", TargetType: "settings", TargetID: "mail_server", Result: outcome})
+	switch {
+	case errors.Is(err, update.ErrRunning):
+		writeError(w, requestIDFrom(r), APIError{Status: http.StatusConflict, Code: "update_running", Message: "An update or install is already running. Wait for it to finish."})
+	case err != nil:
+		writeError(w, requestIDFrom(r), APIError{Status: http.StatusBadGateway, Code: "install_failed", Message: err.Error()})
+	default:
+		writeJSON(w, http.StatusAccepted, map[string]string{"state": "running"})
+	}
 }

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/zenexcloud/zenex-panel/apps/api/internal/store"
+	"github.com/zenexcloud/zenex-panel/apps/api/internal/update"
 )
 
 const (
@@ -317,5 +318,78 @@ func TestMailDNSCheckReportsWhatIsMissing(t *testing.T) {
 	}
 	if rec := e.call(t, http.MethodGet, "/api/v1/domains/"+mailOtherZone+"/mail/check", "", customer, false); rec.Code != http.StatusNotFound {
 		t.Fatalf("another owner's check = %d, want 404", rec.Code)
+	}
+}
+
+// fakeUpdates records the hosts the installer was started with.
+type fakeUpdates struct {
+	hosts []string
+	err   error
+}
+
+func (f *fakeUpdates) Status(context.Context) (update.Status, error) { return update.Status{}, nil }
+func (f *fakeUpdates) Start(context.Context) error                   { return nil }
+func (f *fakeUpdates) StartWithMail(_ context.Context, host string) error {
+	f.hosts = append(f.hosts, host)
+	return f.err
+}
+
+func newMailInstallEnv(t *testing.T) (settingsEnv, *fakeUpdates) {
+	t.Helper()
+	e := newSettingsEnv(t)
+	upd := &fakeUpdates{}
+	e.h = NewRouter(Deps{
+		Log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Users:   e.fs,
+		Sites:   e.sites,
+		Manage:  e.manage,
+		Alerts:  e.alert,
+		Mail:    newFakeMail(),
+		Updates: upd,
+		Site:    SiteSettings{NodeID: "node-1", PHPVersion: "8.3", SecretKey: []byte(testServerSecret), StartJob: func(string) {}},
+	})
+	return e, upd
+}
+
+func TestInstallMailServerStartsTheInstallerWithTheHost(t *testing.T) {
+	e, upd := newMailInstallEnv(t)
+	admin := e.login(t, "admin@example.com")
+	rec := e.call(t, http.MethodPost, "/api/v1/mail/server/install", `{"host":"mail.example.com"}`, admin, true)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("install = %d %s", rec.Code, rec.Body)
+	}
+	if len(upd.hosts) != 1 || upd.hosts[0] != "mail.example.com" {
+		t.Fatalf("installer hosts = %v", upd.hosts)
+	}
+}
+
+func TestInstallMailServerRefusesBadHostsCustomersAndMissingCSRF(t *testing.T) {
+	e, upd := newMailInstallEnv(t)
+	admin := e.login(t, "admin@example.com")
+	for _, host := range []string{"localhost", "Mail.Example.com", "mail.example.com; reboot", ""} {
+		body := `{"host":"` + host + `"}`
+		if rec := e.call(t, http.MethodPost, "/api/v1/mail/server/install", body, admin, true); rec.Code != http.StatusBadRequest {
+			t.Errorf("host %q = %d, want 400", host, rec.Code)
+		}
+	}
+	customer := e.login(t, "customer@example.com")
+	if rec := e.call(t, http.MethodPost, "/api/v1/mail/server/install", `{"host":"mail.example.com"}`, customer, true); rec.Code != http.StatusForbidden {
+		t.Errorf("customer install = %d, want 403", rec.Code)
+	}
+	if rec := e.call(t, http.MethodPost, "/api/v1/mail/server/install", `{"host":"mail.example.com"}`, admin, false); rec.Code != http.StatusForbidden {
+		t.Errorf("install without CSRF = %d, want 403", rec.Code)
+	}
+	if len(upd.hosts) != 0 {
+		t.Fatalf("installer started for refused requests: %v", upd.hosts)
+	}
+}
+
+func TestInstallMailServerSaysSoWhenAnUpdateIsRunning(t *testing.T) {
+	e, upd := newMailInstallEnv(t)
+	upd.err = update.ErrRunning
+	admin := e.login(t, "admin@example.com")
+	rec := e.call(t, http.MethodPost, "/api/v1/mail/server/install", `{"host":"mail.example.com"}`, admin, true)
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "update_running") {
+		t.Fatalf("running = %d %s", rec.Code, rec.Body)
 	}
 }

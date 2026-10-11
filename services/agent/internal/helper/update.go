@@ -60,19 +60,25 @@ func (o *Ops) updateRunning(ctx context.Context) bool {
 	return state == "active" || state == "activating" || state == "reloading"
 }
 
-// updateStart launches the update script as a transient unit.
-func (o *Ops) updateStart(ctx context.Context) (Result, error) {
+// updateStart launches the update script as a transient unit. With mail_host the installer
+// also sets up the mail server under that host name (ZENEX_MAIL_HOST), which is how an
+// administrator installs it from the panel instead of from a terminal.
+func (o *Ops) updateStart(ctx context.Context, args map[string]string) (Result, error) {
+	mailHost := args["mail_host"]
+	if mailHost != "" && !mailHostRe.MatchString(mailHost) {
+		return Result{}, errors.New("the mail host must be a full host name such as mail.example.com")
+	}
 	if o.updateRunning(ctx) {
 		return Result{}, errors.New("an update is already running")
 	}
 	// Clear a previous failed run so its unit name can be used again.
 	_, _ = o.Exec.Run(ctx, binSystemctl, []string{"reset-failed", updateUnit + ".service"}, 15*time.Second)
-	res, err := o.Exec.Run(ctx, binSystemdRun, []string{
-		"--unit=" + updateUnit,
-		"--collect",
-		"--description=Zenex panel update",
-		binBash, updateScript,
-	}, 30*time.Second)
+	argv := []string{"--unit=" + updateUnit, "--collect", "--description=Zenex panel update"}
+	if mailHost != "" {
+		argv = append(argv, "--setenv=ZENEX_MAIL_HOST="+mailHost)
+	}
+	argv = append(argv, binBash, updateScript)
+	res, err := o.Exec.Run(ctx, binSystemdRun, argv, 30*time.Second)
 	if err := execErr(res, err); err != nil {
 		return Result{}, errors.New("the update could not be started")
 	}

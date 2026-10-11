@@ -75,6 +75,7 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("GET /api/v1/domains/{id}/mail", d.requireSession(d.handleGetMail))
 	mux.Handle("GET /api/v1/domains/{id}/mail/check", d.requireSession(d.handleCheckMailDNS))
 	mux.Handle("POST /api/v1/mail/server/apply", requireCSRF(d.requireSession(d.handleApplyMailServer)))
+	mux.Handle("POST /api/v1/mail/server/install", requireCSRF(d.limitActions(d.handleInstallMailServer)))
 	mux.Handle("PUT /api/v1/domains/{id}/mail", requireCSRF(d.requireSession(d.handleSetMail)))
 	mux.Handle("POST /api/v1/domains/{id}/mailboxes", requireCSRF(d.requireSession(d.handleCreateMailbox)))
 	mux.Handle("PUT /api/v1/mailboxes/{id}", requireCSRF(d.requireSession(d.handleUpdateMailbox)))

@@ -205,7 +205,7 @@ func (o *Ops) Do(ctx context.Context, op string, args map[string]string) (Result
 	case "panel.latest":
 		return o.panelLatest(ctx)
 	case "panel.update-start":
-		return o.updateStart(ctx)
+		return o.updateStart(ctx, args)
 	case "panel.update-status":
 		return o.updateStatusOutput(ctx)
 	default:

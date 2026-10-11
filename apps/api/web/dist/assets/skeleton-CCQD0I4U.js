@@ -1,1 +1,0 @@
-import{aK as r,bt as l,aH as n,g as o,t as p}from"./index-BQDdm1HE.js";var m=p("<div>");function c(e){const[a,t]=r(e,["class"]);return(()=>{var s=m();return l(s,n({get class(){return o("animate-pulse rounded-md bg-muted",a.class)}},t),!1,!1),s})()}export{c as S};

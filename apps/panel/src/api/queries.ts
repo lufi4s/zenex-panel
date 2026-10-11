@@ -316,6 +316,20 @@ export function useRemoveMailbox(domainId: string) {
   });
 }
 
+/** Installs the mail software by running the panel installer with the mail host name. */
+export function useInstallMailServer() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (host: string) =>
+      apiRequest<{ state: string }>("/api/v1/mail/server/install", {
+        method: "POST",
+        body: { host },
+      }),
+    meta: { silent: true },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["system-update"] }),
+  });
+}
+
 /** Writes the mail server configuration and reloads the mail services (administrators). */
 export function useApplyMailServer() {
   return useMutation({

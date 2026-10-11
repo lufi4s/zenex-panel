@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -28,6 +29,9 @@ const (
 	dkimKeyBits  = "2048"
 	dkimSelector = "default"
 )
+
+// mailHostRe is a full host name such as mail.example.com (lower case).
+var mailHostRe = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$`)
 
 // mailBinaries are the programs the mail operations run; AllowedBinaries lists them.
 var mailBinaries = []string{binPostfix, binDoveconf, binRspamadm, binOpenSSL}

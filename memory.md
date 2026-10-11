@@ -748,3 +748,13 @@ Next: httpapi/mail.go (MailStore interface, Deps.Mail, routes: GET/PUT /domains/
 - Fix (user report: DKIM "Waiting" after turning mail on): MailDKIMValue required ZENEX_MAIL_HOST, so enabling mail failed with dkim_failed on servers without the mail server. The key does not need the mail server now. Test: manage/mail_dkim_test.go. Also the check summary now says "Almost there" when only the DKIM record is pending (MailPanel summary()). UI tests 81 pass.
 - Server check (2026-10-11 12:20): VPS on 66d18a2, mail_domains enabled = false, dkim_public empty. API log had no PUT /domains/{id}/mail, so the user never turned mail on; the DKIM value only exists after the switch. UI made clearer: "Mail is off" alert, DKIM row says "Turn mail on above to create this value", note text no longer mentions the mail server. Cloudflare: mail A record must be DNS only (grey cloud); TXT/MX are never proxied.
 
+## 58. Install the mail server from the panel (user cannot use SSH)
+
+- Why: running the installer on the VPS from this session is blocked by the permission system ("Production Deploy"), even with the user's chat approval. The user cannot use SSH. So the panel does it.
+- Helper: panel.update-start takes an optional mail_host (validated against a host-name regex before anything runs) and passes ZENEX_MAIL_HOST to the update unit via systemd-run --setenv, so install.sh installs Postfix/Dovecot/rspamd (install_mail_server). Tests: helper/update_mail_test.go (3).
+- API: update.Service.StartWithMail; POST /api/v1/mail/server/install {host} (administrators, CSRF, rate-limited, audit mail.server.install; 400 invalid_host, 409 update_running). Tests: httpapi/mail_test.go (3), update/update_test.go (3).
+- Also: "api mail-apply" command (cmd/api) applies the mail configuration from the server command line (pushed 1ac4252).
+- Panel: Settings > Mail server card is now two steps: 1) host name + "Install mail server" with the update log as progress, 2) "Apply mail configuration". 83 UI tests pass.
+- User steps after this is deployed (panel update first): Settings > Mail server: host mail.ozima.cloud > Install mail server (wait) > Apply mail configuration; set PTR of 162.4.35.76 to mail.ozima.cloud at the hosting provider; then connect a mail app: IMAP mail.ozima.cloud 993 SSL, SMTP 587 STARTTLS, username the full address. Certificate is self-signed until replaced.
+- State seen on the VPS 2026-10-11: mail on for ozima.cloud (DKIM 394 chars), mailbox akamai@ozima.cloud (1 GB), postfix not installed, ZENEX_MAIL_HOST not set, ports 25/587/993 closed, PTR panel-test.
+
