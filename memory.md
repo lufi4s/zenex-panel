@@ -849,3 +849,7 @@ Next: httpapi/mail.go (MailStore interface, Deps.Mail, routes: GET/PUT /domains/
 - Next: Phase 2 (Websites list, Site workspace, file manager). Build output still goes to the Astro `dist`, not `apps/api/web/dist` (Phase 4).
 - Dev proxy in `apps/astro-panel/astro.config.mjs` now targets the live panel `https://162.4.35.76:8443` (override with env `PANEL_API`). Verified: `/api/v1/auth/me` through the dev server returns the API's 401 JSON.
 - Login to the new UI uses the same admin account as the old panel. If the password is unknown it is in `/root/zenex-admin-credentials.txt` on the server (readable from the VirtFusion console).
+
+## 72. Redesign removed
+- Owner decided the Astro + shadcn redesign does not go to production. Removed `apps/astro-panel/` (git rm; the untracked node_modules was deleted after stopping leftover astro processes), `PLAN-astro-redesign.md`, root `.mcp.json` (shadcn MCP) and untracked root `components.json` (backup kept only in the session scratchpad). Nothing in install.sh, update.sh, the Go code or `apps/panel` referenced them.
+- Production UI: the SolidJS panel (`apps/panel`). Git history keeps the redesign commits (03e7ab8, 0a6e4c7, b4c4e96 and the earlier plan commit) if it is ever revived.
