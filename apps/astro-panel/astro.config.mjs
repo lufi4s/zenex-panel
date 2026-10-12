@@ -16,9 +16,9 @@ export default defineConfig({
       alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
     },
     server: {
-      // During development, API calls go to the running panel on port 8443.
+      // During development, API calls go to the live panel (set PANEL_API to override).
       proxy: {
-        '/api': { target: 'https://127.0.0.1:8443', changeOrigin: true, secure: false },
+        '/api': { target: process.env.PANEL_API ?? 'https://162.4.35.76:8443', changeOrigin: true, secure: false },
       },
     },
   }
