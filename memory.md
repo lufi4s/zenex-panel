@@ -825,3 +825,8 @@ Next: httpapi/mail.go (MailStore interface, Deps.Mail, routes: GET/PUT /domains/
 ## 68. Low-load WordPress (many plugins)
 - User: a site with 23 plugins must stay stable on low resources. Added `install_wp_lowload` to `install.sh` (called from `tune_services`, every update): `/usr/local/lib/zenex/zenex-lowload.php` mu-plugin (DISABLE_WP_CRON, revisions 5, autosave 180s, Heartbeat 60s and off on the front end), `/usr/local/sbin/zenex-wpcron` + `zenex-wpcron.timer` (every 5 min, one site at a time, nice 15/ionice idle, `wp cron event run --due-now` as the site user, 120 s timeout) which also copies the mu-plugin into every site's `wp-content/mu-plugins`.
 - `bash -n` passes; not run live. Next: Update now; check `systemctl list-timers zenex-wpcron.timer`. Scheduled posts/emails now run within 5 min. If the scanner quarantines `zenex-lowload.php`, allow it. Heavy plugins themselves still cost CPU: page cache (section 65) is the biggest win.
+
+## 69. "What's new" in panel updates
+- Settings > Panel updates now lists what the new version adds, hidden by default: button "What's new (N)" toggles the list (commit id + title); the update log is also behind a "Show details" / "Hide details" button (shown whenever a log exists, also after a failure).
+- Backend: helper op `panel.changes` (unlocked; `git fetch origin main` then `git log --no-merges HEAD..FETCH_HEAD`, max 30, `hash<TAB>title`), `update.Status.Changes []Change` (only when an update is available, best effort), UI type `UpdateStatus.changes`. Titles come from commit subjects, so keep them readable.
+- Tests: `apps/api/internal/update/update_test.go`, UI 95 passing.

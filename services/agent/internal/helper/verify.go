@@ -19,7 +19,7 @@ import (
 //     the backup folders; the panel never runs two of them for the same website at once
 var unlockedOps = map[string]bool{
 	"files.list": true, "files.read": true, "files.export": true, "logs.tail": true, "services.status": true, "usage.sites": true,
-	"php.versions": true, "panel.version": true, "panel.latest": true, "panel.update-status": true,
+	"php.versions": true, "panel.version": true, "panel.latest": true, "panel.changes": true, "panel.update-status": true,
 	"backup.create": true, "backup.restore": true, "backup.upload": true, "backup.download": true,
 	"backup.delete": true, "backup.discover": true, "backup.test": true,
 	"cpanel.scan": true, "cpanel.pull": true,

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // ErrRunning is returned when an update is already in progress.
@@ -25,8 +26,16 @@ type Status struct {
 	UpdateAvailable bool   `json:"update_available"`
 	State           string `json:"state"` // idle, running, succeeded or failed
 	Log             string `json:"log"`
+	// Changes lists what the newest version adds, newest first. Empty when up to date.
+	Changes []Change `json:"changes"`
 	// Error explains why the latest version is unknown (for example, no internet).
 	Error string `json:"error,omitempty"`
+}
+
+// Change is one thing the newest version adds: a short commit id and its title.
+type Change struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
 }
 
 // Service checks for and starts panel updates.
@@ -57,6 +66,19 @@ func (s *Service) Status(ctx context.Context) (Status, error) {
 		st.Latest = latest
 	}
 	st.UpdateAvailable = st.Latest != "" && st.Current != "" && st.Latest != st.Current
+
+	st.Changes = []Change{}
+	if st.UpdateAvailable {
+		// Best effort: the update works without the list.
+		if out, cerr := s.helper.Output(ctx, "panel.changes", map[string]string{}); cerr == nil {
+			for _, line := range strings.Split(out, "\n") {
+				id, title, ok := strings.Cut(strings.TrimSpace(line), "	")
+				if ok && id != "" && title != "" {
+					st.Changes = append(st.Changes, Change{ID: id, Title: title})
+				}
+			}
+		}
+	}
 
 	raw, err := s.helper.Output(ctx, "panel.update-status", map[string]string{})
 	if err != nil {

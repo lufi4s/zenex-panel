@@ -217,6 +217,8 @@ func (o *Ops) Do(ctx context.Context, op string, args map[string]string) (Result
 		return o.panelVersion(ctx)
 	case "panel.latest":
 		return o.panelLatest(ctx)
+	case "panel.changes":
+		return o.panelChanges(ctx)
 	case "panel.update-start":
 		return o.updateStart(ctx)
 	case "panel.update-status":

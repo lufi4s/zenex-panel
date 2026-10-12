@@ -647,6 +647,7 @@ export interface UpdateStatus {
   current: string;
   latest: string;
   update_available: boolean;
+  changes: Array<{ id: string; title: string }>;
   state: "idle" | "running" | "succeeded" | "failed";
   log: string;
   error?: string;

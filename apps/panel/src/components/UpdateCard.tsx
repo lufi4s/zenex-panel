@@ -1,5 +1,12 @@
-import { createMemo, createSignal, Show } from "solid-js";
-import { ArrowUpCircle, CheckCircle2, RefreshCw, XCircle } from "@/components/icons";
+import { createMemo, createSignal, For, Show } from "solid-js";
+import {
+  ArrowUpCircle,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  RefreshCw,
+  XCircle,
+} from "@/components/icons";
 import { useStartUpdate, useSystemUpdate } from "@/api/queries";
 import { describeError } from "@/api/client";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -24,6 +31,8 @@ export function UpdateCard() {
   const status = useSystemUpdate(true);
   const start = useStartUpdate();
   const [confirming, setConfirming] = createSignal(false);
+  const [showChanges, setShowChanges] = createSignal(false);
+  const [showLog, setShowLog] = createSignal(false);
 
   const running = () => status.data?.state === "running" || start.isPending;
   const canUpdate = () => Boolean(status.data?.update_available) && !running();
@@ -66,6 +75,37 @@ export function UpdateCard() {
             </dd>
           </dl>
 
+          <Show when={(status.data?.changes?.length ?? 0) > 0}>
+            <div class="space-y-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                class="-ml-2"
+                aria-expanded={showChanges()}
+                onClick={() => setShowChanges(!showChanges())}
+              >
+                {showChanges() ? (
+                  <ChevronDown aria-hidden="true" />
+                ) : (
+                  <ChevronRight aria-hidden="true" />
+                )}
+                {showChanges() ? "Hide what's new" : `What's new (${status.data?.changes.length})`}
+              </Button>
+              <Show when={showChanges()}>
+                <ul class="space-y-1.5 rounded-md border bg-muted/30 p-3 text-sm">
+                  <For each={status.data?.changes}>
+                    {(change) => (
+                      <li class="flex gap-2">
+                        <span class="font-mono text-xs text-muted-foreground">{change.id}</span>
+                        <span>{change.title}</span>
+                      </li>
+                    )}
+                  </For>
+                </ul>
+              </Show>
+            </div>
+          </Show>
+
           <Show when={status.data?.error}>
             {(message) => (
               <Alert variant="destructive">
@@ -93,8 +133,8 @@ export function UpdateCard() {
           </Show>
           <Show when={!running() && status.data?.state === "failed"}>
             <p class="flex items-center gap-2 text-sm text-destructive">
-              <XCircle class="size-4" aria-hidden="true" /> The last update failed. See the log
-              below.
+              <XCircle class="size-4" aria-hidden="true" /> The last update failed. Press Show
+              details below to see why.
             </p>
           </Show>
           <Show when={start.isError}>
@@ -128,13 +168,31 @@ export function UpdateCard() {
             </DialogContent>
           </Dialog>
 
-          <Show when={status.data?.state === "running" && logLines().length > 0}>
-            <Terminal
-              title="update log"
-              emptyText="No output yet."
-              maxHeight="18rem"
-              lines={logLines()}
-            />
+          <Show when={logLines().length > 0}>
+            <div class="space-y-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                class="-ml-2"
+                aria-expanded={showLog()}
+                onClick={() => setShowLog(!showLog())}
+              >
+                {showLog() ? (
+                  <ChevronDown aria-hidden="true" />
+                ) : (
+                  <ChevronRight aria-hidden="true" />
+                )}
+                {showLog() ? "Hide details" : "Show details"}
+              </Button>
+              <Show when={showLog()}>
+                <Terminal
+                  title="update log"
+                  emptyText="No output yet."
+                  maxHeight="18rem"
+                  lines={logLines()}
+                />
+              </Show>
+            </div>
           </Show>
         </CardContent>
       </Card>

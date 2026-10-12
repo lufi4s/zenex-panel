@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -48,6 +49,26 @@ func (o *Ops) panelLatest(ctx context.Context) (Result, error) {
 		return Result{}, errors.New("GitHub did not report the latest version")
 	}
 	return Result{Output: fields[0][:7]}, nil
+}
+
+// maxChanges is how many new commits are listed in the panel.
+const maxChanges = 30
+
+// panelChanges lists what the newest version adds: one "hash<TAB>title" line for each commit the
+// installed version does not have yet, newest first. Merge commits are left out.
+func (o *Ops) panelChanges(ctx context.Context) (Result, error) {
+	res, err := o.Exec.Run(ctx, binGit, []string{"-C", panelRepo, "fetch", "--quiet", "origin", panelBranch}, 60*time.Second)
+	if err := execErr(res, err); err != nil {
+		return Result{}, errors.New("could not reach GitHub to read the changes")
+	}
+	res, err = o.Exec.Run(ctx, binGit, []string{
+		"-C", panelRepo, "log", "--no-merges", "--format=%h%x09%s",
+		"-n", strconv.Itoa(maxChanges), "HEAD..FETCH_HEAD",
+	}, 30*time.Second)
+	if err := execErr(res, err); err != nil {
+		return Result{}, errors.New("could not read the changes")
+	}
+	return Result{Output: strings.TrimSpace(res.Stdout)}, nil
 }
 
 // updateRunning reports whether the update unit is currently active.

@@ -379,6 +379,7 @@ function mockApi(options: {
         current: "f781dd8",
         latest: "532a16c",
         update_available: true,
+        changes: [{ id: "532a16c", title: "Page cache per website" }],
         state: options.update?.state ?? "idle",
         log: options.update?.log ?? "",
       });
@@ -716,6 +717,17 @@ describe("navigation", () => {
     expect(await screen.findByRole("button", { name: /Update now/ })).toBeTruthy();
   });
 
+  it("hides what the new update contains until asked", async () => {
+    vi.stubGlobal("fetch", mockApi({ signedIn: true }));
+    renderAt("/settings");
+    expect(await screen.findByRole("button", { name: "What's new (1)" })).toBeTruthy();
+    expect(screen.queryByText("Page cache per website")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "What's new (1)" }));
+    expect(screen.getByText("Page cache per website")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Hide what's new" }));
+    expect(screen.queryByText("Page cache per website")).toBeNull();
+  });
+
   it("shows the site defaults, backup and alert settings", async () => {
     vi.stubGlobal("fetch", mockApi({ signedIn: true }));
     renderAt("/settings");
@@ -822,8 +834,9 @@ describe("settings", () => {
       }),
     );
     renderAt("/settings");
-    expect(await screen.findByText("update log")).toBeTruthy();
-    expect(screen.getByText("Pulling new version")).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: "Show details" }));
+    expect(screen.queryByText("Pulling new version")).toBeTruthy();
+    expect(screen.getByText("update log")).toBeTruthy();
   });
 
   it("sends a test email and shows that it was sent", async () => {
