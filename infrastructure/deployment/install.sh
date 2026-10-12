@@ -591,6 +591,89 @@ RuntimeMaxUse=50M
     info "server trimmed (log capped at 100 MB, unused services off)"
 }
 
+# Writes $2 to file $1 and returns 0 only when the file changed, so a service is restarted only
+# when its settings really differ.
+write_if_changed() {
+    local file="$1" tmp
+    tmp="$(mktemp)"
+    printf '%s\n' "$2" >"$tmp"
+    if [[ -f "$file" ]] && cmp -s "$tmp" "$file"; then
+        rm -f "$tmp"
+        return 1
+    fi
+    mkdir -p "$(dirname "$file")"
+    install -m 0644 "$tmp" "$file"
+    rm -f "$tmp"
+    return 0
+}
+
+# Sizes the background services (site database, panel database, cache, PHP code cache, spam
+# filter) for a small server, and adds swap when there is none, so many websites fit in memory.
+# Safe to repeat; a service restarts only when its settings changed; never fails the install.
+tune_services() {
+    local mem_mb pool
+    mem_mb="$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 1024)"
+    pool=$((mem_mb / 16))
+    ((pool < 64)) && pool=64
+    ((pool > 256)) && pool=256
+
+    if write_if_changed /etc/mysql/mariadb.conf.d/99-zenex.cnf "[mysqld]
+performance_schema = OFF
+innodb_buffer_pool_size = ${pool}M
+innodb_log_buffer_size = 8M
+key_buffer_size = 8M
+max_connections = 80
+thread_cache_size = 8
+table_open_cache = 400
+tmp_table_size = 32M
+max_heap_table_size = 32M"; then
+        systemctl restart mariadb >/dev/null 2>&1 || true
+    fi
+
+    local pgdir
+    for pgdir in /etc/postgresql/*/main/conf.d; do
+        [[ -d "$pgdir" ]] || continue
+        if write_if_changed "$pgdir/zenex.conf" "shared_buffers = 32MB
+max_connections = 40
+work_mem = 4MB
+maintenance_work_mem = 32MB
+effective_cache_size = 256MB"; then
+            systemctl restart postgresql >/dev/null 2>&1 || true
+        fi
+    done
+
+    if [[ -f /etc/redis/redis.conf ]] && ! grep -q '^# zenex tuning' /etc/redis/redis.conf; then
+        printf '\n# zenex tuning\nmaxmemory 64mb\nmaxmemory-policy allkeys-lru\n' >>/etc/redis/redis.conf
+        systemctl restart redis-server >/dev/null 2>&1 || true
+    fi
+
+    if write_if_changed "/etc/php/${PHP_VER}/fpm/conf.d/99-zenex-opcache.ini" "opcache.memory_consumption=96
+opcache.interned_strings_buffer=8
+opcache.max_accelerated_files=10000
+opcache.validate_timestamps=1
+opcache.revalidate_freq=10"; then
+        systemctl reload "php${PHP_VER}-fpm" >/dev/null 2>&1 || true
+    fi
+
+    if [[ -d /etc/rspamd ]] && write_if_changed /etc/rspamd/local.d/worker-normal.inc "count = 1;"; then
+        systemctl restart rspamd >/dev/null 2>&1 || true
+    fi
+
+    if [[ -z "$(swapon --show --noheadings 2>/dev/null)" ]] && [[ ! -f /swapfile ]]; then
+        local free_mb
+        free_mb="$(df -Pm / | awk 'NR==2 {print $4}')"
+        if ((free_mb > 6144)); then
+            { fallocate -l 1G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=1024 status=none; } \
+                && chmod 600 /swapfile && mkswap /swapfile >/dev/null && swapon /swapfile \
+                && { grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap sw 0 0' >>/etc/fstab; } \
+                || true
+        fi
+    fi
+    write_if_changed /etc/sysctl.d/99-zenex.conf "vm.swappiness = 10
+vm.vfs_cache_pressure = 50" && sysctl --system >/dev/null 2>&1 || true
+    info "services sized for this server (${mem_mb} MB memory)"
+}
+
 # Installs the webmail (Roundcube) with the panel, with its own database and its own unprivileged
 # account. It is published later, when the administrator sets the mail server up in the panel:
 # that step creates the web address (and its HTTPS certificate) under the mail host name.
@@ -1127,6 +1210,7 @@ main() {
     install_mail_server
     install_webmail
     trim_server_resources
+    tune_services
     write_env_file
 
     step "Creating the secure certificate"
