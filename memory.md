@@ -853,3 +853,7 @@ Next: httpapi/mail.go (MailStore interface, Deps.Mail, routes: GET/PUT /domains/
 ## 72. Redesign removed
 - Owner decided the Astro + shadcn redesign does not go to production. Removed `apps/astro-panel/` (git rm; the untracked node_modules was deleted after stopping leftover astro processes), `PLAN-astro-redesign.md`, root `.mcp.json` (shadcn MCP) and untracked root `components.json` (backup kept only in the session scratchpad). Nothing in install.sh, update.sh, the Go code or `apps/panel` referenced them.
 - Production UI: the SolidJS panel (`apps/panel`). Git history keeps the redesign commits (03e7ab8, 0a6e4c7, b4c4e96 and the earlier plan commit) if it is ever revived.
+
+## 73. Repo cleanup
+- Removed empty leftover folders that were never committed: `packages/config-schema`, `packages/security-rules`, `packages/shared-types`, `tests/` (e2e, integration, security, unit). Nothing referenced them.
+- Kept: `apps/api`, `apps/panel` (the production UI), `services/agent`, `packages/validation` (Go code imports it), `infrastructure`, `scripts/test-all.mjs`, `docs/`, `.claude/hooks` (the stop hook named in test-all.mjs; untracked, leave it).
