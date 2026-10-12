@@ -830,3 +830,8 @@ Next: httpapi/mail.go (MailStore interface, Deps.Mail, routes: GET/PUT /domains/
 - Settings > Panel updates now lists what the new version adds, hidden by default: button "What's new (N)" toggles the list (commit id + title); the update log is also behind a "Show details" / "Hide details" button (shown whenever a log exists, also after a failure).
 - Backend: helper op `panel.changes` (unlocked; `git fetch origin main` then `git log --no-merges HEAD..FETCH_HEAD`, max 30, `hash<TAB>title`), `update.Status.Changes []Change` (only when an update is available, best effort), UI type `UpdateStatus.changes`. Titles come from commit subjects, so keep them readable.
 - Tests: `apps/api/internal/update/update_test.go`, UI 95 passing.
+
+## 70. Astro + shadcn project started
+- User wants this project rebuilt with Astro + shadcn. Scaffolded `apps/astro-panel` (Astro minimal, React, Tailwind 4 via `@tailwindcss/vite`, shadcn init defaults, alias `@/*` -> `src/*`, `components.json`, `src/components/ui/button.tsx`, `src/lib/utils.ts`, `src/styles/global.css`). `npm run build` passes; index page shows a shadcn Button. The existing SolidJS panel (`apps/panel`) and Go API are untouched and still the live UI.
+- shadcn MCP: `.mcp.json` at repo root (`npx shadcn@latest mcp`); root `components.json` (user's, `@react-bits` registry only) is invalid for shadcn and untracked. The Astro app has its own valid `components.json`.
+- Next: user to say what the Astro app should be (full panel rewrite against the same `/api/v1`, or a separate site). Astro created its own `apps/astro-panel/CLAUDE.md` and `AGENTS.md`.
