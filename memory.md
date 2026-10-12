@@ -838,3 +838,12 @@ Next: httpapi/mail.go (MailStore interface, Deps.Mail, routes: GET/PUT /domains/
 
 - Redesign plan saved in `PLAN-astro-redesign.md` (phases 0-4, waiting for the owner: look and feel, when to retire the SolidJS panel).
 - Redesign decisions: dark-first modern look. The new UI runs on its own URL while it is built, then merges into the main panel. Next: Phase 0 (not started).
+
+## 71. Astro redesign: Phase 0 and Phase 1 (core)
+- `apps/astro-panel`: shadcn components installed; dark-first theme (`src/styles/global.css`, `.dark` block at the end); `astro.config.mjs` has `@` alias, `/api` proxy to 127.0.0.1:8443, devToolbar off.
+- Data layer: `src/lib/api.ts` (apiRequest, ApiError, X-Requested-With CSRF header), `src/lib/types.ts`, `src/lib/queries.ts` (queryClient, useMe, useLogin, useLogout, useMetrics; metrics poll 15 s only when the tab is visible).
+- UI: `src/components/app/` = Providers, AppShell (sidebar, footer sign-out, redirects to /login on 401), nav.ts, Login, Overview (metric cards + load chart), ComingSoon, Screens.tsx (one React island per page), format.ts. Pages: index, login, websites, domains, mail, server, activity, settings (`src/pages`).
+- `sonner.tsx` no longer uses next-themes (fixed dark theme).
+- Checks: build passes, `npx astro check` 0 errors, login screenshot checked in headless Edge.
+- Dev: `npx astro dev --background` (per the app's CLAUDE.md); stop with `npx astro dev stop`.
+- Next: Phase 2 (Websites list, Site workspace, file manager). Build output still goes to the Astro `dist`, not `apps/api/web/dist` (Phase 4).

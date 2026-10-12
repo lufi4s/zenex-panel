@@ -42,5 +42,11 @@ Phase 0, 1, 2, 3, 4. After the first two phases there is a working, premium-look
 1. Look and feel: dark-first modern. Light theme is a secondary option.
 2. Retiring the SolidJS panel: the new UI runs on its own URL while it is built. When all pages are done, it is merged into the main panel (served from the same domain and API, replacing `apps/panel`).
 
+## Progress
+- Phase 0 (foundation): done. shadcn components (sidebar, card, table, tabs, dialog, sheet, dropdown-menu, context-menu, command, chart, badge, progress, skeleton, switch, sonner, tooltip, breadcrumb, input, select, checkbox, label, separator, alert, avatar, button), dark-first theme in `src/styles/global.css` (indigo brand), API client `src/lib/api.ts`, TanStack Query `src/lib/queries.ts`, shell `src/components/app/AppShell.tsx` (sidebar, sign-out, auth redirect).
+- Phase 1 (core): done for login (split screen) and overview (4 metric cards, server load chart). Websites, Domains, Mail, Server, Activity, Settings are placeholders (`ComingSoon`) until Phases 2-3.
+- Checks: `npm run build` passes, `npx astro check` 0 errors. Login screenshot checked in headless Edge. Overview with live data not checked: it needs the panel API on 127.0.0.1:8443 (dev proxy).
+- Not yet: build output into `apps/api/web/dist` (Phase 4), tests, command palette.
+
 ## Next step
-Phase 0 (foundation). Not started yet.
+Phase 2: Websites list and the Site workspace (tabs, file manager).
