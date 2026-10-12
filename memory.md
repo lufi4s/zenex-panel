@@ -847,3 +847,5 @@ Next: httpapi/mail.go (MailStore interface, Deps.Mail, routes: GET/PUT /domains/
 - Checks: build passes, `npx astro check` 0 errors, login screenshot checked in headless Edge.
 - Dev: `npx astro dev --background` (per the app's CLAUDE.md); stop with `npx astro dev stop`.
 - Next: Phase 2 (Websites list, Site workspace, file manager). Build output still goes to the Astro `dist`, not `apps/api/web/dist` (Phase 4).
+- Dev proxy in `apps/astro-panel/astro.config.mjs` now targets the live panel `https://162.4.35.76:8443` (override with env `PANEL_API`). Verified: `/api/v1/auth/me` through the dev server returns the API's 401 JSON.
+- Login to the new UI uses the same admin account as the old panel. If the password is unknown it is in `/root/zenex-admin-credentials.txt` on the server (readable from the VirtFusion console).
