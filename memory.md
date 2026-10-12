@@ -835,3 +835,5 @@ Next: httpapi/mail.go (MailStore interface, Deps.Mail, routes: GET/PUT /domains/
 - User wants this project rebuilt with Astro + shadcn. Scaffolded `apps/astro-panel` (Astro minimal, React, Tailwind 4 via `@tailwindcss/vite`, shadcn init defaults, alias `@/*` -> `src/*`, `components.json`, `src/components/ui/button.tsx`, `src/lib/utils.ts`, `src/styles/global.css`). `npm run build` passes; index page shows a shadcn Button. The existing SolidJS panel (`apps/panel`) and Go API are untouched and still the live UI.
 - shadcn MCP: `.mcp.json` at repo root (`npx shadcn@latest mcp`); root `components.json` (user's, `@react-bits` registry only) is invalid for shadcn and untracked. The Astro app has its own valid `components.json`.
 - Next: user to say what the Astro app should be (full panel rewrite against the same `/api/v1`, or a separate site). Astro created its own `apps/astro-panel/CLAUDE.md` and `AGENTS.md`.
+
+- Redesign plan saved in `PLAN-astro-redesign.md` (phases 0-4, waiting for the owner: look and feel, when to retire the SolidJS panel).
