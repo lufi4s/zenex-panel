@@ -38,6 +38,9 @@ Status: plan only, no redesign code written yet. The Astro app is scaffolded in 
 ## Order
 Phase 0, 1, 2, 3, 4. After the first two phases there is a working, premium-looking UI. Each phase is committed and pushed on its own.
 
-## Decisions needed from the owner
-1. Look and feel: dark-first modern, clean light, or a reference site to copy.
-2. When to retire the SolidJS panel: after every page is done, or run both on separate URLs for a while.
+## Decisions (owner answered)
+1. Look and feel: dark-first modern. Light theme is a secondary option.
+2. Retiring the SolidJS panel: the new UI runs on its own URL while it is built. When all pages are done, it is merged into the main panel (served from the same domain and API, replacing `apps/panel`).
+
+## Next step
+Phase 0 (foundation). Not started yet.

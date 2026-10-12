@@ -837,3 +837,4 @@ Next: httpapi/mail.go (MailStore interface, Deps.Mail, routes: GET/PUT /domains/
 - Next: user to say what the Astro app should be (full panel rewrite against the same `/api/v1`, or a separate site). Astro created its own `apps/astro-panel/CLAUDE.md` and `AGENTS.md`.
 
 - Redesign plan saved in `PLAN-astro-redesign.md` (phases 0-4, waiting for the owner: look and feel, when to retire the SolidJS panel).
+- Redesign decisions: dark-first modern look. The new UI runs on its own URL while it is built, then merges into the main panel. Next: Phase 0 (not started).
