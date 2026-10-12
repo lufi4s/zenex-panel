@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================================
-#  Zenex Panel - one-command installer for a fresh Ubuntu 24.04 server
+#  Zenex Panel - one-command installer for a fresh Ubuntu 24.04 or 26.04 LTS server
 # ============================================================================
 #  Run this single command as root (or with sudo):
 #
@@ -143,10 +143,12 @@ check_os() {
     [[ -r /etc/os-release ]] || fail "this does not look like Ubuntu (no /etc/os-release)."
     # shellcheck disable=SC1091
     . /etc/os-release
-    if [[ "${ID:-}" != "ubuntu" || "${VERSION_ID:-}" != "24.04" ]]; then
-        fail "this installer needs Ubuntu 24.04. This server runs ${PRETTY_NAME:-an unknown system}."
-    fi
-    info "Ubuntu 24.04 detected"
+    # 24.04 LTS is the fully tested release. 26.04 LTS is accepted too, but it has not been
+    # verified end to end yet; the PHP version is detected at run time, not written into the script.
+    case "${ID:-}:${VERSION_ID:-}" in
+        ubuntu:24.04|ubuntu:26.04) info "Ubuntu ${VERSION_ID} detected" ;;
+        *) fail "this installer needs Ubuntu 24.04 or 26.04 LTS. This server runs ${PRETTY_NAME:-an unknown system}." ;;
+    esac
 }
 
 check_disk() {

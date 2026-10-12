@@ -97,7 +97,7 @@ create WordPress sites in a few clicks, back them up, restore them, and move sit
 
 ## Requirements
 
-- A fresh **Ubuntu 24.04** server (root access). **2 GB RAM or more** is comfortable; on smaller servers the installer
+- A fresh **Ubuntu 24.04 or 26.04 LTS** server (root access). **2 GB RAM or more** is comfortable; on smaller servers the installer
   adds 2 GB of swap. The installer needs at least **5 GB free disk**; websites and backups need more.
 - A public IP address and the ability to open ports **22, 80, 443** and the panel port (default **8443**).
 - A domain name you control, to put websites on.
@@ -109,7 +109,7 @@ WP-CLI, Go (to build the panel from source).
 
 ## Install
 
-On a fresh Ubuntu 24.04 server, as root:
+On a fresh Ubuntu 24.04 or 26.04 LTS server, as root:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/lufi4s/zenex-panel/main/infrastructure/deployment/install.sh | sudo bash
@@ -318,7 +318,7 @@ docs/                     architecture.md, security.md
 
 ## Known limits
 
-- Ubuntu 24.04 only. One server per panel.
+- Ubuntu 24.04 or 26.04 LTS (26.04 not yet verified end to end). One server per panel.
 - WordPress only.
 - Websites are created as `name.yourdomain.com`. A website on the bare domain is possible only through cPanel migration.
 - No password reset by email, no two-factor sign-in, no list of active sessions yet.

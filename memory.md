@@ -857,3 +857,8 @@ Next: httpapi/mail.go (MailStore interface, Deps.Mail, routes: GET/PUT /domains/
 ## 73. Repo cleanup
 - Removed empty leftover folders that were never committed: `packages/config-schema`, `packages/security-rules`, `packages/shared-types`, `tests/` (e2e, integration, security, unit). Nothing referenced them.
 - Kept: `apps/api`, `apps/panel` (the production UI), `services/agent`, `packages/validation` (Go code imports it), `infrastructure`, `scripts/test-all.mjs`, `docs/`, `.claude/hooks` (the stop hook named in test-all.mjs; untracked, leave it).
+
+## 74. Installer accepts Ubuntu 26.04
+- User's fresh VPS was Ubuntu 26.04.1 LTS; `check_os` stopped it ("needs Ubuntu 24.04"). `check_os` now accepts ubuntu 24.04 and 26.04 (`case` on ID:VERSION_ID). Header and README updated.
+- Not verified: no 26.04 machine here. Packages are generic (php-fpm version detected at run time; Caddy from universe; Go from go.dev). Expected risk points: PHP/MariaDB/rspamd package changes, Caddy version (import syntax was checked on 2.6).
+- Next: user reruns the install on `akboria-staging` (26.04) and pastes the log; fix whatever step fails, then mark 26.04 as verified here.
