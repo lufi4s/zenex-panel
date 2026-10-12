@@ -607,6 +607,79 @@ write_if_changed() {
     return 0
 }
 
+# Keeps WordPress sites with many plugins light. WordPress normally starts its scheduled tasks
+# from a visitor's request; here a small must-use plugin turns that off, and one timer runs the
+# due tasks of every site, one site at a time at low priority, every 5 minutes. The same plugin
+# slows the Heartbeat (admin polling) and limits stored revisions. Safe to repeat.
+install_wp_lowload() {
+    mkdir -p /usr/local/lib/zenex /usr/local/sbin
+    cat >/usr/local/lib/zenex/zenex-lowload.php <<'LOWLOAD'
+<?php
+/**
+ * Plugin Name: Zenex Low Load
+ * Description: Runs scheduled tasks from the server timer and slows admin polling. Managed by Zenex.
+ */
+if (!defined('ABSPATH')) {
+    exit;
+}
+if (!defined('DISABLE_WP_CRON')) {
+    define('DISABLE_WP_CRON', true);
+}
+if (!defined('WP_POST_REVISIONS')) {
+    define('WP_POST_REVISIONS', 5);
+}
+if (!defined('AUTOSAVE_INTERVAL')) {
+    define('AUTOSAVE_INTERVAL', 180);
+}
+add_filter('heartbeat_settings', function ($settings) {
+    $settings['interval'] = 60;
+    return $settings;
+});
+add_action('init', function () {
+    if (!is_admin()) {
+        wp_deregister_script('heartbeat');
+    }
+}, 1);
+LOWLOAD
+    cat >/usr/local/sbin/zenex-wpcron <<'WPCRON'
+#!/bin/bash
+# Runs the due WordPress tasks of every site, one site at a time, at low priority.
+set -u
+src=/usr/local/lib/zenex/zenex-lowload.php
+for root in /var/www/*/htdocs; do
+    [[ -f "$root/wp-load.php" ]] || continue
+    user="$(stat -c %U "$root")"
+    [[ "$user" == root ]] && continue
+    mu="$root/wp-content/mu-plugins"
+    if ! cmp -s "$src" "$mu/zenex-lowload.php"; then
+        runuser -u "$user" -- sh -c 'mkdir -p "$1" && cat "$2" >"$1/zenex-lowload.php"' _ "$mu" "$src" >/dev/null 2>&1 || true
+    fi
+    nice -n 15 ionice -c3 timeout 120 runuser -u "$user" -- /usr/local/bin/wp --path="$root" cron event run --due-now >/dev/null 2>&1 || true
+done
+WPCRON
+    chmod 0755 /usr/local/sbin/zenex-wpcron
+    write_if_changed /etc/systemd/system/zenex-wpcron.service "[Unit]
+Description=Run due WordPress tasks of every site
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/zenex-wpcron
+Nice=15
+IOSchedulingClass=idle" || true
+    write_if_changed /etc/systemd/system/zenex-wpcron.timer "[Unit]
+Description=Run due WordPress tasks every 5 minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+RandomizedDelaySec=30
+
+[Install]
+WantedBy=timers.target" || true
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    systemctl enable --now zenex-wpcron.timer >/dev/null 2>&1 || true
+}
+
 # Sizes the background services (site database, panel database, cache, PHP code cache, spam
 # filter) for a small server, and adds swap when there is none, so many websites fit in memory.
 # Safe to repeat; a service restarts only when its settings changed; never fails the install.
@@ -669,6 +742,7 @@ opcache.revalidate_freq=10"; then
                 || true
         fi
     fi
+    install_wp_lowload
     write_if_changed /etc/sysctl.d/99-zenex.conf "vm.swappiness = 10
 vm.vfs_cache_pressure = 50" && sysctl --system >/dev/null 2>&1 || true
     info "services sized for this server (${mem_mb} MB memory)"
